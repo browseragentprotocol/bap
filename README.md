@@ -64,6 +64,13 @@ claude mcp add --transport stdio bap-browser -- npx @browseragentprotocol/mcp
 codex mcp add bap-browser -- npx @browseragentprotocol/mcp
 ```
 
+<p align="center">
+  <img src="assets/codex-demo.png" alt="BAP with OpenAI Codex" width="600"><br>
+  <em>OpenAI Codex browsing Hacker News with BAP</em>
+</p>
+
+> **💡 Tip:** Codex may default to web search. Be explicit: *"Use bap_navigate to go to..."* or *"Using the bap-browser MCP tools..."*
+
 **Claude Desktop** (`claude_desktop_config.json`):
 ```json
 {
