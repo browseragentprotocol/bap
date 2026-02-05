@@ -1,6 +1,6 @@
 {
   "name": "@browseragentprotocol/logger",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0",
   "description": "Pretty logging utilities for Browser Agent Protocol packages",
   "author": "Browser Agent Protocol",
   "license": "Apache-2.0",

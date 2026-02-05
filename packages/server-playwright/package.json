@@ -1,6 +1,6 @@
 {
   "name": "@browseragentprotocol/server-playwright",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0",
   "description": "BAP Server implementation using Playwright",
   "author": "Browser Agent Protocol",
   "license": "Apache-2.0",
