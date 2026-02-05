@@ -63,7 +63,7 @@ npx @browseragentprotocol/server-playwright --browser webkit
 
 ## Connecting Clients
 
-### TypeScript/JavaScript
+### TypeScript
 
 ```typescript
 import { BAPClient, role } from "@browseragentprotocol/client";

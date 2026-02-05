@@ -27,7 +27,7 @@ BAP (Browser Agent Protocol) provides a standardized way for AI agents to contro
 
 ## Packages
 
-### TypeScript/JavaScript
+### TypeScript
 
 | Package | Description | npm |
 |---------|-------------|-----|
