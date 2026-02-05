@@ -49,7 +49,7 @@ class MockTransport implements BAPTransport {
 
   getLastRequest(): { method: string; params: unknown; id: number } | null {
     if (this.sentMessages.length === 0) return null;
-    return JSON.parse(this.sentMessages[this.sentMessages.length - 1]);
+    return JSON.parse(this.sentMessages[this.sentMessages.length - 1]!);
   }
 
   setAutoResponse(method: string, response: unknown): void {
@@ -135,7 +135,7 @@ describe("BAPClient Methods", () => {
 
       await client.connect();
 
-      const initRequest = JSON.parse(transport.sentMessages[0]);
+      const initRequest = JSON.parse(transport.sentMessages[0]!);
       expect(initRequest.method).toBe("initialize");
       expect(initRequest.params.clientInfo.name).toBe("my-client");
       expect(initRequest.params.clientInfo.version).toBe("1.2.3");
@@ -355,11 +355,11 @@ describe("BAPClient Methods", () => {
       transport.setAutoResponse("action/scroll", {});
 
       await client.createPage({});
-      await client.scroll({ deltaY: 100 });
+      await client.scroll({ direction: "down", amount: 100 });
 
       const request = transport.getLastRequest();
       expect(request?.params).toMatchObject({
-        options: { deltaY: 100 },
+        options: { direction: "down", amount: 100 },
       });
     });
 
@@ -369,12 +369,12 @@ describe("BAPClient Methods", () => {
       transport.setAutoResponse("action/scroll", {});
 
       await client.createPage({});
-      await client.scroll(css(".scrollable"), { deltaY: 200 });
+      await client.scroll(css(".scrollable"), { direction: "down", amount: 200 });
 
       const request = transport.getLastRequest();
       expect(request?.params).toMatchObject({
         selector: { type: "css", value: ".scrollable" },
-        options: { deltaY: 200 },
+        options: { direction: "down", amount: 200 },
       });
     });
   });
@@ -475,7 +475,7 @@ describe("BAPClient Methods", () => {
       });
 
       expect(result.interactiveElements).toHaveLength(1);
-      expect(result.interactiveElements?.[0].ref).toBe("@submit");
+      expect(result.interactiveElements![0]!.ref).toBe("@submit");
     });
 
     it("extract() sends schema in request", async () => {
@@ -550,17 +550,16 @@ describe("BAPClient Methods", () => {
       transport.setAutoResponse("page/create", { id: "page-1", url: "", title: "" });
       transport.setAutoResponse("frame/list", {
         frames: [
-          { frameId: "main", url: "https://example.com", parentFrameId: null },
-          { frameId: "iframe-1", url: "https://ads.example.com", parentFrameId: "main" },
+          { frameId: "main", name: "main", url: "https://example.com", isMain: true },
+          { frameId: "iframe-1", name: "ads", url: "https://ads.example.com", isMain: false, parentFrameId: "main" },
         ],
-        currentFrameId: "main",
       });
 
       await client.createPage({});
       const result = await client.listFrames();
 
       expect(result.frames).toHaveLength(2);
-      expect(result.currentFrameId).toBe("main");
+      expect(result.frames[0]!.isMain).toBe(true);
     });
 
     it("switchFrame() switches to frame", async () => {

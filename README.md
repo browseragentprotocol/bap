@@ -293,7 +293,7 @@ cd packages/python-sdk && pip install -e .
 
 ## Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! Please open an issue or submit a pull request on GitHub.
 
 ## License
 

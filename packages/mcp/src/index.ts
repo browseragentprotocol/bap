@@ -7,7 +7,6 @@
  * Allows AI agents like Claude to control browsers through standardized MCP tools.
  *
  * TODO (MEDIUM): Add input validation on tool arguments before passing to BAP client
- * TODO (MEDIUM): Replace unsafe `as any` type casts with proper type narrowing
  * TODO (MEDIUM): Enforce session timeout (maxSessionDuration) - currently unused
  * TODO (MEDIUM): Add resource cleanup on partial failure in ensureClient()
  * TODO (LOW): parseSelector should validate empty/whitespace-only strings
@@ -28,7 +27,19 @@ import {
   BAPClient,
   WebSocketTransport,
   type BAPSelector,
+  type WaitUntilState,
+  type ContentFormat,
+  type ScrollDirection,
+  type ExecutionStep,
+  type ElementProperty,
 } from "@browseragentprotocol/client";
+import {
+  type StepResult,
+  type InteractiveElement,
+  type AnnotationMapping,
+  type ExtractionSchema,
+  type AriaRole,
+} from "@browseragentprotocol/protocol";
 
 // =============================================================================
 // Types
@@ -81,7 +92,7 @@ function parseSelector(selector: string): BAPSelector {
   // Role selector: role:button:Submit
   if (selector.startsWith("role:")) {
     const parts = selector.slice(5).split(":");
-    const roleValue = parts[0] as any;
+    const roleValue = parts[0] as AriaRole;
     const name = parts.slice(1).join(":") || undefined;
     return { type: "role", role: roleValue, name };
   }
@@ -756,6 +767,7 @@ export class BAPMCPServer {
     }));
 
     // Handle tool calls
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     this.server.setRequestHandler(CallToolRequestSchema, async (request): Promise<any> => {
       const { name, arguments: args } = request.params;
 
@@ -828,8 +840,8 @@ export class BAPMCPServer {
           };
         }
 
-        const waitUntil = (args.waitUntil as string) ?? "load";
-        const result = await client.navigate(url, { waitUntil: waitUntil as any });
+        const waitUntil = (args.waitUntil as WaitUntilState) ?? "load";
+        const result = await client.navigate(url, { waitUntil });
         return {
           content: [
             {
@@ -888,10 +900,10 @@ export class BAPMCPServer {
       }
 
       case "bap_scroll": {
-        const direction = (args.direction as string) ?? "down";
+        const direction = (args.direction as ScrollDirection) ?? "down";
         const amount = (args.amount as number) ?? 500;
         const selector = args.selector ? parseSelector(args.selector as string) : undefined;
-        await client.scroll(selector, { direction: direction as any, amount });
+        await client.scroll(selector, { direction, amount });
         return {
           content: [{ type: "text", text: `Scrolled ${direction} by ${amount}px` }],
         };
@@ -947,8 +959,8 @@ export class BAPMCPServer {
       }
 
       case "bap_content": {
-        const format = (args.format as string) ?? "text";
-        const result = await client.content(format as any);
+        const format = (args.format as ContentFormat) ?? "text";
+        const result = await client.content(format);
         return {
           content: [{ type: "text", text: result.content }],
         };
@@ -956,8 +968,8 @@ export class BAPMCPServer {
 
       case "bap_element": {
         const selector = parseSelector(args.selector as string);
-        const properties = (args.properties as string[]) ?? ["visible", "enabled"];
-        const result = await client.element(selector, properties as any);
+        const properties = (args.properties as ElementProperty[]) ?? ["visible", "enabled"];
+        const result = await client.element(selector, properties);
         return {
           content: [
             {
@@ -1017,8 +1029,18 @@ export class BAPMCPServer {
 
       // Agent (Composite Actions, Observations, and Data Extraction)
       case "bap_act": {
-        const steps = (args.steps as any[]).map((s: any) => {
-          const step: any = {
+        interface InputStep {
+          label?: string;
+          action: string;
+          selector?: string;
+          value?: string;
+          url?: string;
+          key?: string;
+          text?: string;
+        }
+        const inputSteps = args.steps as InputStep[];
+        const steps: ExecutionStep[] = inputSteps.map((s) => {
+          const step: ExecutionStep = {
             label: s.label,
             action: s.action,
             params: {},
@@ -1054,7 +1076,7 @@ export class BAPMCPServer {
           : `Failed at step ${(result.failedAt ?? 0) + 1}: ${result.results[result.failedAt ?? 0]?.error?.message ?? "Unknown error"}`;
 
         const stepDetails = result.results
-          .map((r: any) =>
+          .map((r: StepResult) =>
             `${r.success ? "OK" : "FAIL"} Step ${r.step + 1}${r.label ? ` (${r.label})` : ""}: ${
               r.success ? "completed" : r.error?.message ?? "failed"
             }`
@@ -1100,7 +1122,7 @@ export class BAPMCPServer {
         // Interactive elements (formatted for AI)
         if (result.interactiveElements && result.interactiveElements.length > 0) {
           const elementList = result.interactiveElements
-            .map((el: any, i: number) => {
+            .map((el: InteractiveElement, i: number) => {
               const selector = formatSelectorForDisplay(el.selector);
               const hints = el.actionHints.join(", ");
               // Use ref from element (stable or indexed)
@@ -1119,7 +1141,7 @@ export class BAPMCPServer {
         // Annotation map (if screenshot was annotated)
         if (result.annotationMap && result.annotationMap.length > 0) {
           const mapText = result.annotationMap
-            .map((m: any) => `[${m.label}] -> ${m.ref}`)
+            .map((m: AnnotationMapping) => `[${m.label}] -> ${m.ref}`)
             .join("\n");
           content.push({
             type: "text",
@@ -1147,7 +1169,7 @@ export class BAPMCPServer {
       case "bap_extract": {
         const result = await client.extract({
           instruction: args.instruction as string,
-          schema: args.schema as any,
+          schema: args.schema as ExtractionSchema,
           mode: args.mode as "single" | "list" | "table" | undefined,
           selector: args.selector ? parseSelector(args.selector as string) : undefined,
         });

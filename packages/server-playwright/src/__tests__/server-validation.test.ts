@@ -92,53 +92,27 @@ describe("Security Configuration", () => {
 
 describe("Limits Configuration", () => {
   describe("page limits", () => {
-    it("accepts maxPagesPerContext", () => {
+    it("accepts maxPagesPerClient", () => {
       const limits: BAPLimitsOptions = {
-        maxPagesPerContext: 10,
-      };
-      const server = new BAPPlaywrightServer({ limits });
-      expect(server).toBeInstanceOf(BAPPlaywrightServer);
-    });
-
-    it("accepts maxContextsPerBrowser", () => {
-      const limits: BAPLimitsOptions = {
-        maxContextsPerBrowser: 5,
-      };
-      const server = new BAPPlaywrightServer({ limits });
-      expect(server).toBeInstanceOf(BAPPlaywrightServer);
-    });
-
-    it("accepts maxConcurrentBrowsers", () => {
-      const limits: BAPLimitsOptions = {
-        maxConcurrentBrowsers: 3,
+        maxPagesPerClient: 10,
       };
       const server = new BAPPlaywrightServer({ limits });
       expect(server).toBeInstanceOf(BAPPlaywrightServer);
     });
   });
 
-  describe("size limits", () => {
-    it("accepts maxBodySizeBytes", () => {
+  describe("rate limits", () => {
+    it("accepts maxRequestsPerSecond", () => {
       const limits: BAPLimitsOptions = {
-        maxBodySizeBytes: 10 * 1024 * 1024, // 10MB
-      };
-      const server = new BAPPlaywrightServer({ limits });
-      expect(server).toBeInstanceOf(BAPPlaywrightServer);
-    });
-  });
-
-  describe("timeout limits", () => {
-    it("accepts maxNavigationTimeout", () => {
-      const limits: BAPLimitsOptions = {
-        maxNavigationTimeout: 60000, // 60 seconds
+        maxRequestsPerSecond: 100,
       };
       const server = new BAPPlaywrightServer({ limits });
       expect(server).toBeInstanceOf(BAPPlaywrightServer);
     });
 
-    it("accepts maxActionTimeout", () => {
+    it("accepts maxScreenshotsPerMinute", () => {
       const limits: BAPLimitsOptions = {
-        maxActionTimeout: 30000, // 30 seconds
+        maxScreenshotsPerMinute: 60,
       };
       const server = new BAPPlaywrightServer({ limits });
       expect(server).toBeInstanceOf(BAPPlaywrightServer);
@@ -148,12 +122,9 @@ describe("Limits Configuration", () => {
   describe("combined limits", () => {
     it("accepts all limits together", () => {
       const limits: BAPLimitsOptions = {
-        maxPagesPerContext: 20,
-        maxContextsPerBrowser: 10,
-        maxConcurrentBrowsers: 5,
-        maxBodySizeBytes: 50 * 1024 * 1024,
-        maxNavigationTimeout: 120000,
-        maxActionTimeout: 60000,
+        maxPagesPerClient: 20,
+        maxRequestsPerSecond: 100,
+        maxScreenshotsPerMinute: 60,
       };
       const server = new BAPPlaywrightServer({ limits });
       expect(server).toBeInstanceOf(BAPPlaywrightServer);
@@ -162,24 +133,6 @@ describe("Limits Configuration", () => {
 });
 
 describe("Authorization Configuration", () => {
-  describe("enabled flag", () => {
-    it("accepts enabled: true", () => {
-      const authorization: BAPAuthorizationOptions = {
-        enabled: true,
-      };
-      const server = new BAPPlaywrightServer({ authorization });
-      expect(server).toBeInstanceOf(BAPPlaywrightServer);
-    });
-
-    it("accepts enabled: false", () => {
-      const authorization: BAPAuthorizationOptions = {
-        enabled: false,
-      };
-      const server = new BAPPlaywrightServer({ authorization });
-      expect(server).toBeInstanceOf(BAPPlaywrightServer);
-    });
-  });
-
   describe("defaultScopes", () => {
     it("accepts wildcard scopes", () => {
       const authorization: BAPAuthorizationOptions = {
@@ -216,7 +169,7 @@ describe("Authorization Configuration", () => {
           "browser:launch",
           "browser:close",
           "page:*",
-          "observation:*",
+          "observe:*",
         ],
       };
       const server = new BAPPlaywrightServer({ authorization });
@@ -286,22 +239,19 @@ describe("Authentication Configuration", () => {
 });
 
 describe("TLS Configuration", () => {
-  it("accepts TLS options with cert and key paths", () => {
+  it("accepts requireTLS option", () => {
     const server = new BAPPlaywrightServer({
       tls: {
-        cert: "/path/to/cert.pem",
-        key: "/path/to/key.pem",
+        requireTLS: true,
       },
     });
     expect(server).toBeInstanceOf(BAPPlaywrightServer);
   });
 
-  it("accepts TLS with CA", () => {
+  it("accepts warnInsecure option", () => {
     const server = new BAPPlaywrightServer({
       tls: {
-        cert: "/path/to/cert.pem",
-        key: "/path/to/key.pem",
-        ca: "/path/to/ca.pem",
+        warnInsecure: false,
       },
     });
     expect(server).toBeInstanceOf(BAPPlaywrightServer);

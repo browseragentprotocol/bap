@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { BAPPlaywrightServer } from "../server.js";
 import type { BAPServerOptions } from "../server.js";
 
@@ -32,12 +32,9 @@ describe("BAPPlaywrightServer", () => {
     it("creates server with limits options", () => {
       const server = new BAPPlaywrightServer({
         limits: {
-          maxPagesPerContext: 5,
-          maxContextsPerBrowser: 3,
-          maxConcurrentBrowsers: 2,
-          maxBodySizeBytes: 1024 * 1024,
-          maxNavigationTimeout: 30000,
-          maxActionTimeout: 10000,
+          maxPagesPerClient: 5,
+          maxRequestsPerSecond: 50,
+          maxScreenshotsPerMinute: 30,
         },
       });
       expect(server).toBeInstanceOf(BAPPlaywrightServer);
@@ -46,7 +43,6 @@ describe("BAPPlaywrightServer", () => {
     it("creates server with authorization options", () => {
       const server = new BAPPlaywrightServer({
         authorization: {
-          enabled: true,
           defaultScopes: ["browser:*", "action:*"],
         },
       });
@@ -82,15 +78,11 @@ describe("BAPPlaywrightServer", () => {
           blockedProtocols: ["file"],
         },
         limits: {
-          maxPagesPerContext: 10,
-          maxContextsPerBrowser: 5,
-          maxConcurrentBrowsers: 3,
-          maxBodySizeBytes: 5 * 1024 * 1024,
-          maxNavigationTimeout: 60000,
-          maxActionTimeout: 30000,
+          maxPagesPerClient: 10,
+          maxRequestsPerSecond: 100,
+          maxScreenshotsPerMinute: 60,
         },
         authorization: {
-          enabled: true,
           defaultScopes: ["browser:*"],
           scopesEnvVar: "BAP_CUSTOM_SCOPES",
         },
@@ -169,9 +161,9 @@ describe("BAPServerOptions types", () => {
   it("accepts partial limits options", () => {
     const options: BAPServerOptions = {
       limits: {
-        maxPagesPerContext: 5,
+        maxPagesPerClient: 5,
       },
     };
-    expect(options.limits?.maxPagesPerContext).toBe(5);
+    expect(options.limits?.maxPagesPerClient).toBe(5);
   });
 });

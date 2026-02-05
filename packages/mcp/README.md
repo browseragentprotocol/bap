@@ -112,17 +112,66 @@ npx @browseragentprotocol/mcp --bap-url ws://localhost:9333
 
 When connected, Claude has access to these browser automation tools:
 
+### Navigation
+
 | Tool | Description |
 |------|-------------|
-| `browser_launch` | Launch a browser instance (Chromium, Firefox, or WebKit) |
-| `browser_navigate` | Navigate to a URL |
-| `browser_click` | Click an element using semantic selectors |
-| `browser_fill` | Fill in a form field |
-| `browser_type` | Type text into an element |
-| `browser_screenshot` | Take a screenshot of the page |
-| `browser_accessibility` | Get the accessibility tree (ideal for understanding page structure) |
-| `browser_content` | Get page text content |
-| `browser_close` | Close the browser |
+| `bap_navigate` | Navigate to a URL |
+| `bap_go_back` | Navigate back in browser history |
+| `bap_go_forward` | Navigate forward in browser history |
+| `bap_reload` | Reload the current page |
+
+### Element Interaction
+
+| Tool | Description |
+|------|-------------|
+| `bap_click` | Click an element using semantic selectors |
+| `bap_type` | Type text character by character (first clicks element) |
+| `bap_fill` | Fill a form field (clears existing content first) |
+| `bap_press` | Press keyboard keys (Enter, Tab, shortcuts) |
+| `bap_select` | Select an option from a dropdown |
+| `bap_scroll` | Scroll the page or a specific element |
+| `bap_hover` | Hover over an element |
+
+### Observation
+
+| Tool | Description |
+|------|-------------|
+| `bap_screenshot` | Take a screenshot of the page |
+| `bap_accessibility` | Get the full accessibility tree |
+| `bap_aria_snapshot` | Get a token-efficient YAML accessibility snapshot (~80% fewer tokens) |
+| `bap_content` | Get page text content as text or markdown |
+| `bap_element` | Query element properties (exists, visible, enabled) |
+
+### Page Management
+
+| Tool | Description |
+|------|-------------|
+| `bap_pages` | List all open pages/tabs |
+| `bap_activate_page` | Switch to a different page/tab |
+| `bap_close_page` | Close the current page/tab |
+
+### AI Agent Methods
+
+| Tool | Description |
+|------|-------------|
+| `bap_observe` | Get AI-optimized page observation with interactive elements and stable refs |
+| `bap_act` | Execute a sequence of browser actions in a single call |
+| `bap_extract` | Extract structured data from the page using natural language |
+
+### Selector Formats
+
+Tools that accept a `selector` parameter support these formats:
+
+```
+role:button:Submit        # ARIA role + accessible name (recommended)
+text:Sign in              # Visible text content
+label:Email address       # Associated label
+testid:submit-button      # data-testid attribute
+ref:@submitBtn            # Stable element reference from bap_observe
+css:.btn-primary          # CSS selector (fallback)
+xpath://button[@type]     # XPath selector (fallback)
+```
 
 ## Example Conversations
 
@@ -130,7 +179,7 @@ When connected, Claude has access to these browser automation tools:
 
 **Claude:** I'll browse to Hacker News and get the top stories for you.
 
-*[Uses browser_launch, browser_navigate, browser_accessibility]*
+*[Uses bap_navigate, bap_accessibility]*
 
 Here are the top 3 stories on Hacker News right now:
 1. "Show HN: I built a tool for..."
@@ -143,7 +192,7 @@ Here are the top 3 stories on Hacker News right now:
 
 **Claude:** I'll navigate to the contact form and fill it out.
 
-*[Uses browser_navigate, browser_fill, browser_click]*
+*[Uses bap_navigate, bap_fill, bap_click]*
 
 Done! I've filled in the form with your details and submitted it.
 
@@ -151,9 +200,10 @@ Done! I've filled in the form with your details and submitted it.
 
 ```
 Options:
-  --bap-url <url>     BAP server URL (default: ws://localhost:9222)
-  --verbose           Enable verbose logging
-  --help              Show help
+  --bap-url, -u <url>         BAP server URL (default: ws://localhost:9222)
+  --allowed-domains <domains> Comma-separated list of allowed domains (e.g., "*.example.com,trusted.org")
+  --verbose                   Enable verbose logging
+  --help                      Show help
 ```
 
 ## Managing the Server

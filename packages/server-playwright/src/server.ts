@@ -1270,11 +1270,11 @@ export class BAPPlaywrightServer extends EventEmitter {
   // Browser Handlers
   // ===========================================================================
 
-  // TODO (HIGH-5): Implement scope-based authorization for privileged operations
-  // Currently all authenticated clients have full access to all operations.
-  // Implement: client scopes (read-only, actions, storage, network),
-  // per-operation permission checks, and scope validation during initialization.
-  // See: https://github.com/anthropics/bap/issues/XXX
+  // NOTE: Scope-based authorization is implemented via checkAuthorization() and hasScope().
+  // Clients receive scopes on connection (via BAP_SCOPES env var or defaultScopes config).
+  // Each method call is validated against granted scopes before execution.
+  // Scope format: "category:action" (e.g., "browser:launch", "action:click", "observe:screenshot")
+  // Wildcards supported: "*" (all), "browser:*" (all browser operations)
 
   private async handleBrowserLaunch(
     state: ClientState,

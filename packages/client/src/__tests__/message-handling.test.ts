@@ -113,7 +113,7 @@ describe("BAPClient Message Handling", () => {
       const result = await client.connect();
 
       // The first message should be an initialize request
-      const sent = JSON.parse(transport.sentMessages[0]);
+      const sent = JSON.parse(transport.sentMessages[0]!);
       expect(sent.method).toBe("initialize");
       expect(sent.id).toBe(1);
       expect(result.protocolVersion).toBe("0.2.0");
