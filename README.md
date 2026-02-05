@@ -11,18 +11,9 @@ An open standard for AI agents to interact with web browsers.
 
 BAP (Browser Agent Protocol) provides a standardized way for AI agents to control web browsers. It uses JSON-RPC 2.0 over WebSocket for communication and includes semantic selectors designed for AI comprehension.
 
-```
-┌─────────────────┐                        ┌─────────────────┐
-│   Claude Code   │                        │                 │
-│  Claude Desktop │───── MCP (stdio) ─────▶│   BAP Server    │───▶ Browser
-│      Codex      │                        │                 │
-└─────────────────┘                        └─────────────────┘
-                                                   ▲
-┌─────────────────┐                                │
-│  Your AI Agent  │──── JSON-RPC (WebSocket) ─────┘
-│   (TS/Python)   │
-└─────────────────┘
-```
+<p align="center">
+  <img src="assets/architecture.svg" alt="BAP Architecture" width="700">
+</p>
 
 ### Key Features
 

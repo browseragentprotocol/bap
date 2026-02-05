@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 460" fill="none">
+  <style>
+    .outer { fill: #ffffff; stroke: #e0e0e0; stroke-width: 1.5; }
+    .center-box { fill: #eef4ff; stroke: #b8d4fe; stroke-width: 1.5; }
+    .client-box { fill: #ffffff; stroke: #333333; stroke-width: 1; }
+    .title-bold { font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 14px; fill: #222222; font-weight: 600; }
+    .title-normal { font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 12px; fill: #888888; font-weight: 400; }
+    .center-title { font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 18px; fill: #222222; font-weight: 600; }
+    .center-sub { font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 13px; fill: #888888; font-weight: 400; }
+    .arrow { stroke: #bbbbbb; stroke-width: 1; fill: none; }
+    .arrow-head { fill: #bbbbbb; }
+    .caption { font-family: 'Inter', 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 11px; fill: #aaaaaa; font-weight: 400; }
+  </style>
+
+  <!-- Outer rounded container -->
+  <rect x="20" y="20" width="920" height="420" rx="16" class="outer"/>
+
+  <!-- === Left column === -->
+
+  <rect x="60" y="55" width="260" height="70" rx="6" class="client-box"/>
+  <text x="190" y="84" text-anchor="middle" class="title-bold">Chat interfaces</text>
+  <text x="190" y="104" text-anchor="middle" class="title-normal">Claude Desktop, Codex Desktop</text>
+
+  <rect x="60" y="165" width="260" height="70" rx="6" class="client-box"/>
+  <text x="190" y="194" text-anchor="middle" class="title-bold">IDEs and code editors</text>
+  <text x="190" y="214" text-anchor="middle" class="title-normal">Claude Code, Codex CLI</text>
+
+  <rect x="60" y="275" width="260" height="70" rx="6" class="client-box"/>
+  <text x="190" y="304" text-anchor="middle" class="title-bold">Custom AI Agents</text>
+  <text x="190" y="324" text-anchor="middle" class="title-normal">TypeScript, Python</text>
+
+  <text x="190" y="390" text-anchor="middle" class="caption">AI applications</text>
+
+  <!-- === Center: BAP protocol box === -->
+  <rect x="393" y="55" width="174" height="290" rx="10" class="center-box"/>
+  <text x="480" y="188" text-anchor="middle" class="center-title">Browser Agent</text>
+  <text x="480" y="212" text-anchor="middle" class="center-title">Protocol</text>
+  <text x="480" y="236" text-anchor="middle" class="center-sub">Standardized protocol</text>
+
+  <!-- === Right column === -->
+
+  <rect x="640" y="55" width="260" height="70" rx="6" class="client-box"/>
+  <text x="770" y="84" text-anchor="middle" class="title-bold">Chromium</text>
+  <text x="770" y="104" text-anchor="middle" class="title-normal">Playwright</text>
+
+  <rect x="640" y="165" width="260" height="70" rx="6" class="client-box"/>
+  <text x="770" y="194" text-anchor="middle" class="title-bold">Firefox</text>
+  <text x="770" y="214" text-anchor="middle" class="title-normal">Playwright</text>
+
+  <rect x="640" y="275" width="260" height="70" rx="6" class="client-box"/>
+  <text x="770" y="304" text-anchor="middle" class="title-bold">WebKit</text>
+  <text x="770" y="324" text-anchor="middle" class="title-normal">Playwright</text>
+
+  <text x="770" y="390" text-anchor="middle" class="caption">Browsers</text>
+
+  <!-- === Left bidirectional arrows === -->
+  <line x1="324" y1="90" x2="389" y2="90" class="arrow"/>
+  <polygon points="322,90 329,86 329,94" class="arrow-head"/>
+  <polygon points="391,90 384,86 384,94" class="arrow-head"/>
+
+  <line x1="324" y1="200" x2="389" y2="200" class="arrow"/>
+  <polygon points="322,200 329,196 329,204" class="arrow-head"/>
+  <polygon points="391,200 384,196 384,204" class="arrow-head"/>
+
+  <line x1="324" y1="310" x2="389" y2="310" class="arrow"/>
+  <polygon points="322,310 329,306 329,314" class="arrow-head"/>
+  <polygon points="391,310 384,306 384,314" class="arrow-head"/>
+
+  <!-- === Right bidirectional arrows === -->
+  <line x1="571" y1="90" x2="636" y2="90" class="arrow"/>
+  <polygon points="569,90 576,86 576,94" class="arrow-head"/>
+  <polygon points="638,90 631,86 631,94" class="arrow-head"/>
+
+  <line x1="571" y1="200" x2="636" y2="200" class="arrow"/>
+  <polygon points="569,200 576,196 576,204" class="arrow-head"/>
+  <polygon points="638,200 631,196 631,204" class="arrow-head"/>
+
+  <line x1="571" y1="310" x2="636" y2="310" class="arrow"/>
+  <polygon points="569,310 576,306 576,314" class="arrow-head"/>
+  <polygon points="638,310 631,306 631,314" class="arrow-head"/>
+
+  <!-- Bidirectional labels -->
+  <text x="356" y="390" text-anchor="middle" class="caption">JSON-RPC 2.0</text>
+  <text x="356" y="404" text-anchor="middle" class="caption">over WebSocket</text>
+  <text x="604" y="390" text-anchor="middle" class="caption">Playwright</text>
+  <text x="604" y="404" text-anchor="middle" class="caption">automation</text>
+
+</svg>
