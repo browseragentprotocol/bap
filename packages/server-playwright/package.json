@@ -1,0 +1,74 @@
+{
+  "name": "@browseragentprotocol/server-playwright",
+  "version": "0.1.0-alpha.1",
+  "description": "BAP Server implementation using Playwright",
+  "author": "Browser Agent Protocol",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "bin": {
+    "bap-server": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/server.d.ts",
+        "default": "./dist/server.js"
+      }
+    },
+    "./cli": {
+      "import": "./dist/cli.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/browseragentprotocol/bap.git",
+    "directory": "packages/server-playwright"
+  },
+  "keywords": [
+    "bap",
+    "server",
+    "playwright",
+    "browser",
+    "automation",
+    "ai",
+    "agent"
+  ],
+  "scripts": {
+    "build": "tsup src/server.ts src/cli.ts --format esm --dts --clean",
+    "start": "node dist/cli.js",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "clean": "rm -rf dist",
+    "postinstall": "playwright install chromium || true"
+  },
+  "dependencies": {
+    "@browseragentprotocol/logger": "workspace:*",
+    "@browseragentprotocol/protocol": "workspace:*",
+    "playwright": "^1.50.0",
+    "ws": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.14",
+    "tsup": "^8.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "name": "bap-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser Agent Protocol - Open standard for AI agents to interact with web browsers",
+  "author": "Browser Agent Protocol",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/browseragentprotocol/bap.git"
+  },
+  "homepage": "https://github.com/browseragentprotocol/bap",
+  "keywords": [
+    "browser",
+    "automation",
+    "ai",
+    "agent",
+    "protocol",
+    "playwright",
+    "mcp"
+  ],
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "test": "turbo run test",
+    "test:coverage": "vitest run --coverage",
+    "check": "pnpm typecheck && pnpm lint",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "format": "prettier --write \"packages/*/src/**/*.ts\"",
+    "format:check": "prettier --check \"packages/*/src/**/*.ts\"",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "release": "pnpm build && changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.27.0",
+    "@eslint/js": "^9.0.0",
+    "@types/node": "^22.0.0",
+    "@types/ws": "^8.5.14",
+    "@vitest/coverage-v8": "4.0.18",
+    "eslint": "^9.0.0",
+    "prettier": "^3.4.0",
+    "tsup": "^8.3.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "4.0.18"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

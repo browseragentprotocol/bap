@@ -1,0 +1,61 @@
+{
+  "name": "@browseragentprotocol/logger",
+  "version": "0.1.0-alpha.1",
+  "description": "Pretty logging utilities for Browser Agent Protocol packages",
+  "author": "Browser Agent Protocol",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/browseragentprotocol/bap.git",
+    "directory": "packages/logger"
+  },
+  "keywords": [
+    "bap",
+    "browser-agent-protocol",
+    "logger",
+    "cli",
+    "pretty-print"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "picocolors": "^1.1.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@browseragentprotocol/python-client",
+  "version": "0.1.0-alpha.1",
+  "private": true,
+  "description": "Python SDK for Browser Agent Protocol (BAP) - build scripts only",
+  "scripts": {
+    "build": "echo 'Python package - use pip install -e . for development'",
+    "typecheck": "python -m mypy src/browseragentprotocol --ignore-missing-imports || true",
+    "lint": "python -m ruff check src/browseragentprotocol || true",
+    "lint:fix": "python -m ruff check --fix src/browseragentprotocol || true",
+    "clean": "rm -rf dist build *.egg-info .mypy_cache .ruff_cache __pycache__ src/**/__pycache__"
+  }
+}
