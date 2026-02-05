@@ -59,18 +59,6 @@ claude mcp add --transport stdio bap-browser -- npx @browseragentprotocol/mcp
   <em>Claude Code browsing Hacker News with BAP</em>
 </p>
 
-**OpenAI Codex:**
-```bash
-codex mcp add bap-browser -- npx @browseragentprotocol/mcp
-```
-
-<p align="center">
-  <img src="assets/codex-demo.png" alt="BAP with OpenAI Codex" width="600"><br>
-  <em>OpenAI Codex browsing Hacker News with BAP</em>
-</p>
-
-> **💡 Tip:** Codex may default to web search. Be explicit: *"Use bap_navigate to go to..."* or *"Using the bap-browser MCP tools..."*
-
 **Claude Desktop** (`claude_desktop_config.json`):
 ```json
 {
@@ -88,14 +76,32 @@ codex mcp add bap-browser -- npx @browseragentprotocol/mcp
   <em>Claude Desktop browsing Hacker News with BAP</em>
 </p>
 
-**OpenAI Codex** (`~/.codex/config.toml`):
+**Codex CLI:**
+```bash
+codex mcp add bap-browser -- npx @browseragentprotocol/mcp
+```
+
+<p align="center">
+  <img src="assets/codex-cli-demo.png" alt="BAP with OpenAI Codex CLI" width="600"><br>
+  <em>Codex CLI browsing Hacker News with BAP</em>
+</p>
+
+**Codex Desktop** (`~/.codex/config.toml`):
 ```toml
 [mcp_servers.bap-browser]
 command = "npx"
 args = ["@browseragentprotocol/mcp"]
 ```
 
-**Google Antigravity** (`mcp_config.json` via "..." → MCP Store → Manage):
+<p align="center">
+  <img src="assets/codex-desktop-demo.png" alt="BAP with OpenAI Codex Desktop" width="600"><br>
+  <em>Codex Desktop browsing Hacker News with BAP</em>
+</p>
+
+> **💡 Tip:** Codex may default to web search. Be explicit: *"Using the bap-browser MCP tools..."*
+
+
+**Antigravity** (`mcp_config.json` via "..." → MCP Store → Manage):
 ```json
 {
   "mcpServers": {
@@ -244,6 +250,8 @@ const data = await client.extract({
   },
 });
 ```
+
+> **Note:** `agent/extract` (and `bap_extract` in MCP) uses heuristic-based extraction (CSS patterns). For complex pages, consider using `bap_content` to get page content as markdown and extract data yourself.
 
 ## Server Options
 

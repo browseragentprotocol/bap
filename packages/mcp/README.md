@@ -157,7 +157,7 @@ When connected, Claude has access to these browser automation tools:
 |------|-------------|
 | `bap_observe` | Get AI-optimized page observation with interactive elements and stable refs |
 | `bap_act` | Execute a sequence of browser actions in a single call |
-| `bap_extract` | Extract structured data from the page using natural language |
+| `bap_extract` | Extract structured data from the page using schema and CSS heuristics |
 
 ### Selector Formats
 

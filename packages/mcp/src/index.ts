@@ -585,14 +585,14 @@ RECOMMENDED: Use this before complex interactions to understand the page.`,
   {
     name: "bap_extract",
     description: `Extract structured data from the current page.
-Use natural language instructions and a JSON schema to extract data like product listings,
-tables, contact information, or any structured content.`,
+Uses CSS heuristics to find lists, tables, and labeled data matching your schema.
+Works best with standard HTML patterns (ul/ol, tables, cards). For complex pages, use bap_content instead.`,
     inputSchema: {
       type: "object",
       properties: {
         instruction: {
           type: "string",
-          description: "Natural language description of what data to extract",
+          description: "Description of what to extract (used for context)",
         },
         schema: {
           type: "object",
