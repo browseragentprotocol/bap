@@ -1,11 +1,11 @@
-# browseragentprotocol
+# browser-agent-protocol
 
 Python SDK for the Browser Agent Protocol (BAP) - control browsers with AI agents.
 
 ## Installation
 
 ```bash
-pip install browseragentprotocol
+pip install browser-agent-protocol
 ```
 
 ## Quick Start

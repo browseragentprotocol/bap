@@ -41,7 +41,7 @@ BAP (Browser Agent Protocol) provides a standardized way for AI agents to contro
 
 | Package | Description | PyPI |
 |---------|-------------|------|
-| [`browseragentprotocol`](./packages/python-sdk) | Python SDK with async/sync APIs | [![PyPI](https://img.shields.io/pypi/v/browseragentprotocol)](https://pypi.org/project/browseragentprotocol/) |
+| [`browser-agent-protocol`](./packages/python-sdk) | Python SDK with async/sync APIs | [![PyPI](https://img.shields.io/pypi/v/browser-agent-protocol)](https://pypi.org/project/browser-agent-protocol/) |
 
 ## Quick Start
 
@@ -123,7 +123,7 @@ await client.close();
 ### Using the Python SDK
 
 ```bash
-pip install browseragentprotocol
+pip install browser-agent-protocol
 ```
 
 ```python
