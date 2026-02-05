@@ -29,3 +29,6 @@ npm-debug.log*
 
 # Test coverage
 coverage/
+
+# Claude Code instructions (local only)
+CLAUDE.md

@@ -1036,7 +1036,7 @@ The AI/ML ecosystem is Python-first. Without a Python client, BAP is inaccessibl
 
 #### Implementation
 
-The Python SDK is located at `packages/python-sdk/` and published as `browseragentprotocol` on PyPI.
+The Python SDK is located at `packages/python-sdk/` and published as `browser-agent-protocol` on PyPI.
 
 **Package Structure**:
 ```
@@ -1183,7 +1183,7 @@ transport = SSETransport(
 
 ```toml
 [project]
-name = "browseragentprotocol"
+name = "browser-agent-protocol"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
 dependencies = [
@@ -1210,7 +1210,7 @@ bap = "browseragentprotocol.cli:main"
 
 | Package | Changes |
 |---------|---------|
-| New: `browseragentprotocol` (PyPI) | Complete Python SDK |
+| New: `browser-agent-protocol` (PyPI) | Complete Python SDK |
 | `packages/python-sdk/` | Monorepo integration with turbo/pnpm |
 
 #### Breaking Changes
