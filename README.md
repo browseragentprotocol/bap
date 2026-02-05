@@ -7,6 +7,16 @@ An open standard for AI agents to interact with web browsers.
 
 > **⚠️ Alpha Release:** This is an experimental release. APIs may change between versions.
 
+## Demo
+
+<p align="center">
+  <img src="assets/server-running.png" alt="BAP Server Running" width="400">
+</p>
+
+<p align="center">
+  <img src="assets/claude-desktop-demo.png" alt="BAP with Claude Desktop" width="600">
+</p>
+
 ## Overview
 
 BAP (Browser Agent Protocol) provides a standardized way for AI agents to control web browsers. It uses JSON-RPC 2.0 over WebSocket for communication and includes semantic selectors designed for AI comprehension.
