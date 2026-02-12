@@ -1,100 +1,58 @@
 # @browseragentprotocol/mcp
 
-MCP (Model Context Protocol) server for Browser Agent Protocol. Enables AI assistants to control web browsers.
-
-## Supported Clients
-
-| Client | Status |
-|--------|--------|
-| Claude Code | Supported |
-| Claude Desktop | Supported |
-| OpenAI Codex | Supported |
-| Google Antigravity | Supported |
-| Any MCP-compatible client | Supported |
+MCP (Model Context Protocol) server for Browser Agent Protocol. Gives any MCP-compatible AI agent full browser control.
 
 ## Installation
 
-### With Claude Code
+### One command — standalone mode
 
 ```bash
-# Add the BAP browser server
-claude mcp add --transport stdio bap-browser -- npx @browseragentprotocol/mcp
+npx @browseragentprotocol/mcp
 ```
 
-That's it! Claude Code can now control browsers. Try asking: *"Go to example.com and take a screenshot"*
+This auto-starts a BAP Playwright server and exposes browser tools over MCP stdio. No separate server process needed.
 
-### With OpenAI Codex
+### Add to an MCP client
 
+**JSON config** (most MCP clients):
+```json
+{
+  "mcpServers": {
+    "bap-browser": {
+      "command": "npx",
+      "args": ["-y", "@browseragentprotocol/mcp"]
+    }
+  }
+}
+```
+
+**CLI** (most MCP clients):
 ```bash
-# Add the BAP browser server
-codex mcp add bap-browser -- npx @browseragentprotocol/mcp
+<client> mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
 ```
 
-Or add to your `~/.codex/config.toml`:
-
+**TOML config** (Codex Desktop):
 ```toml
 [mcp_servers.bap-browser]
 command = "npx"
-args = ["@browseragentprotocol/mcp"]
+args = ["-y", "@browseragentprotocol/mcp"]
 ```
 
-### With Claude Desktop
+### Connect to an existing BAP server
 
-Add to your config file:
-
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "bap-browser": {
-      "command": "npx",
-      "args": ["@browseragentprotocol/mcp"]
-    }
-  }
-}
-```
-
-Restart Claude Desktop after saving.
-
-### With Google Antigravity
-
-1. Open the MCP Store via the **"..."** dropdown at the top of the editor's agent panel
-2. Click **Manage MCP Servers**
-3. Click **View raw config**
-4. Add the BAP browser server to your `mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "bap-browser": {
-      "command": "npx",
-      "args": ["@browseragentprotocol/mcp"]
-    }
-  }
-}
-```
-
-5. Save and refresh to load the new configuration
-
-### Standalone
+If you already have a BAP Playwright server running, pass `--url` to skip auto-start:
 
 ```bash
-# Start the MCP server (connects to BAP server on localhost:9222)
-npx @browseragentprotocol/mcp
-
-# With custom BAP server URL
-npx @browseragentprotocol/mcp --bap-url ws://localhost:9333
+npx @browseragentprotocol/mcp --url ws://localhost:9222
 ```
 
 ## How It Works
 
 ```
 ┌─────────────┐     MCP      ┌─────────────┐    BAP     ┌─────────────┐
-│   Claude    │ ──────────── │  BAP MCP    │ ────────── │ BAP Server  │
-│  (or other  │   (stdio)    │   Server    │ (WebSocket)│ (Playwright)│
-│  MCP host)  │              │             │            │             │
+│  AI Agent   │ ──────────── │  BAP MCP    │ ────────── │ BAP Server  │
+│  (any MCP   │   (stdio)    │   Server    │ (WebSocket)│ (Playwright)│
+│   client)   │              │             │            │             │
 └─────────────┘              └─────────────┘            └─────────────┘
                                                               │
                                                               ▼
@@ -103,61 +61,59 @@ npx @browseragentprotocol/mcp --bap-url ws://localhost:9333
                                                         └─────────────┘
 ```
 
-1. Claude sends tool calls via MCP (stdio transport)
+1. AI agent sends tool calls via MCP (stdio transport)
 2. This package translates them to BAP protocol
 3. BAP server controls the browser via Playwright
-4. Results flow back to Claude
+4. Results flow back to the agent
 
 ## Available Tools
-
-When connected, Claude has access to these browser automation tools:
 
 ### Navigation
 
 | Tool | Description |
 |------|-------------|
-| `bap_navigate` | Navigate to a URL |
-| `bap_go_back` | Navigate back in browser history |
-| `bap_go_forward` | Navigate forward in browser history |
-| `bap_reload` | Reload the current page |
+| `navigate` | Navigate to a URL |
+| `go_back` | Navigate back in browser history |
+| `go_forward` | Navigate forward in browser history |
+| `reload` | Reload the current page |
 
 ### Element Interaction
 
 | Tool | Description |
 |------|-------------|
-| `bap_click` | Click an element using semantic selectors |
-| `bap_type` | Type text character by character (first clicks element) |
-| `bap_fill` | Fill a form field (clears existing content first) |
-| `bap_press` | Press keyboard keys (Enter, Tab, shortcuts) |
-| `bap_select` | Select an option from a dropdown |
-| `bap_scroll` | Scroll the page or a specific element |
-| `bap_hover` | Hover over an element |
+| `click` | Click an element using semantic selectors |
+| `type` | Type text character by character (first clicks element) |
+| `fill` | Fill a form field (clears existing content first) |
+| `press` | Press keyboard keys (Enter, Tab, shortcuts) |
+| `select` | Select an option from a dropdown |
+| `scroll` | Scroll the page or a specific element |
+| `hover` | Hover over an element |
 
 ### Observation
 
 | Tool | Description |
 |------|-------------|
-| `bap_screenshot` | Take a screenshot of the page |
-| `bap_accessibility` | Get the full accessibility tree |
-| `bap_aria_snapshot` | Get a token-efficient YAML accessibility snapshot (~80% fewer tokens) |
-| `bap_content` | Get page text content as text or markdown |
-| `bap_element` | Query element properties (exists, visible, enabled) |
+| `screenshot` | Take a screenshot of the page |
+| `accessibility` | Get the full accessibility tree |
+| `aria_snapshot` | Token-efficient YAML accessibility snapshot (~80% fewer tokens) |
+| `content` | Get page text content as text or markdown |
+| `element` | Query element properties (exists, visible, enabled) |
 
 ### Page Management
 
 | Tool | Description |
 |------|-------------|
-| `bap_pages` | List all open pages/tabs |
-| `bap_activate_page` | Switch to a different page/tab |
-| `bap_close_page` | Close the current page/tab |
+| `pages` | List all open pages/tabs |
+| `activate_page` | Switch to a different page/tab |
+| `close_page` | Close the current page/tab |
 
 ### AI Agent Methods
 
 | Tool | Description |
 |------|-------------|
-| `bap_observe` | Get AI-optimized page observation with interactive elements and stable refs |
-| `bap_act` | Execute a sequence of browser actions in a single call |
-| `bap_extract` | Extract structured data from the page using schema and CSS heuristics |
+| `observe` | AI-optimized page observation with interactive elements and stable refs |
+| `act` | Execute a sequence of browser actions in a single call |
+| `extract` | Extract structured data from the page using schema and CSS heuristics |
 
 ### Selector Formats
 
@@ -168,73 +124,24 @@ role:button:Submit        # ARIA role + accessible name (recommended)
 text:Sign in              # Visible text content
 label:Email address       # Associated label
 testid:submit-button      # data-testid attribute
-ref:@submitBtn            # Stable element reference from bap_observe
+ref:@submitBtn            # Stable element reference from observe
 css:.btn-primary          # CSS selector (fallback)
 xpath://button[@type]     # XPath selector (fallback)
 ```
-
-## Example Conversations
-
-**You:** Go to Hacker News and tell me the top 3 stories
-
-**Claude:** I'll browse to Hacker News and get the top stories for you.
-
-*[Uses bap_navigate, bap_accessibility]*
-
-Here are the top 3 stories on Hacker News right now:
-1. "Show HN: I built a tool for..."
-2. "Why we switched from..."
-3. "The future of..."
-
----
-
-**You:** Fill out the contact form on example.com with my details
-
-**Claude:** I'll navigate to the contact form and fill it out.
-
-*[Uses bap_navigate, bap_fill, bap_click]*
-
-Done! I've filled in the form with your details and submitted it.
 
 ## CLI Options
 
 ```
 Options:
-  --bap-url, -u <url>         BAP server URL (default: ws://localhost:9222)
-  --allowed-domains <domains> Comma-separated list of allowed domains (e.g., "*.example.com,trusted.org")
-  --verbose                   Enable verbose logging
-  --help                      Show help
-```
-
-## Managing the Server
-
-```bash
-# List configured MCP servers
-claude mcp list
-
-# Get details for the BAP browser server
-claude mcp get bap-browser
-
-# Remove the server
-claude mcp remove bap-browser
-
-# Check server status (within Claude Code)
-/mcp
-```
-
-## Configuration Scopes
-
-When adding the server with Claude Code, you can specify where to store the configuration:
-
-```bash
-# Local scope (default) - only you, only this project
-claude mcp add --transport stdio bap-browser -- npx @browseragentprotocol/mcp
-
-# User scope - available to you across all projects
-claude mcp add --transport stdio --scope user bap-browser -- npx @browseragentprotocol/mcp
-
-# Project scope - shared with team via .mcp.json
-claude mcp add --transport stdio --scope project bap-browser -- npx @browseragentprotocol/mcp
+  -b, --browser <name>        Browser: chrome (default), chromium, firefox, webkit, edge
+  -u, --url <url>             Connect to existing BAP server (skips auto-start)
+  -p, --port <number>         Port for auto-started server (default: 9222)
+  --headless                  Run browser headless (default: true)
+  --no-headless               Visible browser window
+  --allowed-domains <list>    Comma-separated list of allowed domains
+  -v, --verbose               Enable verbose logging to stderr
+  -h, --help                  Show help
+  --version                   Show version
 ```
 
 ## Programmatic Usage
@@ -248,14 +155,15 @@ const server = new BAPMCPServer({
   verbose: true,
 });
 
-await server.start();
+await server.run();
 ```
 
 ## Requirements
 
 - Node.js >= 20.0.0
-- A running BAP server (`npx @browseragentprotocol/server-playwright`)
-- An MCP-compatible client (Claude Code, Claude Desktop, OpenAI Codex, etc.)
+- An MCP-compatible client
+
+The BAP Playwright server is auto-started by default. To install Playwright browsers manually: `npx playwright install chromium`.
 
 ## Troubleshooting
 
@@ -263,22 +171,23 @@ await server.start();
 
 On native Windows (not WSL), use the `cmd /c` wrapper:
 
-```bash
-claude mcp add --transport stdio bap-browser -- cmd /c npx @browseragentprotocol/mcp
+```json
+{
+  "mcpServers": {
+    "bap-browser": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@browseragentprotocol/mcp"]
+    }
+  }
+}
 ```
 
-**Server not connecting?**
+**Server not starting?**
 
-Make sure the BAP server is running:
-
-```bash
-npx @browseragentprotocol/server-playwright
-```
-
-Then check the MCP server status:
+Ensure Playwright browsers are installed:
 
 ```bash
-/mcp  # Within Claude Code
+npx playwright install chromium
 ```
 
 ## License

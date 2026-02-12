@@ -5,7 +5,7 @@
 
 An open standard for AI agents to interact with web browsers.
 
-> **v0.1.0:** First public release. APIs may evolve based on feedback.
+> **v0.2.0:** Renamed MCP tools, auto-reconnect, multi-context support, streaming, and more. APIs may evolve based on feedback.
 
 ## Overview
 
@@ -49,69 +49,86 @@ BAP (Browser Agent Protocol) provides a standardized way for AI agents to contro
 
 ## Quick Start
 
-### Using with MCP (Recommended for AI Agents)
+### Using with MCP (Recommended)
 
-BAP works with any MCP-compatible client including Claude Code, Claude Desktop, OpenAI Codex, and Google Antigravity.
+BAP works with any MCP-compatible client. The server auto-starts — no separate setup needed.
 
-**Claude Code:**
+**Add via CLI** (works with most MCP clients):
 ```bash
-claude mcp add --transport stdio bap-browser -- npx @browseragentprotocol/mcp
+<client> mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
 ```
 
-<p align="center">
-  <img src="assets/claude-code-demo.png" alt="BAP with Claude Code" width="600"><br>
-  <em>Claude Code browsing Hacker News with BAP</em>
-</p>
-
-**Claude Desktop** (`claude_desktop_config.json`):
+**Add via JSON config** (most MCP desktop clients):
 ```json
 {
   "mcpServers": {
     "bap-browser": {
       "command": "npx",
-      "args": ["@browseragentprotocol/mcp"]
+      "args": ["-y", "@browseragentprotocol/mcp"]
     }
   }
 }
 ```
 
-<p align="center">
-  <img src="assets/claude-desktop-demo.png" alt="BAP with Claude Desktop" width="600"><br>
-  <em>Claude Desktop browsing Hacker News with BAP</em>
-</p>
-
-**Codex CLI:**
-```bash
-codex mcp add bap-browser -- npx @browseragentprotocol/mcp
-```
-
-<p align="center">
-  <img src="assets/codex-cli-demo.png" alt="BAP with OpenAI Codex CLI" width="600"><br>
-  <em>Codex CLI browsing Hacker News with BAP</em>
-</p>
-
-**Codex Desktop** (`~/.codex/config.toml`):
+**Add via TOML config** (Codex Desktop):
 ```toml
 [mcp_servers.bap-browser]
 command = "npx"
-args = ["@browseragentprotocol/mcp"]
+args = ["-y", "@browseragentprotocol/mcp"]
 ```
 
+### Plugin Install
+
+BAP is also available as a plugin for MCP clients with plugin directories.
+
+<details>
+<summary>Screenshots</summary>
+
 <p align="center">
-  <img src="assets/codex-desktop-demo.png" alt="BAP with OpenAI Codex Desktop" width="600"><br>
+  <img src="assets/claude-code-demo.png" alt="BAP in a terminal MCP client" width="600"><br>
+  <em>Browsing Hacker News with BAP</em>
+</p>
+
+<p align="center">
+  <img src="assets/claude-desktop-demo.png" alt="BAP in a desktop MCP client" width="600"><br>
+  <em>Desktop MCP client browsing Hacker News with BAP</em>
+</p>
+
+<p align="center">
+  <img src="assets/codex-cli-demo.png" alt="BAP in Codex CLI" width="600"><br>
+  <em>Codex CLI browsing Hacker News with BAP</em>
+</p>
+
+<p align="center">
+  <img src="assets/codex-desktop-demo.png" alt="BAP in Codex Desktop" width="600"><br>
   <em>Codex Desktop browsing Hacker News with BAP</em>
 </p>
 
-> **💡 Tip:** Codex may default to web search. Be explicit: *"Using the bap-browser MCP tools..."*
+</details>
 
+### Browser Selection
 
-**Antigravity** (`mcp_config.json` via "..." → MCP Store → Manage):
+By default, BAP uses your locally installed Chrome. You can choose a different browser with the `--browser` flag:
+
+```bash
+npx @browseragentprotocol/mcp --browser firefox
+```
+
+| Value | Browser | Notes |
+|---|---|---|
+| `chrome` (default) | Local Chrome | Falls back to bundled Chromium if not installed |
+| `chromium` | Bundled Chromium | Playwright's built-in Chromium |
+| `firefox` | Firefox | Requires local Firefox |
+| `webkit` | WebKit | Playwright's WebKit engine |
+| `edge` | Microsoft Edge | Requires local Edge |
+
+In a JSON MCP config, pass the flag via args:
 ```json
 {
   "mcpServers": {
     "bap-browser": {
       "command": "npx",
-      "args": ["@browseragentprotocol/mcp"]
+      "args": ["-y", "@browseragentprotocol/mcp", "--browser", "firefox"]
     }
   }
 }
@@ -255,7 +272,7 @@ const data = await client.extract({
 });
 ```
 
-> **Note:** `agent/extract` (and `bap_extract` in MCP) uses heuristic-based extraction (CSS patterns). For complex pages, consider using `bap_content` to get page content as markdown and extract data yourself.
+> **Note:** `agent/extract` (and `extract` in MCP) uses heuristic-based extraction (CSS patterns). For complex pages, consider using `content` to get page content as markdown and extract data yourself.
 
 ## Server Options
 

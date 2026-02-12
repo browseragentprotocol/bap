@@ -41,8 +41,8 @@
     "automation",
     "ai",
     "agent",
-    "claude",
-    "anthropic"
+    "playwright",
+    "web-scraping"
   ],
   "scripts": {
     "build": "tsup src/index.ts src/cli.ts --format cjs,esm --dts --clean",
