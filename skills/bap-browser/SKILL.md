@@ -1,12 +1,34 @@
 ---
 name: bap-browser
-description: "Browser automation via Browser Agent Protocol (BAP). Apply when using BAP MCP tools: navigate, click, fill, type, observe, act, extract, screenshot, aria_snapshot, content, scroll, hover, press, select, element, pages, activate_page, close_page, go_back, go_forward, reload, accessibility."
+description: "AI-optimized browser automation via Browser Agent Protocol (BAP). Use when the user wants to browse websites, scrape web content, automate browser interactions, fill out web forms, extract structured data from pages, take screenshots, or test web applications. Provides semantic selectors, batched multi-step actions, and structured data extraction. Triggers: navigate, click, fill, type, observe, act, extract, screenshot, aria_snapshot, content, scroll, hover, press, select, element, pages, activate_page, close_page, go_back, go_forward, reload, accessibility."
 license: See LICENSE.txt (Apache-2.0)
 ---
 
 # BAP Browser Automation
 
 You have BAP (Browser Agent Protocol) tools available. BAP wraps a real browser and exposes it through semantic, AI-native APIs. This document defines how to use them well.
+
+## Quick Start
+
+For most browser tasks, you only need three tools:
+
+1. **`navigate`** — open a URL
+2. **`observe`** — see what's on the page (returns interactive elements with stable refs)
+3. **`act`** — batch multiple interactions into a single call
+
+```
+navigate({ url: "https://example.com/login" })
+observe({ includeScreenshot: true })
+act({
+  steps: [
+    { action: "action/fill", selector: "@e1", value: "user@example.com" },
+    { action: "action/fill", selector: "@e2", value: "password123" },
+    { action: "action/click", selector: "role:button:Sign in" }
+  ]
+})
+```
+
+Read on for the full tool reference, selector guide, and advanced patterns.
 
 ## Decision: Which Tool?
 
@@ -171,3 +193,84 @@ press({ key: "Enter" })
 - Take a screenshot to read text. Use `content({ format: "markdown" })`.
 - Skip `observe` on pages you haven't seen. You'll guess wrong.
 - Parse raw HTML. Use `extract` with a schema.
+
+---
+
+## Advanced
+
+### Multi-tab workflows
+
+Use `pages` to list all open tabs, `activate_page` to switch between them, and `close_page` to clean up. Useful for comparing content across tabs or handling pop-ups.
+
+```
+navigate({ url: "https://a.example.com" })
+navigate({ url: "https://b.example.com" })   // opens in new tab
+pages()                                        // returns [{id, url}, ...]
+activate_page({ pageId: "page-1" })           // switch back to first tab
+```
+
+### Waiting strategies
+
+The `waitUntil` parameter on `navigate` controls when the page is considered loaded:
+
+| Value | When to use |
+|-------|-------------|
+| `"load"` | Default. Fine for most pages. |
+| `"domcontentloaded"` | Faster. Use when you don't need images/fonts. |
+| `"networkidle"` | Slowest but most complete. Use for SPAs that fetch data after load. |
+
+If a page renders dynamically after navigation, use `observe` or `aria_snapshot` with a short delay rather than relying on `networkidle`.
+
+### Annotated screenshots (Set-of-Marks)
+
+`observe` supports `annotateScreenshot: true` which overlays numbered markers on each interactive element. Useful for visual debugging or confirming which element a ref points to.
+
+```
+observe({ includeScreenshot: true, annotateScreenshot: true, maxElements: 20 })
+```
+
+The returned screenshot will have numbered badges corresponding to element refs.
+
+### Nested extraction with complex schemas
+
+`extract` supports deeply nested JSON schemas. Use `mode: "single"` for a single object, `mode: "list"` for arrays, or `mode: "table"` for tabular data.
+
+```
+extract({
+  instruction: "Extract job listings with company details",
+  mode: "list",
+  schema: {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        title: { type: "string" },
+        company: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            location: { type: "string" }
+          }
+        },
+        salary: { type: "number" },
+        remote: { type: "boolean" }
+      }
+    }
+  }
+})
+```
+
+### Error handling in batched actions
+
+`act` accepts `stopOnFirstError` (default: `true`). Set to `false` if you want to continue executing steps even when one fails — useful for best-effort form fills where some fields may not exist.
+
+```
+act({
+  stopOnFirstError: false,
+  steps: [
+    { action: "action/fill", selector: "label:First name", value: "Jane" },
+    { action: "action/fill", selector: "label:Middle name", value: "A." },  // may not exist
+    { action: "action/fill", selector: "label:Last name", value: "Doe" }
+  ]
+})
+```
