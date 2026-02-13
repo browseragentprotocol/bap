@@ -1,6 +1,6 @@
 {
   "name": "@browseragentprotocol/client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "BAP Client SDK - Connect to BAP servers for browser automation",
   "author": "Browser Agent Protocol",
   "license": "Apache-2.0",

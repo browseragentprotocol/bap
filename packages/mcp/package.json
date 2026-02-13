@@ -1,6 +1,6 @@
 {
   "name": "@browseragentprotocol/mcp",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "BAP MCP Integration - Use Browser Agent Protocol as an MCP server",
   "author": "Browser Agent Protocol",
   "license": "Apache-2.0",
