@@ -197,6 +197,43 @@ describe("BAPClient Methods", () => {
       expect(parsed.params.headless).toBe(true);
     });
 
+    it("launch() passes channel param correctly", async () => {
+      const { client, transport } = await createConnectedClient();
+      transport.setAutoResponse("browser/launch", { browserId: "browser-2" });
+
+      const result = await client.launch({ browser: "chromium", channel: "chrome", headless: false });
+
+      expect(result.browserId).toBe("browser-2");
+
+      const launchRequest = transport.sentMessages.find((msg) => {
+        const parsed = JSON.parse(msg);
+        return parsed.method === "browser/launch";
+      });
+      expect(launchRequest).toBeDefined();
+      const parsed = JSON.parse(launchRequest!);
+      expect(parsed.params.browser).toBe("chromium");
+      expect(parsed.params.channel).toBe("chrome");
+      expect(parsed.params.headless).toBe(false);
+    });
+
+    it("launch() without channel works (backwards compat)", async () => {
+      const { client, transport } = await createConnectedClient();
+      transport.setAutoResponse("browser/launch", { browserId: "browser-3" });
+
+      const result = await client.launch({ browser: "firefox" });
+
+      expect(result.browserId).toBe("browser-3");
+
+      const launchRequest = transport.sentMessages.find((msg) => {
+        const parsed = JSON.parse(msg);
+        return parsed.method === "browser/launch";
+      });
+      expect(launchRequest).toBeDefined();
+      const parsed = JSON.parse(launchRequest!);
+      expect(parsed.params.browser).toBe("firefox");
+      expect(parsed.params.channel).toBeUndefined();
+    });
+
     it("closeBrowser() sends correct request", async () => {
       const { client, transport } = await createConnectedClient();
       transport.setAutoResponse("browser/close", {});

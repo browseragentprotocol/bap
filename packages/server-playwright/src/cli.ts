@@ -76,7 +76,7 @@ function parseArgs(): Partial<BAPServerOptions> {
       process.exit(0);
     } else if (arg === "--version" || arg === "-v") {
       console.log(
-        `${icons.server} BAP Playwright Server ${pc.dim("v0.1.0-alpha.1")}`
+        `${icons.server} BAP Playwright Server ${pc.dim("v0.2.0")}`
       );
       process.exit(0);
     }
@@ -167,7 +167,7 @@ async function main(): Promise<void> {
     console.log(
       banner({
         title: "BAP Playwright Server",
-        version: "0.1.0-alpha.1",
+        version: "0.2.0",
         subtitle: "Browser Agent Protocol",
       })
     );

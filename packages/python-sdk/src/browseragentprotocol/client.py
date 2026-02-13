@@ -108,7 +108,7 @@ class BAPClient:
         *,
         token: str | None = None,
         name: str = "bap-client-python",
-        version: str = "0.1.0",
+        version: str = "0.2.0",
         timeout: float = 30.0,
         events: list[str] | None = None,
     ):
@@ -274,6 +274,7 @@ class BAPClient:
     async def launch(
         self,
         browser: Literal["chromium", "firefox", "webkit"] | None = None,
+        channel: str | None = None,
         headless: bool | None = None,
         args: list[str] | None = None,
         **kwargs: Any,
@@ -283,6 +284,7 @@ class BAPClient:
 
         Args:
             browser: Browser type (chromium, firefox, webkit)
+            channel: Playwright channel (e.g. "chrome", "msedge")
             headless: Run in headless mode
             args: Additional browser arguments
             **kwargs: Additional launch options
@@ -293,6 +295,8 @@ class BAPClient:
         params: dict[str, Any] = {}
         if browser is not None:
             params["browser"] = browser
+        if channel is not None:
+            params["channel"] = channel
         if headless is not None:
             params["headless"] = headless
         if args is not None:

@@ -1,6 +1,6 @@
 [project]
 name = "browser-agent-protocol"
-version = "0.1.0a1"
+version = "0.2.0"
 description = "Python SDK for the Browser Agent Protocol (BAP) - control browsers with AI agents"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -55,10 +55,10 @@ dev = [
 bap = "browseragentprotocol.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/anthropics/browser-agent-protocol"
-Documentation = "https://github.com/anthropics/browser-agent-protocol#readme"
-Repository = "https://github.com/anthropics/browser-agent-protocol"
-Issues = "https://github.com/anthropics/browser-agent-protocol/issues"
+Homepage = "https://github.com/browseragentprotocol/bap"
+Documentation = "https://github.com/browseragentprotocol/bap#readme"
+Repository = "https://github.com/browseragentprotocol/bap"
+Issues = "https://github.com/browseragentprotocol/bap/issues"
 
 [build-system]
 requires = ["hatchling"]

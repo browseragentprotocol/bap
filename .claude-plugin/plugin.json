@@ -1,0 +1,7 @@
+{
+  "name": "BAPBrowser",
+  "description": "AI-optimized browser automation with semantic selectors, smart observations, and multi-step actions. Navigate, click, fill forms, extract data, and take screenshots across Chrome, Firefox, and WebKit.",
+  "author": {
+    "name": "Browser Agent Protocol"
+  }
+}

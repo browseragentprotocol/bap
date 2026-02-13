@@ -17,7 +17,7 @@ async def bap_client(
     *,
     token: str | None = None,
     name: str = "bap-client-python",
-    version: str = "0.1.0",
+    version: str = "0.2.0",
     timeout: float = 30.0,
     events: list[str] | None = None,
     browser: Literal["chromium", "firefox", "webkit"] | None = None,

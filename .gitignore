@@ -33,3 +33,6 @@ coverage/
 # Claude Code instructions (local only)
 CLAUDE.md
 docs/plans/
+
+# Internal roadmap (local only)
+ROADMAP.md

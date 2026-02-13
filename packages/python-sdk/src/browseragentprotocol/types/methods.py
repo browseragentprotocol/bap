@@ -84,6 +84,7 @@ class BrowserLaunchParams(BaseModel):
     """Parameters for browser/launch."""
 
     browser: Literal["chromium", "firefox", "webkit"] | None = None
+    channel: str | None = None
     headless: bool | None = None
     args: list[str] | None = None
     env: dict[str, str] | None = None

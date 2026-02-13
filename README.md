@@ -1,11 +1,11 @@
 # Browser Agent Protocol (BAP)
 
-[![npm version](https://badge.fury.io/js/@browseragentprotocol%2Fprotocol.svg)](https://www.npmjs.com/package/@browseragentprotocol/protocol)
+[![npm version](https://badge.fury.io/js/@browseragentprotocol%2Fmcp.svg)](https://www.npmjs.com/package/@browseragentprotocol/mcp)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 An open standard for AI agents to interact with web browsers.
 
-> **v0.1.0:** First public release. APIs may evolve based on feedback.
+> **v0.2.0:** Renamed MCP tools, auto-reconnect, multi-context support, streaming, and more. APIs may evolve based on feedback.
 
 ## Overview
 
@@ -49,69 +49,104 @@ BAP (Browser Agent Protocol) provides a standardized way for AI agents to contro
 
 ## Quick Start
 
-### Using with MCP (Recommended for AI Agents)
+BAP works with any MCP-compatible client. The server auto-starts — no separate setup needed.
 
-BAP works with any MCP-compatible client including Claude Code, Claude Desktop, OpenAI Codex, and Google Antigravity.
+### Claude Code
 
-**Claude Code:**
+**MCP server** (one command):
 ```bash
-claude mcp add --transport stdio bap-browser -- npx @browseragentprotocol/mcp
+claude mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
+```
+
+**Plugin** (includes SKILL.md for smarter tool usage):
+```bash
+claude plugin add --from https://github.com/browseragentprotocol/bap
 ```
 
 <p align="center">
-  <img src="assets/claude-code-demo.png" alt="BAP with Claude Code" width="600"><br>
+  <img src="assets/claude-code-demo.png" alt="BAP in Claude Code" width="600"><br>
   <em>Claude Code browsing Hacker News with BAP</em>
 </p>
 
-**Claude Desktop** (`claude_desktop_config.json`):
+### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
 ```json
 {
   "mcpServers": {
     "bap-browser": {
       "command": "npx",
-      "args": ["@browseragentprotocol/mcp"]
+      "args": ["-y", "@browseragentprotocol/mcp"]
     }
   }
 }
 ```
 
+Restart Claude Desktop after saving.
+
 <p align="center">
-  <img src="assets/claude-desktop-demo.png" alt="BAP with Claude Desktop" width="600"><br>
+  <img src="assets/claude-desktop-demo.png" alt="BAP in Claude Desktop" width="600"><br>
   <em>Claude Desktop browsing Hacker News with BAP</em>
 </p>
 
-**Codex CLI:**
+### Codex CLI
+
 ```bash
-codex mcp add bap-browser -- npx @browseragentprotocol/mcp
+codex mcp add bap-browser -- npx -y @browseragentprotocol/mcp
 ```
 
-<p align="center">
-  <img src="assets/codex-cli-demo.png" alt="BAP with OpenAI Codex CLI" width="600"><br>
-  <em>Codex CLI browsing Hacker News with BAP</em>
-</p>
+Or add to `~/.codex/config.toml`:
 
-**Codex Desktop** (`~/.codex/config.toml`):
 ```toml
 [mcp_servers.bap-browser]
 command = "npx"
-args = ["@browseragentprotocol/mcp"]
+args = ["-y", "@browseragentprotocol/mcp"]
 ```
 
 <p align="center">
-  <img src="assets/codex-desktop-demo.png" alt="BAP with OpenAI Codex Desktop" width="600"><br>
+  <img src="assets/codex-cli-demo.png" alt="BAP in Codex CLI" width="600"><br>
+  <em>Codex CLI browsing Hacker News with BAP</em>
+</p>
+
+### Codex Desktop
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.bap-browser]
+command = "npx"
+args = ["-y", "@browseragentprotocol/mcp"]
+```
+
+<p align="center">
+  <img src="assets/codex-desktop-demo.png" alt="BAP in Codex Desktop" width="600"><br>
   <em>Codex Desktop browsing Hacker News with BAP</em>
 </p>
 
-> **💡 Tip:** Codex may default to web search. Be explicit: *"Using the bap-browser MCP tools..."*
+### Browser Selection
 
+By default, BAP uses your locally installed Chrome. You can choose a different browser with the `--browser` flag:
 
-**Antigravity** (`mcp_config.json` via "..." → MCP Store → Manage):
+```bash
+npx @browseragentprotocol/mcp --browser firefox
+```
+
+| Value | Browser | Notes |
+|---|---|---|
+| `chrome` (default) | Local Chrome | Falls back to bundled Chromium if not installed |
+| `chromium` | Bundled Chromium | Playwright's built-in Chromium |
+| `firefox` | Firefox | Requires local Firefox |
+| `webkit` | WebKit | Playwright's WebKit engine |
+| `edge` | Microsoft Edge | Requires local Edge |
+
+In a JSON MCP config, pass the flag via args:
 ```json
 {
   "mcpServers": {
     "bap-browser": {
       "command": "npx",
-      "args": ["@browseragentprotocol/mcp"]
+      "args": ["-y", "@browseragentprotocol/mcp", "--browser", "firefox"]
     }
   }
 }
@@ -255,7 +290,7 @@ const data = await client.extract({
 });
 ```
 
-> **Note:** `agent/extract` (and `bap_extract` in MCP) uses heuristic-based extraction (CSS patterns). For complex pages, consider using `bap_content` to get page content as markdown and extract data yourself.
+> **Note:** `agent/extract` (and `extract` in MCP) uses heuristic-based extraction (CSS patterns). For complex pages, consider using `content` to get page content as markdown and extract data yourself.
 
 ## Server Options
 

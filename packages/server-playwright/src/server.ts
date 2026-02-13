@@ -151,7 +151,7 @@ const ScopeProfiles = {
   readonly: ['page:read', 'observe:*'] as BAPScope[],
   standard: [
     'browser:launch', 'browser:close', 'page:*',
-    'action:click', 'action:type', 'action:fill', 'action:scroll', 'action:select',
+    'action:*',
     'observe:*', 'emulate:viewport',
   ] as BAPScope[],
   full: ['browser:*', 'page:*', 'action:*', 'observe:*', 'emulate:*', 'trace:*'] as BAPScope[],
@@ -396,6 +396,8 @@ export interface BAPServerOptions {
   host?: string;
   /** Default browser type */
   defaultBrowser?: "chromium" | "firefox" | "webkit";
+  /** Default Playwright channel (e.g. "chrome", "msedge") */
+  defaultChannel?: string;
   /** Default headless mode */
   headless?: boolean;
   /** Enable debug logging */
@@ -477,9 +479,10 @@ const BLOCKED_BROWSER_ARGS = [
 /**
  * SECURE-BY-DEFAULT: All security options enabled by default
  */
-const DEFAULT_OPTIONS: Required<Omit<BAPServerOptions, 'authToken' | 'authTokenEnvVar' | 'security' | 'limits' | 'authorization' | 'session' | 'tls'>> & {
+const DEFAULT_OPTIONS: Required<Omit<BAPServerOptions, 'authToken' | 'authTokenEnvVar' | 'defaultChannel' | 'security' | 'limits' | 'authorization' | 'session' | 'tls'>> & {
   authToken: string | undefined;
   authTokenEnvVar: string;
+  defaultChannel: string | undefined;
   security: Required<BAPSecurityOptions>;
   limits: Required<BAPLimitsOptions>;
   authorization: Required<BAPAuthorizationOptions>;
@@ -489,6 +492,7 @@ const DEFAULT_OPTIONS: Required<Omit<BAPServerOptions, 'authToken' | 'authTokenE
   port: 9222,
   host: "localhost",
   defaultBrowser: "chromium",
+  defaultChannel: undefined,
   headless: true,
   debug: false,
   timeout: 30000,
@@ -1256,7 +1260,7 @@ export class BAPPlaywrightServer extends EventEmitter {
       protocolVersion: BAP_VERSION,
       serverInfo: {
         name: "bap-playwright",
-        version: "0.1.0",
+        version: "0.2.0",
       },
       capabilities,
     };
@@ -1341,15 +1345,22 @@ export class BAPPlaywrightServer extends EventEmitter {
       validatedDownloadsPath = normalizedPath;
     }
 
+    const channel = params.channel ?? this.options.defaultChannel;
+
     state.browser = await launcher.launch({
       headless: params.headless ?? this.options.headless,
+      channel,
       args: sanitizedArgs.length > 0 ? sanitizedArgs : undefined,
       proxy: params.proxy,
       downloadsPath: validatedDownloadsPath,
     });
 
     // Create the default context
-    const defaultContext = await state.browser.newContext();
+    // Force deviceScaleFactor: 1 for consistent screenshot sizes across platforms
+    // (retina Macs default to 2x, which doubles pixel count and inflates payloads)
+    const defaultContext = await state.browser.newContext({
+      deviceScaleFactor: 1,
+    });
     const version = state.browser.version();
     // Use crypto.randomUUID for unique IDs
     const contextId = `ctx-${randomUUID().slice(0, 8)}`;
@@ -1872,16 +1883,19 @@ export class BAPPlaywrightServer extends EventEmitter {
     this.checkRateLimit(state, 'screenshot');
 
     // Playwright only supports "png" and "jpeg" for screenshots
+    // Default to JPEG — ~60% smaller payloads, reducing LLM token cost
     const screenshotType = (options?.format === "jpeg" || options?.format === "png")
       ? options.format
-      : "png";
+      : "jpeg";
 
     const buffer = await page.screenshot({
       fullPage: options?.fullPage,
       clip: options?.clip,
       type: screenshotType,
-      quality: options?.quality,
-      scale: options?.scale,
+      quality: options?.quality ?? (screenshotType === "jpeg" ? 80 : undefined),
+      // Default to CSS scale to ensure consistent 1x screenshots regardless
+      // of device pixel ratio (prevents 2x images on retina displays)
+      scale: options?.scale ?? "css",
     });
 
     // Parse image dimensions from the buffer
@@ -1890,14 +1904,14 @@ export class BAPPlaywrightServer extends EventEmitter {
     let width: number;
     let height: number;
 
-    const format = options?.format ?? "png";
+    const format = screenshotType;
 
     if (format === "png" && buffer[0] === 0x89 && buffer[1] === 0x50) {
       // PNG: Read dimensions from IHDR chunk (offset 16 for width, 20 for height)
       width = buffer.readUInt32BE(16);
       height = buffer.readUInt32BE(20);
-    } else if ((format === "jpeg" || format === "webp") && buffer.length > 0) {
-      // For JPEG/WebP, fall back to viewport dimensions or clip
+    } else if (format === "jpeg" && buffer.length > 0) {
+      // For JPEG, fall back to viewport dimensions or clip
       // (Parsing JPEG headers is complex, use viewport as approximation)
       const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
       if (options?.clip) {
@@ -2679,12 +2693,19 @@ export class BAPPlaywrightServer extends EventEmitter {
     // Screenshot (with optional annotation)
     if (params.includeScreenshot || params.annotateScreenshot) {
       const viewport = page.viewportSize();
-      let buffer = await page.screenshot({ type: "png" });
+      // Use JPEG by default for ~60% smaller payloads (less LLM token cost)
+      // Annotations require PNG for sharp badge rendering
+      const useAnnotation = params.annotateScreenshot && interactiveElements && interactiveElements.length > 0;
+      const obsFormat = useAnnotation ? "png" as const : "jpeg" as const;
+      let buffer = await page.screenshot({
+        type: obsFormat,
+        quality: obsFormat === "jpeg" ? 80 : undefined,
+      });
       let annotated = false;
       let annotationMap: AnnotationMapping[] | undefined;
 
       // Apply annotation if requested
-      if (params.annotateScreenshot && interactiveElements && interactiveElements.length > 0) {
+      if (useAnnotation && interactiveElements) {
         const annotationOpts: AnnotationOptions = typeof params.annotateScreenshot === 'object'
           ? params.annotateScreenshot
           : { enabled: true };
@@ -2704,7 +2725,7 @@ export class BAPPlaywrightServer extends EventEmitter {
 
       result.screenshot = {
         data: buffer.toString("base64"),
-        format: "png",
+        format: obsFormat,
         width: viewport?.width ?? 0,
         height: viewport?.height ?? 0,
         annotated,
@@ -2919,123 +2940,480 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   /**
-   * Extract data from content based on instruction and schema
-   * This is a basic implementation - a full implementation would use LLM
+   * Extract data from content based on instruction and schema.
+   *
+   * Strategy:
+   *  1. Scope to the main content area (skip nav/header/footer).
+   *  2. For lists: find repeating item containers, then use schema
+   *     property names to locate child elements within each item.
+   *  3. For objects: search for labeled values.
+   *  4. Coerce types based on schema (string, number, boolean).
    */
   private async extractDataFromContent(
     page: PlaywrightPage,
-    content: string,
-    _instruction: string, // Used for future LLM-based extraction
+    _content: string,
+    _instruction: string,
     schema: { type: string; properties?: Record<string, unknown>; items?: unknown },
     mode: string,
     includeSourceRefs: boolean
   ): Promise<{ data: unknown; sources?: { ref: string; selector: BAPSelector; text?: string }[]; confidence: number }> {
-    // Basic extraction logic based on common patterns
-    // This extracts data by finding elements that match the schema structure
-
     const sources: { ref: string; selector: BAPSelector; text?: string }[] = [];
 
+    // ── Step 1: Scope to main content area ──────────────────────────
+    // Try semantic landmarks first, fall back to body
+    const contentRoot = await this.findContentRoot(page);
+
     if (schema.type === "array" || mode === "list") {
-      // Extract list of items
-      const items: unknown[] = [];
-
-      // Try to find list-like elements based on the instruction
-      const listSelectors = [
-        'ul li', 'ol li', '[role="listitem"]', 'tr', '.item', '.card', '[class*="item"]', '[class*="card"]'
-      ];
-
-      for (const selector of listSelectors) {
-        try {
-          const elements = await page.locator(selector).all();
-          if (elements.length > 0) {
-            for (let i = 0; i < Math.min(elements.length, 50); i++) {
-              const el = elements[i];
-              const text = await el.textContent();
-              if (text && text.trim()) {
-                if (schema.items && typeof schema.items === 'object' && 'type' in schema.items) {
-                  if ((schema.items as { type: string }).type === 'string') {
-                    items.push(text.trim());
-                  } else if ((schema.items as { type: string }).type === 'object') {
-                    // Try to extract object structure
-                    items.push({ text: text.trim() });
-                  }
-                } else {
-                  items.push(text.trim());
-                }
-
-                if (includeSourceRefs) {
-                  sources.push({
-                    ref: `@s${i + 1}`,
-                    selector: { type: 'css', value: `${selector}:nth-child(${i + 1})` },
-                    text: text.trim().slice(0, 100),
-                  });
-                }
-              }
-            }
-            if (items.length > 0) break;
-          }
-        } catch {
-          // Continue to next selector
-        }
-      }
-
-      return { data: items, sources: includeSourceRefs ? sources : undefined, confidence: items.length > 0 ? 0.7 : 0.3 };
-    }
-
-    if (schema.type === "object" && schema.properties) {
-      // Extract object with properties
-      const result: Record<string, unknown> = {};
-      const properties = schema.properties as Record<string, { type?: string; description?: string }>;
-
-      for (const [key, propSchema] of Object.entries(properties)) {
-        // Try to find content matching this property
-        const searchTerms = [key, propSchema.description].filter(Boolean);
-
-        for (const term of searchTerms) {
-          if (!term) continue;
-
-          // Look for labels or headings containing the term
-          const labelSelectors = [
-            `label:has-text("${term}")`,
-            `th:has-text("${term}")`,
-            `dt:has-text("${term}")`,
-            `[class*="${term.toLowerCase()}"]`,
-          ];
-
-          for (const selector of labelSelectors) {
-            try {
-              const label = await page.locator(selector).first();
-              if (await label.count() > 0) {
-                // Try to find associated value
-                const parent = label.locator('..');
-                const siblingText = await parent.textContent();
-                if (siblingText) {
-                  const value = siblingText.replace(new RegExp(term, 'gi'), '').trim();
-                  if (value) {
-                    result[key] = propSchema.type === 'number' ? parseFloat(value) || value : value;
-                    break;
-                  }
-                }
-              }
-            } catch {
-              // Continue
-            }
-          }
-        }
-      }
-
+      const items = await this.extractList(
+        page, contentRoot, schema, includeSourceRefs, sources
+      );
       return {
-        data: Object.keys(result).length > 0 ? result : { raw: content.slice(0, 1000) },
+        data: items,
         sources: includeSourceRefs ? sources : undefined,
-        confidence: Object.keys(result).length > 0 ? 0.6 : 0.2
+        confidence: items.length > 0 ? 0.8 : 0.3,
       };
     }
 
-    // Default: return text content
+    if (mode === "table") {
+      const rows = await this.extractTable(
+        page, contentRoot, schema, includeSourceRefs, sources
+      );
+      return {
+        data: rows,
+        sources: includeSourceRefs ? sources : undefined,
+        confidence: rows.length > 0 ? 0.8 : 0.3,
+      };
+    }
+
+    if (schema.type === "object" && schema.properties) {
+      const result = await this.extractObject(
+        page, contentRoot, schema, includeSourceRefs, sources
+      );
+      return {
+        data: result.data,
+        sources: includeSourceRefs ? sources : undefined,
+        confidence: result.confidence,
+      };
+    }
+
+    // Default: return scoped text content
+    const text = await contentRoot.textContent() ?? "";
     return {
-      data: content.trim().slice(0, 5000),
+      data: text.trim().slice(0, 5000),
       sources: includeSourceRefs ? sources : undefined,
-      confidence: 0.5
+      confidence: 0.5,
+    };
+  }
+
+  /**
+   * Find the main content area of the page, skipping nav/header/footer.
+   * Returns a Locator scoped to the best content root.
+   */
+  private async findContentRoot(page: PlaywrightPage) {
+    // Try semantic landmarks in priority order
+    const candidates = ['main', '[role="main"]', '#content', '.content', '#main', '.page', '.container', '[role="document"]'];
+    for (const sel of candidates) {
+      try {
+        const loc = page.locator(sel).first();
+        if (await loc.count() > 0) {
+          // Verify it has substantial content (not just a wrapper with nav inside)
+          const text = await loc.textContent() ?? "";
+          if (text.trim().length > 100) return loc;
+        }
+      } catch { /* continue */ }
+    }
+    // Fallback: body
+    return page.locator('body');
+  }
+
+  /**
+   * Extract a list of items from repeating elements.
+   * Uses schema property names to locate child values within each item container.
+   */
+  private async extractList(
+    _page: PlaywrightPage,
+    root: ReturnType<PlaywrightPage['locator']>,
+    schema: { items?: unknown },
+    includeSourceRefs: boolean,
+    sources: { ref: string; selector: BAPSelector; text?: string }[]
+  ): Promise<unknown[]> {
+    const itemSchema = schema.items as { type?: string; properties?: Record<string, { type?: string }> } | undefined;
+    const isObjectItems = itemSchema?.type === 'object' && itemSchema.properties;
+
+    // ── Find the best repeating container ────────────────────────────
+    // Selectors are ordered by semantic priority: article > role > class-name > generic.
+    // Use the FIRST selector with 2+ matches rather than the one with the most,
+    // because generic selectors (ul li) often match sidebar/nav noise.
+    const containerSelectors = [
+      'article', '[role="listitem"]',
+      '.product', '.card', '.item', '.listing', '.result', '.entry', '.post',
+      '[class*="product"]', '[class*="card"]', '[class*="item"]',
+      'table tbody tr',
+      'ol li', 'ul li',
+    ];
+
+    let bestSelector = '';
+    let bestCount = 0;
+
+    for (const sel of containerSelectors) {
+      try {
+        const count = await root.locator(sel).count();
+        if (count >= 2) {
+          bestSelector = sel;
+          bestCount = count;
+          break; // First semantic match wins
+        }
+      } catch { /* continue */ }
+    }
+
+    if (!bestSelector || bestCount === 0) return [];
+
+    const elements = await root.locator(bestSelector).all();
+    const items: unknown[] = [];
+    const limit = Math.min(elements.length, 100);
+
+    for (let i = 0; i < limit; i++) {
+      const el = elements[i]!;
+
+      // Skip elements that are likely not visible or too small
+      try {
+        const box = await el.boundingBox();
+        if (box && (box.width < 10 || box.height < 10)) continue;
+      } catch { /* proceed anyway */ }
+
+      if (isObjectItems && itemSchema?.properties) {
+        // ── Schema-aware extraction: match property names to child elements ──
+        const obj = await this.extractPropertiesFromElement(el, itemSchema.properties);
+        // Only include if at least one property has a non-empty value
+        const hasValue = Object.values(obj).some(v => v !== null && v !== undefined && v !== '');
+        if (hasValue) {
+          items.push(obj);
+          if (includeSourceRefs) {
+            sources.push({
+              ref: `@s${items.length}`,
+              selector: { type: 'css', value: `${bestSelector}:nth-child(${i + 1})` },
+              text: Object.values(obj).filter(Boolean).join(' | ').slice(0, 100),
+            });
+          }
+        }
+      } else {
+        // Simple string items
+        const text = await el.textContent();
+        if (text?.trim()) {
+          items.push(text.trim());
+          if (includeSourceRefs) {
+            sources.push({
+              ref: `@s${items.length}`,
+              selector: { type: 'css', value: `${bestSelector}:nth-child(${i + 1})` },
+              text: text.trim().slice(0, 100),
+            });
+          }
+        }
+      }
+    }
+
+    // ── Fallback: if schema-aware extraction produced 0 items from matched ──
+    // elements, retry with text-based extraction (extract each property by
+    // splitting each container's inner text). This handles cases where CSS
+    // class names don't align with schema property names.
+    if (items.length === 0 && isObjectItems && itemSchema?.properties && elements.length > 0) {
+      const propNames = Object.keys(itemSchema.properties);
+      for (let i = 0; i < limit; i++) {
+        const el = elements[i]!;
+        try {
+          const box = await el.boundingBox();
+          if (box && (box.width < 10 || box.height < 10)) continue;
+        } catch { /* proceed */ }
+
+        const fullText = await el.textContent() ?? '';
+        if (!fullText.trim()) continue;
+
+        const obj: Record<string, unknown> = {};
+        // Try to extract known patterns from the full text
+        for (const key of propNames) {
+          const kl = key.toLowerCase();
+          if (kl === 'title' || kl === 'name') {
+            // First link's title attribute, or first heading text
+            try {
+              const heading = el.locator('h1, h2, h3, h4, h5, h6').first();
+              if (await heading.count() > 0) {
+                const link = heading.locator('a').first();
+                if (await link.count() > 0) {
+                  obj[key] = await link.getAttribute('title') ?? await link.textContent() ?? null;
+                } else {
+                  obj[key] = await heading.textContent() ?? null;
+                }
+              }
+            } catch { /* skip */ }
+          } else if (kl === 'price' || kl === 'cost' || kl === 'amount') {
+            const priceMatch = fullText.match(/[$€£¥]\s*[\d,.]+|[\d,.]+\s*[$€£¥]/);
+            if (priceMatch) obj[key] = priceMatch[0].trim();
+          } else if (kl === 'url' || kl === 'link' || kl === 'href') {
+            try {
+              const link = el.locator('a').first();
+              if (await link.count() > 0) obj[key] = await link.getAttribute('href');
+            } catch { /* skip */ }
+          } else if (kl === 'rating') {
+            // Try star-rating class pattern (e.g., "star-rating Three")
+            try {
+              const ratingEl = el.locator('[class*="rating"], [class*="star"]').first();
+              if (await ratingEl.count() > 0) {
+                const cls = await ratingEl.getAttribute('class') ?? '';
+                const parts = cls.split(/\s+/).filter(c => !c.toLowerCase().includes('rating') && !c.toLowerCase().includes('star') && c.length > 0);
+                if (parts.length > 0) obj[key] = parts[parts.length - 1];
+              }
+            } catch { /* skip */ }
+          } else if (kl === 'availability' || kl === 'stock' || kl === 'status') {
+            try {
+              const stockEl = el.locator('[class*="avail"], [class*="stock"], .availability, .stock').first();
+              if (await stockEl.count() > 0) {
+                obj[key] = (await stockEl.textContent())?.trim() ?? null;
+              }
+            } catch { /* skip */ }
+          }
+        }
+
+        const hasValue = Object.values(obj).some(v => v !== null && v !== undefined && v !== '');
+        if (hasValue) {
+          items.push(obj);
+          if (includeSourceRefs) {
+            sources.push({
+              ref: `@s${items.length}`,
+              selector: { type: 'css', value: `${bestSelector}:nth-child(${i + 1})` },
+              text: Object.values(obj).filter(Boolean).join(' | ').slice(0, 100),
+            });
+          }
+        }
+      }
+    }
+
+    return items;
+  }
+
+  /**
+   * Extract property values from a single element container.
+   * For each schema property, tries class-name matching, then attribute
+   * matching, then falls back to positional heuristics.
+   */
+  private async extractPropertiesFromElement(
+    el: ReturnType<PlaywrightPage['locator']>,
+    properties: Record<string, { type?: string }>
+  ): Promise<Record<string, unknown>> {
+    const result: Record<string, unknown> = {};
+
+    for (const [key, propSchema] of Object.entries(properties)) {
+      const keyLower = key.toLowerCase();
+      let value: string | null = null;
+
+      // Strategy 1: Find child element whose class or tag contains the property name
+      const classSelectors = [
+        `[class*="${keyLower}"]`,
+        `[data-${keyLower}]`,
+        `.${keyLower}`,
+      ];
+
+      for (const sel of classSelectors) {
+        try {
+          const child = el.locator(sel).first();
+          if (await child.count() > 0) {
+            // For links, prefer title attribute (common for truncated titles)
+            if (keyLower === 'title' || keyLower === 'name') {
+              value = await child.getAttribute('title') ?? await child.textContent();
+            } else {
+              value = await child.textContent();
+            }
+            // If text is empty, try extracting from class name (e.g. "star-rating Three" → "Three")
+            if (!value?.trim()) {
+              const cls = await child.getAttribute('class') ?? '';
+              const clsParts = cls.split(/\s+/).filter(c => !c.includes(keyLower) && c.length > 0);
+              if (clsParts.length > 0) value = clsParts[clsParts.length - 1] ?? null;
+            }
+            if (value?.trim()) break;
+          }
+        } catch { /* continue */ }
+      }
+
+      // Strategy 2: For known property patterns, try specific selectors
+      if (!value?.trim()) {
+        try {
+          if (keyLower === 'title' || keyLower === 'name') {
+            // Headings, links with title attribute
+            for (const sel of ['h1 a', 'h2 a', 'h3 a', 'h4 a', 'h1', 'h2', 'h3', 'h4', 'a[title]']) {
+              const child = el.locator(sel).first();
+              if (await child.count() > 0) {
+                value = await child.getAttribute('title') ?? await child.textContent();
+                if (value?.trim()) break;
+              }
+            }
+          } else if (keyLower === 'price' || keyLower === 'cost' || keyLower === 'amount') {
+            // Price patterns
+            const text = await el.textContent() ?? '';
+            const priceMatch = text.match(/[$€£¥]\s*[\d,.]+|[\d,.]+\s*[$€£¥]/);
+            if (priceMatch) value = priceMatch[0].trim();
+          } else if (keyLower === 'url' || keyLower === 'link' || keyLower === 'href') {
+            const link = el.locator('a').first();
+            if (await link.count() > 0) {
+              value = await link.getAttribute('href');
+            }
+          } else if (keyLower === 'image' || keyLower === 'img' || keyLower === 'thumbnail') {
+            const img = el.locator('img').first();
+            if (await img.count() > 0) {
+              value = await img.getAttribute('src');
+            }
+          }
+        } catch { /* continue */ }
+      }
+
+      // Coerce type
+      const trimmed = value?.trim() ?? null;
+      if (trimmed === null) {
+        result[key] = null;
+      } else if (propSchema.type === 'number') {
+        const num = parseFloat(trimmed.replace(/[^0-9.-]/g, ''));
+        result[key] = isNaN(num) ? trimmed : num;
+      } else if (propSchema.type === 'boolean') {
+        result[key] = ['true', 'yes', '1', 'in stock', 'available'].includes(trimmed.toLowerCase());
+      } else {
+        result[key] = trimmed;
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Extract tabular data from an HTML table.
+   */
+  private async extractTable(
+    _page: PlaywrightPage,
+    root: ReturnType<PlaywrightPage['locator']>,
+    schema: { items?: unknown },
+    includeSourceRefs: boolean,
+    sources: { ref: string; selector: BAPSelector; text?: string }[]
+  ): Promise<unknown[]> {
+    const rows: unknown[] = [];
+    const itemSchema = schema.items as { properties?: Record<string, { type?: string }> } | undefined;
+
+    try {
+      // Find table headers to map columns
+      const headers: string[] = [];
+      const thElements = await root.locator('table th').all();
+      for (const th of thElements) {
+        headers.push((await th.textContent() ?? '').trim().toLowerCase());
+      }
+
+      // Extract rows
+      const trElements = await root.locator('table tbody tr').all();
+      const limit = Math.min(trElements.length, 100);
+
+      for (let i = 0; i < limit; i++) {
+        const tr = trElements[i]!;
+        const cells = await tr.locator('td').all();
+        const obj: Record<string, unknown> = {};
+
+        if (itemSchema?.properties) {
+          // Map schema properties to table columns by name
+          for (const [key, propSchema] of Object.entries(itemSchema.properties)) {
+            const colIdx = headers.findIndex(h => h.includes(key.toLowerCase()));
+            if (colIdx >= 0 && colIdx < cells.length) {
+              const text = (await cells[colIdx]!.textContent() ?? '').trim();
+              obj[key] = propSchema.type === 'number' ? (parseFloat(text.replace(/[^0-9.-]/g, '')) || text) : text;
+            }
+          }
+        } else {
+          // No schema properties — use headers as keys
+          for (let c = 0; c < cells.length; c++) {
+            const key = c < headers.length ? headers[c]! : `col${c}`;
+            obj[key] = (await cells[c]!.textContent() ?? '').trim();
+          }
+        }
+
+        if (Object.values(obj).some(v => v !== null && v !== undefined && v !== '')) {
+          rows.push(obj);
+          if (includeSourceRefs) {
+            sources.push({
+              ref: `@s${rows.length}`,
+              selector: { type: 'css', value: `table tbody tr:nth-child(${i + 1})` },
+            });
+          }
+        }
+      }
+    } catch { /* table extraction failed */ }
+
+    return rows;
+  }
+
+  /**
+   * Extract a single object from page content.
+   */
+  private async extractObject(
+    page: PlaywrightPage,
+    root: ReturnType<PlaywrightPage['locator']>,
+    schema: { properties?: Record<string, unknown> },
+    includeSourceRefs: boolean,
+    sources: { ref: string; selector: BAPSelector; text?: string }[]
+  ): Promise<{ data: Record<string, unknown>; confidence: number }> {
+    const result: Record<string, unknown> = {};
+    const properties = schema.properties as Record<string, { type?: string; description?: string }>;
+
+    for (const [key, propSchema] of Object.entries(properties)) {
+      const searchTerms = [key, propSchema.description].filter(Boolean);
+
+      for (const term of searchTerms) {
+        if (!term) continue;
+
+        const labelSelectors = [
+          `label:has-text("${term}")`,
+          `th:has-text("${term}")`,
+          `dt:has-text("${term}")`,
+          `[class*="${term.toLowerCase()}"]`,
+        ];
+
+        for (const selector of labelSelectors) {
+          try {
+            const label = root.locator(selector).first();
+            if (await label.count() > 0) {
+              const parent = label.locator('..');
+              const siblingText = await parent.textContent();
+              if (siblingText) {
+                const value = siblingText.replace(new RegExp(term, 'gi'), '').trim();
+                if (value) {
+                  result[key] = propSchema.type === 'number' ? parseFloat(value) || value : value;
+                  if (includeSourceRefs) {
+                    sources.push({
+                      ref: `@s${Object.keys(result).length}`,
+                      selector: { type: 'css', value: selector },
+                      text: value.slice(0, 100),
+                    });
+                  }
+                  break;
+                }
+              }
+            }
+          } catch { /* continue */ }
+        }
+      }
+    }
+
+    // Fallback for meta-based extraction (og:title, meta description, etc.)
+    if (Object.keys(result).length === 0) {
+      try {
+        for (const key of Object.keys(properties)) {
+          if (key === 'title' || key === 'name') {
+            result[key] = await page.title();
+          } else if (key === 'description') {
+            const desc = await page.locator('meta[name="description"]').getAttribute('content');
+            if (desc) result[key] = desc;
+          } else if (key === 'url') {
+            result[key] = page.url();
+          }
+        }
+      } catch { /* continue */ }
+    }
+
+    return {
+      data: Object.keys(result).length > 0 ? result : { raw: (await root.textContent() ?? "").slice(0, 1000) },
+      confidence: Object.keys(result).length > 0 ? 0.7 : 0.2,
     };
   }
 
