@@ -1,6 +1,6 @@
 # Browser Agent Protocol (BAP)
 
-[![npm version](https://badge.fury.io/js/@browseragentprotocol%2Fprotocol.svg)](https://www.npmjs.com/package/@browseragentprotocol/protocol)
+[![npm version](https://badge.fury.io/js/@browseragentprotocol%2Fmcp.svg)](https://www.npmjs.com/package/@browseragentprotocol/mcp)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 An open standard for AI agents to interact with web browsers.
@@ -63,13 +63,10 @@ claude mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
 claude plugin add --from https://github.com/browseragentprotocol/bap
 ```
 
-<details>
-<summary>Screenshot</summary>
 <p align="center">
   <img src="assets/claude-code-demo.png" alt="BAP in Claude Code" width="600"><br>
   <em>Claude Code browsing Hacker News with BAP</em>
 </p>
-</details>
 
 ### Claude Desktop
 
@@ -88,13 +85,10 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 
 Restart Claude Desktop after saving.
 
-<details>
-<summary>Screenshot</summary>
 <p align="center">
   <img src="assets/claude-desktop-demo.png" alt="BAP in Claude Desktop" width="600"><br>
   <em>Claude Desktop browsing Hacker News with BAP</em>
 </p>
-</details>
 
 ### Codex CLI
 
@@ -110,13 +104,10 @@ command = "npx"
 args = ["-y", "@browseragentprotocol/mcp"]
 ```
 
-<details>
-<summary>Screenshot</summary>
 <p align="center">
   <img src="assets/codex-cli-demo.png" alt="BAP in Codex CLI" width="600"><br>
   <em>Codex CLI browsing Hacker News with BAP</em>
 </p>
-</details>
 
 ### Codex Desktop
 
@@ -128,13 +119,10 @@ command = "npx"
 args = ["-y", "@browseragentprotocol/mcp"]
 ```
 
-<details>
-<summary>Screenshot</summary>
 <p align="center">
   <img src="assets/codex-desktop-demo.png" alt="BAP in Codex Desktop" width="600"><br>
   <em>Codex Desktop browsing Hacker News with BAP</em>
 </p>
-</details>
 
 ### Browser Selection
 
