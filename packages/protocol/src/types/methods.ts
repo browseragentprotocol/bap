@@ -42,6 +42,7 @@ export type ProxyConfig = z.infer<typeof ProxyConfigSchema>;
 /** browser/launch parameters */
 export const BrowserLaunchParamsSchema = z.object({
   browser: BrowserTypeSchema.optional(),
+  channel: z.string().optional(),
   headless: z.boolean().optional(),
   args: z.array(z.string()).optional(),
   proxy: ProxyConfigSchema.optional(),

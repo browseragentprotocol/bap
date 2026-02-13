@@ -81,8 +81,8 @@ await client.close();
 ### With MCP (for AI agents)
 
 ```bash
-# Add to Claude Code
-claude mcp add --transport stdio bap-browser -- npx @browseragentprotocol/mcp
+# Add to any MCP-compatible client via CLI
+npx @browseragentprotocol/mcp
 ```
 
 ## Programmatic Usage

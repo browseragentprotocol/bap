@@ -74,7 +74,7 @@ class BAPClientSync:
         *,
         token: str | None = None,
         name: str = "bap-client-python-sync",
-        version: str = "0.1.0",
+        version: str = "0.2.0",
         timeout: float = 30.0,
         events: list[str] | None = None,
     ):
@@ -151,13 +151,14 @@ class BAPClientSync:
     def launch(
         self,
         browser: Literal["chromium", "firefox", "webkit"] | None = None,
+        channel: str | None = None,
         headless: bool | None = None,
         args: list[str] | None = None,
         **kwargs: Any,
     ) -> BrowserLaunchResult:
         """Launch a browser instance."""
         return self._run(
-            self._async_client.launch(browser=browser, headless=headless, args=args, **kwargs)
+            self._async_client.launch(browser=browser, channel=channel, headless=headless, args=args, **kwargs)
         )
 
     def close_browser(self, browser_id: str | None = None) -> None:

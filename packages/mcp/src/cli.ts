@@ -354,6 +354,7 @@ async function main(): Promise<void> {
     const server = new BAPMCPServer({
       bapServerUrl,
       browser: args.browser as BrowserChoice | undefined,
+      headless: args.headless ?? true,
       verbose: args.verbose,
       allowedDomains: args.allowedDomains,
     });

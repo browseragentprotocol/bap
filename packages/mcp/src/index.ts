@@ -1,14 +1,14 @@
 /**
  * @fileoverview BAP MCP Integration
  * @module @browseragentprotocol/mcp
- * @version 0.1.0
+ * @version 0.2.0
  *
  * Exposes Browser Agent Protocol as an MCP (Model Context Protocol) server.
- * Allows AI agents like Claude to control browsers through standardized MCP tools.
+ * Allows AI agents to control browsers through standardized MCP tools.
  *
  * TODO (MEDIUM): Add input validation on tool arguments before passing to BAP client
  * TODO (MEDIUM): Enforce session timeout (maxSessionDuration) - currently unused
- * TODO (MEDIUM): Add resource cleanup on partial failure in ensureClient()
+ * TODO (MEDIUM): Add resource cleanup on partial failure in ensureClient() — DONE (v0.2.0)
  * TODO (LOW): parseSelector should validate empty/whitespace-only strings
  * TODO (LOW): Consider sanitizing URLs in verbose logging to prevent token leakage
  */
@@ -45,13 +45,19 @@ import {
 // Types
 // =============================================================================
 
+export type BrowserChoice = "chrome" | "chromium" | "firefox" | "webkit" | "edge";
+
 export interface BAPMCPServerOptions {
   /** BAP server URL (default: ws://localhost:9222) */
   bapServerUrl?: string;
-  /** Server name for MCP (default: bap-browser) */
+  /** Server name for MCP (default: BAPBrowser) */
   name?: string;
   /** Server version (default: 1.0.0) */
   version?: string;
+  /** Browser to use: chrome (default), chromium, firefox, webkit, edge */
+  browser?: BrowserChoice;
+  /** Run browser in headless mode (default: true) */
+  headless?: boolean;
   /** Enable verbose logging */
   verbose?: boolean;
   /** Allowed domains for navigation (empty = all allowed) */
@@ -195,7 +201,7 @@ function formatSelectorForDisplay(selector: BAPSelector): string {
 const TOOLS: Tool[] = [
   // Navigation
   {
-    name: "bap_navigate",
+    name: "navigate",
     description:
       "Navigate the browser to a URL. Use this to open web pages. Returns the page title and URL after navigation.",
     inputSchema: {
@@ -217,7 +223,7 @@ const TOOLS: Tool[] = [
 
   // Element Interaction
   {
-    name: "bap_click",
+    name: "click",
     description:
       'Click an element on the page. Use semantic selectors like "role:button:Submit" or "text:Sign in" for reliability.',
     inputSchema: {
@@ -237,7 +243,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_type",
+    name: "type",
     description:
       "Type text into an input field. First clicks the element, then types the text character by character.",
     inputSchema: {
@@ -260,9 +266,9 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_fill",
+    name: "fill",
     description:
-      "Fill an input field with text (clears existing content first). Faster than bap_type for form filling.",
+      "Fill an input field with text (clears existing content first). Faster than type for form filling.",
     inputSchema: {
       type: "object",
       properties: {
@@ -279,7 +285,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_press",
+    name: "press",
     description: "Press a keyboard key. Use for Enter, Tab, Escape, or keyboard shortcuts like Ctrl+A.",
     inputSchema: {
       type: "object",
@@ -297,7 +303,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_select",
+    name: "select",
     description: "Select an option from a dropdown/select element.",
     inputSchema: {
       type: "object",
@@ -315,7 +321,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_scroll",
+    name: "scroll",
     description: "Scroll the page or a specific element.",
     inputSchema: {
       type: "object",
@@ -337,7 +343,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_hover",
+    name: "hover",
     description: "Hover over an element. Useful for triggering hover menus or tooltips.",
     inputSchema: {
       type: "object",
@@ -353,7 +359,7 @@ const TOOLS: Tool[] = [
 
   // Observations
   {
-    name: "bap_screenshot",
+    name: "screenshot",
     description:
       "Take a screenshot of the current page. Returns the image as base64. Use for visual verification.",
     inputSchema: {
@@ -363,11 +369,20 @@ const TOOLS: Tool[] = [
           type: "boolean",
           description: "Capture full page including scrollable content (default: false)",
         },
+        format: {
+          type: "string",
+          enum: ["jpeg", "png"],
+          description: "Image format (default: jpeg). JPEG is ~60% smaller than PNG for typical pages.",
+        },
+        quality: {
+          type: "number",
+          description: "JPEG quality 0-100 (default: 80). Ignored for PNG.",
+        },
       },
     },
   },
   {
-    name: "bap_accessibility",
+    name: "accessibility",
     description:
       "Get the accessibility tree of the page. Returns a structured representation ideal for understanding page layout and finding elements. RECOMMENDED: Use this before interacting with elements.",
     inputSchema: {
@@ -381,7 +396,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_aria_snapshot",
+    name: "aria_snapshot",
     description:
       "Get a token-efficient YAML snapshot of the page accessibility tree. ~80% fewer tokens than full accessibility tree. Best for LLM context.",
     inputSchema: {
@@ -395,7 +410,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_content",
+    name: "content",
     description:
       "Get page content as text or markdown. Useful for reading article content or extracting text.",
     inputSchema: {
@@ -410,7 +425,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_element",
+    name: "element",
     description:
       "Query properties of a specific element. Check if an element exists, is visible, enabled, etc.",
     inputSchema: {
@@ -435,7 +450,7 @@ const TOOLS: Tool[] = [
 
   // Page Management
   {
-    name: "bap_pages",
+    name: "pages",
     description: "List all open pages/tabs. Returns page IDs and URLs.",
     inputSchema: {
       type: "object",
@@ -443,21 +458,21 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_activate_page",
+    name: "activate_page",
     description: "Switch to a different page/tab by its ID.",
     inputSchema: {
       type: "object",
       properties: {
         pageId: {
           type: "string",
-          description: "ID of the page to activate (from bap_pages)",
+          description: "ID of the page to activate (from pages)",
         },
       },
       required: ["pageId"],
     },
   },
   {
-    name: "bap_close_page",
+    name: "close_page",
     description: "Close the current page/tab.",
     inputSchema: {
       type: "object",
@@ -465,7 +480,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_go_back",
+    name: "go_back",
     description: "Navigate back in browser history.",
     inputSchema: {
       type: "object",
@@ -473,7 +488,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_go_forward",
+    name: "go_forward",
     description: "Navigate forward in browser history.",
     inputSchema: {
       type: "object",
@@ -481,7 +496,7 @@ const TOOLS: Tool[] = [
     },
   },
   {
-    name: "bap_reload",
+    name: "reload",
     description: "Reload the current page.",
     inputSchema: {
       type: "object",
@@ -491,7 +506,7 @@ const TOOLS: Tool[] = [
 
   // Agent (Composite Actions, Observations, and Data Extraction)
   {
-    name: "bap_act",
+    name: "act",
     description: `Execute a sequence of browser actions in a single call.
 Useful for multi-step flows like login, form submission, or navigation sequences.
 Each step can have conditions and error handling. More efficient than calling actions individually.`,
@@ -546,7 +561,7 @@ Each step can have conditions and error handling. More efficient than calling ac
     },
   },
   {
-    name: "bap_observe",
+    name: "observe",
     description: `Get an AI-optimized observation of the current page.
 Returns interactive elements with pre-computed selectors, making it easy to determine
 what actions are possible. Supports stable element refs and annotated screenshots.
@@ -583,10 +598,10 @@ RECOMMENDED: Use this before complex interactions to understand the page.`,
     },
   },
   {
-    name: "bap_extract",
+    name: "extract",
     description: `Extract structured data from the current page.
 Uses CSS heuristics to find lists, tables, and labeled data matching your schema.
-Works best with standard HTML patterns (ul/ol, tables, cards). For complex pages, use bap_content instead.`,
+Works best with standard HTML patterns (ul/ol, tables, cards). For complex pages, use content instead.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -660,6 +675,21 @@ const RESOURCES: Resource[] = [
 ];
 
 // =============================================================================
+// Browser Resolution
+// =============================================================================
+
+function resolveBrowser(browser: BrowserChoice): { browser: "chromium" | "firefox" | "webkit"; channel?: string } {
+  switch (browser) {
+    case "chrome":    return { browser: "chromium", channel: "chrome" };
+    case "chromium":  return { browser: "chromium" };
+    case "firefox":   return { browser: "firefox" };
+    case "webkit":    return { browser: "webkit" };
+    case "edge":      return { browser: "chromium", channel: "msedge" };
+    default:          return { browser: "chromium", channel: "chrome" };
+  }
+}
+
+// =============================================================================
 // BAP MCP Server
 // =============================================================================
 
@@ -675,8 +705,10 @@ export class BAPMCPServer {
   constructor(options: BAPMCPServerOptions = {}) {
     this.options = {
       bapServerUrl: options.bapServerUrl ?? "ws://localhost:9222",
-      name: options.name ?? "bap-browser",
+      name: options.name ?? "BAPBrowser",
       version: options.version ?? "1.0.0",
+      browser: options.browser ?? "chrome",
+      headless: options.headless ?? true,
       verbose: options.verbose ?? false,
       allowedDomains: options.allowedDomains ?? [],
       maxSessionDuration: options.maxSessionDuration ?? 3600,
@@ -730,26 +762,91 @@ export class BAPMCPServer {
   }
 
   /**
-   * Ensure BAP client is connected
+   * Ensure BAP client is connected.
+   * - On first call: creates transport, connects, launches browser
+   * - On subsequent calls: checks if connection is still alive, reconnects if needed
    */
   private async ensureClient(): Promise<BAPClient> {
-    if (this.client) {
-      return this.client;
+    // If we have a client, verify the connection is still alive
+    if (this.client && this.transport) {
+      try {
+        // Lightweight health check — list pages to confirm the connection works
+        await this.client.listPages();
+        return this.client;
+      } catch {
+        // Connection is dead — clean up and reconnect
+        this.log("Connection lost, reconnecting...");
+        await this.resetClient();
+      }
     }
 
     this.log("Connecting to BAP server:", this.options.bapServerUrl);
 
-    this.transport = new WebSocketTransport(this.options.bapServerUrl);
+    this.transport = new WebSocketTransport(this.options.bapServerUrl, {
+      autoReconnect: true,
+      maxReconnectAttempts: 5,
+      reconnectDelay: 1000,
+    });
+
+    // Hook reconnect callbacks for verbose logging
+    this.transport.onReconnecting = (attempt, max) => {
+      this.log(`Reconnecting to BAP server (attempt ${attempt}/${max})...`);
+    };
+    this.transport.onReconnected = () => {
+      this.log("Reconnected to BAP server");
+    };
+    this.transport.onClose = () => {
+      this.log("BAP server connection closed");
+    };
+
     this.client = new BAPClient(this.transport);
 
     // Connect and initialize the protocol
     await this.client.connect();
 
-    // Launch browser
-    await this.client.launch({ headless: false });
+    // Launch browser with configured browser/channel
+    const resolved = resolveBrowser(this.options.browser);
+    const headless = this.options.headless ?? true;
+    try {
+      await this.client.launch({
+        browser: resolved.browser,
+        channel: resolved.channel,
+        headless,
+      });
+    } catch (err) {
+      // If a channel was specified (e.g. local Chrome) and it's not found, fall back to bundled Chromium
+      if (resolved.channel && String(err).includes("Looks like")) {
+        this.log(
+          `Local ${this.options.browser} not found, falling back to bundled Chromium`
+        );
+        await this.client.launch({ browser: "chromium", headless });
+      } else {
+        // Clean up on launch failure to avoid leaking the transport
+        await this.resetClient();
+        throw err;
+      }
+    }
 
     this.log("BAP client connected and browser launched");
     return this.client;
+  }
+
+  /**
+   * Reset client and transport state for reconnection
+   */
+  private async resetClient(): Promise<void> {
+    try {
+      if (this.client) {
+        await this.client.close();
+      }
+    } catch { /* ignore cleanup errors */ }
+    try {
+      if (this.transport) {
+        await this.transport.close();
+      }
+    } catch { /* ignore cleanup errors */ }
+    this.client = null;
+    this.transport = null;
   }
 
   /**
@@ -815,7 +912,7 @@ export class BAPMCPServer {
 
     switch (name) {
       // Navigation
-      case "bap_navigate": {
+      case "navigate": {
         const url = args.url as string;
 
         // Security check
@@ -853,7 +950,7 @@ export class BAPMCPServer {
       }
 
       // Element Interaction
-      case "bap_click": {
+      case "click": {
         const selector = parseSelector(args.selector as string);
         const options = args.clickCount ? { clickCount: args.clickCount as number } : undefined;
         await client.click(selector, options);
@@ -862,7 +959,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_type": {
+      case "type": {
         const selector = parseSelector(args.selector as string);
         const text = args.text as string;
         const delay = args.delay as number | undefined;
@@ -872,7 +969,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_fill": {
+      case "fill": {
         const selector = parseSelector(args.selector as string);
         const value = args.value as string;
         await client.fill(selector, value);
@@ -881,7 +978,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_press": {
+      case "press": {
         const key = args.key as string;
         const selector = args.selector ? parseSelector(args.selector as string) : undefined;
         await client.press(key, selector);
@@ -890,7 +987,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_select": {
+      case "select": {
         const selector = parseSelector(args.selector as string);
         const value = args.value as string;
         await client.select(selector, value);
@@ -899,7 +996,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_scroll": {
+      case "scroll": {
         const direction = (args.direction as ScrollDirection) ?? "down";
         const amount = (args.amount as number) ?? 500;
         const selector = args.selector ? parseSelector(args.selector as string) : undefined;
@@ -909,7 +1006,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_hover": {
+      case "hover": {
         const selector = parseSelector(args.selector as string);
         await client.hover(selector);
         return {
@@ -918,9 +1015,11 @@ export class BAPMCPServer {
       }
 
       // Observations
-      case "bap_screenshot": {
+      case "screenshot": {
         const fullPage = args.fullPage as boolean ?? false;
-        const result = await client.screenshot({ fullPage });
+        const format = (args.format as string) === "png" ? "png" : "jpeg";
+        const quality = typeof args.quality === "number" ? args.quality : (format === "jpeg" ? 80 : undefined);
+        const result = await client.screenshot({ fullPage, format, quality });
         return {
           content: [
             {
@@ -932,7 +1031,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_accessibility": {
+      case "accessibility": {
         const interestingOnly = args.interestingOnly as boolean ?? true;
         const result = await client.accessibility({ interestingOnly });
         return {
@@ -945,7 +1044,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_aria_snapshot": {
+      case "aria_snapshot": {
         const selector = args.selector ? parseSelector(args.selector as string) : undefined;
         const result = await client.ariaSnapshot(selector);
         return {
@@ -958,7 +1057,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_content": {
+      case "content": {
         const format = (args.format as ContentFormat) ?? "text";
         const result = await client.content(format);
         return {
@@ -966,7 +1065,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_element": {
+      case "element": {
         const selector = parseSelector(args.selector as string);
         const properties = (args.properties as ElementProperty[]) ?? ["visible", "enabled"];
         const result = await client.element(selector, properties);
@@ -981,7 +1080,7 @@ export class BAPMCPServer {
       }
 
       // Page Management
-      case "bap_pages": {
+      case "pages": {
         const result = await client.listPages();
         const text = result.pages
           .map((p) => `${p.id === result.activePage ? "* " : "  "}${p.id}: ${p.url} (${p.title})`)
@@ -991,7 +1090,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_activate_page": {
+      case "activate_page": {
         const pageId = args.pageId as string;
         await client.activatePage(pageId);
         return {
@@ -999,28 +1098,28 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_close_page": {
+      case "close_page": {
         await client.closePage();
         return {
           content: [{ type: "text", text: "Closed current page" }],
         };
       }
 
-      case "bap_go_back": {
+      case "go_back": {
         await client.goBack();
         return {
           content: [{ type: "text", text: "Navigated back" }],
         };
       }
 
-      case "bap_go_forward": {
+      case "go_forward": {
         await client.goForward();
         return {
           content: [{ type: "text", text: "Navigated forward" }],
         };
       }
 
-      case "bap_reload": {
+      case "reload": {
         await client.reload();
         return {
           content: [{ type: "text", text: "Reloaded page" }],
@@ -1028,7 +1127,7 @@ export class BAPMCPServer {
       }
 
       // Agent (Composite Actions, Observations, and Data Extraction)
-      case "bap_act": {
+      case "act": {
         interface InputStep {
           label?: string;
           action: string;
@@ -1094,7 +1193,7 @@ export class BAPMCPServer {
         };
       }
 
-      case "bap_observe": {
+      case "observe": {
         const annotate = args.annotateScreenshot as boolean;
         const result = await client.observe({
           includeScreenshot: (args.includeScreenshot as boolean) || annotate,
@@ -1166,7 +1265,7 @@ export class BAPMCPServer {
         return { content };
       }
 
-      case "bap_extract": {
+      case "extract": {
         const result = await client.extract({
           instruction: args.instruction as string,
           schema: args.schema as ExtractionSchema,
@@ -1300,14 +1399,7 @@ export class BAPMCPServer {
    * Close the server and clean up
    */
   async close(): Promise<void> {
-    if (this.client) {
-      await this.client.close();
-      this.client = null;
-    }
-    if (this.transport) {
-      await this.transport.close();
-      this.transport = null;
-    }
+    await this.resetClient();
     await this.server.close();
     this.log("BAP MCP Server closed");
   }

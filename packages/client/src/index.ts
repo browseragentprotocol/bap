@@ -376,7 +376,7 @@ export class BAPClient extends EventEmitter {
     this.options = {
       token: options.token,
       name: options.name ?? "bap-client",
-      version: options.version ?? "0.1.0",
+      version: options.version ?? "0.2.0",
       timeout: options.timeout ?? 30000,
       events: options.events ?? ["page", "console", "network", "dialog"],
     };

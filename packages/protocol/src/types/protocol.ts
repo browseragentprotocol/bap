@@ -10,7 +10,7 @@ import { z } from "zod";
 // =============================================================================
 
 /** Current BAP protocol version */
-export const BAP_VERSION = "0.1.0";
+export const BAP_VERSION = "0.2.0";
 
 // =============================================================================
 // JSON-RPC 2.0 Schemas
@@ -70,18 +70,18 @@ export const JSONRPCNotificationSchema = z.object({
 });
 export type JSONRPCNotification = z.infer<typeof JSONRPCNotificationSchema>;
 
-/** Union of all JSON-RPC response types */
+/** Union of all JSON-RPC response types (error first to prevent z.unknown() from swallowing errors) */
 export const JSONRPCResponseSchema = z.union([
-  JSONRPCSuccessResponseSchema,
   JSONRPCErrorResponseSchema,
+  JSONRPCSuccessResponseSchema,
 ]);
 export type JSONRPCResponse = z.infer<typeof JSONRPCResponseSchema>;
 
-/** Union of all JSON-RPC message types */
+/** Union of all JSON-RPC message types (error before success to prevent z.unknown() from swallowing errors) */
 export const JSONRPCMessageSchema = z.union([
   JSONRPCRequestSchema,
-  JSONRPCSuccessResponseSchema,
   JSONRPCErrorResponseSchema,
+  JSONRPCSuccessResponseSchema,
   JSONRPCNotificationSchema,
 ]);
 export type JSONRPCMessage = z.infer<typeof JSONRPCMessageSchema>;
