@@ -102,10 +102,8 @@ describe("standalone server utilities", () => {
 
     it("waits for a server that starts after a delay", async () => {
       const server = net.createServer();
-      let port: number;
-
       // Find a free port
-      port = await new Promise<number>((resolve) => {
+      const port = await new Promise<number>((resolve) => {
         const tmp = net.createServer();
         tmp.listen(0, "localhost", () => {
           const addr = tmp.address();
