@@ -14,7 +14,12 @@ This auto-starts a BAP Playwright server and exposes browser tools over MCP stdi
 
 ### Add to an MCP client
 
-**JSON config** (most MCP clients):
+**Claude Code:**
+```bash
+claude mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
+```
+
+**Claude Desktop** — add to `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
@@ -26,12 +31,12 @@ This auto-starts a BAP Playwright server and exposes browser tools over MCP stdi
 }
 ```
 
-**CLI** (most MCP clients):
+**Codex CLI:**
 ```bash
-<client> mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
+codex mcp add bap-browser -- npx -y @browseragentprotocol/mcp
 ```
 
-**TOML config** (Codex Desktop):
+**Codex Desktop** — add to `~/.codex/config.toml`:
 ```toml
 [mcp_servers.bap-browser]
 command = "npx"

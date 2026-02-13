@@ -49,16 +49,32 @@ BAP (Browser Agent Protocol) provides a standardized way for AI agents to contro
 
 ## Quick Start
 
-### Using with MCP (Recommended)
-
 BAP works with any MCP-compatible client. The server auto-starts — no separate setup needed.
 
-**Add via CLI** (works with most MCP clients):
+### Claude Code
+
+**MCP server** (one command):
 ```bash
-<client> mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
+claude mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
 ```
 
-**Add via JSON config** (most MCP desktop clients):
+**Plugin** (includes SKILL.md for smarter tool usage):
+```bash
+claude plugin add --from https://github.com/browseragentprotocol/bap
+```
+
+<details>
+<summary>Screenshot</summary>
+<p align="center">
+  <img src="assets/claude-code-demo.png" alt="BAP in Claude Code" width="600"><br>
+  <em>Claude Code browsing Hacker News with BAP</em>
+</p>
+</details>
+
+### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
 ```json
 {
   "mcpServers": {
@@ -70,44 +86,54 @@ BAP works with any MCP-compatible client. The server auto-starts — no separate
 }
 ```
 
-**Add via TOML config** (Codex Desktop):
+Restart Claude Desktop after saving.
+
+<details>
+<summary>Screenshot</summary>
+<p align="center">
+  <img src="assets/claude-desktop-demo.png" alt="BAP in Claude Desktop" width="600"><br>
+  <em>Claude Desktop browsing Hacker News with BAP</em>
+</p>
+</details>
+
+### Codex CLI
+
+```bash
+codex mcp add bap-browser -- npx -y @browseragentprotocol/mcp
+```
+
+Or add to `~/.codex/config.toml`:
+
 ```toml
 [mcp_servers.bap-browser]
 command = "npx"
 args = ["-y", "@browseragentprotocol/mcp"]
 ```
 
-### Plugin Install
-
-BAP is also available as a plugin for MCP clients with plugin directories.
-
 <details>
-<summary>Screenshots</summary>
-
-#### Claude Code
-<p align="center">
-  <img src="assets/claude-code-demo.png" alt="BAP in Claude Code" width="600"><br>
-  <em>Claude Code browsing Hacker News with BAP</em>
-</p>
-
-#### Claude Desktop
-<p align="center">
-  <img src="assets/claude-desktop-demo.png" alt="BAP in Claude Desktop" width="600"><br>
-  <em>Claude Desktop browsing Hacker News with BAP</em>
-</p>
-
-#### Codex CLI
+<summary>Screenshot</summary>
 <p align="center">
   <img src="assets/codex-cli-demo.png" alt="BAP in Codex CLI" width="600"><br>
   <em>Codex CLI browsing Hacker News with BAP</em>
 </p>
+</details>
 
-#### Codex Desktop
+### Codex Desktop
+
+Add to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.bap-browser]
+command = "npx"
+args = ["-y", "@browseragentprotocol/mcp"]
+```
+
+<details>
+<summary>Screenshot</summary>
 <p align="center">
   <img src="assets/codex-desktop-demo.png" alt="BAP in Codex Desktop" width="600"><br>
   <em>Codex Desktop browsing Hacker News with BAP</em>
 </p>
-
 </details>
 
 ### Browser Selection
