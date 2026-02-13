@@ -84,21 +84,25 @@ BAP is also available as a plugin for MCP clients with plugin directories.
 <details>
 <summary>Screenshots</summary>
 
+#### Claude Code
 <p align="center">
-  <img src="assets/claude-code-demo.png" alt="BAP in a terminal MCP client" width="600"><br>
-  <em>Browsing Hacker News with BAP</em>
+  <img src="assets/claude-code-demo.png" alt="BAP in Claude Code" width="600"><br>
+  <em>Claude Code browsing Hacker News with BAP</em>
 </p>
 
+#### Claude Desktop
 <p align="center">
-  <img src="assets/claude-desktop-demo.png" alt="BAP in a desktop MCP client" width="600"><br>
-  <em>Desktop MCP client browsing Hacker News with BAP</em>
+  <img src="assets/claude-desktop-demo.png" alt="BAP in Claude Desktop" width="600"><br>
+  <em>Claude Desktop browsing Hacker News with BAP</em>
 </p>
 
+#### Codex CLI
 <p align="center">
   <img src="assets/codex-cli-demo.png" alt="BAP in Codex CLI" width="600"><br>
   <em>Codex CLI browsing Hacker News with BAP</em>
 </p>
 
+#### Codex Desktop
 <p align="center">
   <img src="assets/codex-desktop-demo.png" alt="BAP in Codex Desktop" width="600"><br>
   <em>Codex Desktop browsing Hacker News with BAP</em>
