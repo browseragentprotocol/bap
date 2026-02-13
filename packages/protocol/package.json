@@ -1,6 +1,6 @@
 {
   "name": "@browseragentprotocol/protocol",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "BAP Protocol - Types, schemas, and utilities for Browser Agent Protocol",
   "author": "Browser Agent Protocol",
   "license": "Apache-2.0",
