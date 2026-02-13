@@ -3398,7 +3398,7 @@ export class BAPPlaywrightServer extends EventEmitter {
     // Fallback for meta-based extraction (og:title, meta description, etc.)
     if (Object.keys(result).length === 0) {
       try {
-        for (const [key, _propSchema] of Object.entries(properties)) {
+        for (const key of Object.keys(properties)) {
           if (key === 'title' || key === 'name') {
             result[key] = await page.title();
           } else if (key === 'description') {
