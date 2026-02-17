@@ -1,57 +1,91 @@
 # Browser Agent Protocol (BAP)
 
+[![npm version](https://badge.fury.io/js/@browseragentprotocol%2Fcli.svg)](https://www.npmjs.com/package/@browseragentprotocol/cli)
 [![npm version](https://badge.fury.io/js/@browseragentprotocol%2Fmcp.svg)](https://www.npmjs.com/package/@browseragentprotocol/mcp)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-An open standard for AI agents to interact with web browsers.
+An open standard for AI agents to interact with web browsers. Two interfaces: **CLI** for shell-based agents, **MCP** for protocol-native agents.
 
-> **v0.2.0:** Renamed MCP tools, auto-reconnect, multi-context support, streaming, and more. APIs may evolve based on feedback.
+```bash
+# CLI — any agent that can run shell commands
+npx @browseragentprotocol/cli open https://example.com
+npx @browseragentprotocol/cli act 'click:text:"More information..."' snapshot
 
-## Overview
-
-BAP (Browser Agent Protocol) provides a standardized way for AI agents to control web browsers. It uses JSON-RPC 2.0 over WebSocket for communication and includes semantic selectors designed for AI comprehension.
+# MCP — agents with native Model Context Protocol support
+npx @browseragentprotocol/mcp
+```
 
 <p align="center">
   <img src="assets/architecture.svg" alt="BAP Architecture" width="700">
 </p>
 
-### Key Features
+## Why BAP?
 
-- **Semantic Selectors**: Use accessibility roles, text content, and labels instead of brittle CSS selectors
-- **Accessibility-First**: Built-in support for accessibility tree inspection
-- **AI-Optimized**: Designed for LLM-based agents with token-efficient observations
-- **MCP Integration**: Works seamlessly with [Model Context Protocol](https://modelcontextprotocol.io)
-- **Composite Actions**: Execute multi-step action sequences in a single round-trip (`agent/act`, `agent/observe`, `agent/extract`)
-- **Element References**: Stable element refs (`@submitBtn`, `@e7f3a2`) that persist across observations
-- **Screenshot Annotation**: Set-of-Marks style overlays with numbered badges for vision models
-- **Multi-Context Support**: Parallel isolated browser sessions with `context/create`, `context/list`, `context/destroy`
-- **Human-in-the-Loop Approval**: Enterprise workflow for human oversight of sensitive actions
-- **Frame Support**: Explicit frame switching for iframes with `frame/list`, `frame/switch`, `frame/main`
-- **Streaming Responses**: Chunked transfers for large observations with checksum verification
-
-## Packages
-
-### TypeScript
-
-| Package | Description | npm |
-|---------|-------------|-----|
-| [`@browseragentprotocol/protocol`](./packages/protocol) | Protocol types, schemas, and utilities | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/protocol)](https://www.npmjs.com/package/@browseragentprotocol/protocol) |
-| [`@browseragentprotocol/logger`](./packages/logger) | Pretty logging utilities with colors and icons | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/logger)](https://www.npmjs.com/package/@browseragentprotocol/logger) |
-| [`@browseragentprotocol/client`](./packages/client) | TypeScript client SDK | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/client)](https://www.npmjs.com/package/@browseragentprotocol/client) |
-| [`@browseragentprotocol/server-playwright`](./packages/server-playwright) | Server implementation using Playwright | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/server-playwright)](https://www.npmjs.com/package/@browseragentprotocol/server-playwright) |
-| [`@browseragentprotocol/mcp`](./packages/mcp) | Model Context Protocol integration | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/mcp)](https://www.npmjs.com/package/@browseragentprotocol/mcp) |
-
-### Python
-
-| Package | Description | PyPI |
-|---------|-------------|------|
-| [`browser-agent-protocol`](./packages/python-sdk) | Python SDK with async/sync APIs | [![PyPI](https://img.shields.io/pypi/v/browser-agent-protocol)](https://pypi.org/project/browser-agent-protocol/) |
+- **Composite Actions**: Execute multi-step flows in one command — 40x fewer tokens than one-action-at-a-time
+- **Semantic Selectors**: Target elements by purpose (`role:button:"Submit"`) not position — survives redesigns
+- **Structured Extraction**: Extract validated JSON from any page with a schema
+- **Two Interfaces**: CLI (`bap act`) for shell-based agents, MCP tools for protocol-native agents
+- **Accessibility-First**: Built on accessibility tree inspection, designed for AI comprehension
+- **Element References**: Stable refs (`@e1`, `e15`) that persist across observations
+- **Screenshot Annotation**: Set-of-Marks overlays with numbered badges for vision models
 
 ## Quick Start
 
-BAP works with any MCP-compatible client. The server auto-starts — no separate setup needed.
+### CLI — For AI Agents That Run Shell Commands
+
+```bash
+# Open a page and observe interactive elements
+bap open https://example.com
+bap observe --max=20
+
+# Login flow in ONE command (vs 3+ separate commands)
+bap act fill:role:textbox:"Email"="user@example.com" \
+        fill:role:textbox:"Password"="secret" \
+        click:role:button:"Sign in"
+
+# Extract structured data
+bap extract --fields="title,price,rating"
+
+# Use semantic selectors
+bap click role:button:"Get Started"
+bap fill label:"Email" "user@example.com"
+```
+
+Install globally or use via npx:
+
+```bash
+npm i -g @browseragentprotocol/cli
+# or
+npx @browseragentprotocol/cli <command>
+```
+
+See the full [CLI documentation](./packages/cli) for all 26 commands, selector reference, and recipes.
+
+### MCP — For Protocol-Native Agents
+
+```
+navigate({ url: "https://example.com/login" })
+observe({ includeScreenshot: true })
+act({
+  steps: [
+    { action: "action/fill", selector: "@e1", value: "user@example.com" },
+    { action: "action/fill", selector: "@e2", value: "password123" },
+    { action: "action/click", selector: "role:button:Sign in" }
+  ]
+})
+```
+
+See the [MCP documentation](./packages/mcp) for tool reference and configuration.
+
+## Integrations
 
 ### Claude Code
+
+**CLI** (install skill for optimal usage):
+```bash
+npm i -g @browseragentprotocol/cli
+bap install-skill
+```
 
 **MCP server** (one command):
 ```bash
@@ -92,6 +126,13 @@ Restart Claude Desktop after saving.
 
 ### Codex CLI
 
+**CLI**:
+```bash
+npm i -g @browseragentprotocol/cli
+bap install-skill
+```
+
+**MCP**:
 ```bash
 codex mcp add bap-browser -- npx -y @browseragentprotocol/mcp
 ```
@@ -124,11 +165,58 @@ args = ["-y", "@browseragentprotocol/mcp"]
   <em>Codex Desktop browsing Hacker News with BAP</em>
 </p>
 
-### Browser Selection
+### Gemini CLI
 
-By default, BAP uses your locally installed Chrome. You can choose a different browser with the `--browser` flag:
+**CLI**:
+```bash
+npm i -g @browseragentprotocol/cli
+bap install-skill
+```
+
+**MCP** — add to `~/.gemini/settings.json`:
+
+```json
+{
+  "mcpServers": {
+    "bap-browser": {
+      "command": "npx",
+      "args": ["-y", "@browseragentprotocol/mcp"]
+    }
+  }
+}
+```
+
+### Manus
+
+Manus supports MCP servers via its web UI (HTTP transport only):
+
+1. Go to **Settings > Integrations > Custom MCP Servers**
+2. Click **Add Server**
+3. Set transport to **HTTP** and provide your hosted BAP MCP endpoint URL
+4. Save and verify connection
+
+> **Note:** Manus requires HTTP/SSE transport. To use BAP with Manus, deploy the MCP server as an HTTP endpoint using a stdio-to-HTTP bridge like [mcp-remote](https://www.npmjs.com/package/mcp-remote), then register the URL in the Manus UI.
+
+### Other Agents
+
+BAP CLI includes a built-in skill installer that supports 13 AI coding agent platforms:
 
 ```bash
+bap install-skill           # Auto-detect and install to all agents
+bap install-skill --dry-run # Preview what would be installed
+```
+
+Supported: Claude Code, Codex CLI, Gemini CLI, Cursor, GitHub Copilot, Windsurf, Roo Code, Amp, Deep Agents, OpenCode, and more.
+
+### Browser Selection
+
+By default, BAP uses your locally installed Chrome. Switch browsers with:
+
+```bash
+# CLI
+bap config browser firefox
+
+# MCP — pass via args
 npx @browseragentprotocol/mcp --browser firefox
 ```
 
@@ -140,27 +228,48 @@ npx @browseragentprotocol/mcp --browser firefox
 | `webkit` | WebKit | Playwright's WebKit engine |
 | `edge` | Microsoft Edge | Requires local Edge |
 
-In a JSON MCP config, pass the flag via args:
-```json
-{
-  "mcpServers": {
-    "bap-browser": {
-      "command": "npx",
-      "args": ["-y", "@browseragentprotocol/mcp", "--browser", "firefox"]
-    }
-  }
-}
+## Packages
+
+### TypeScript
+
+| Package | Description | npm |
+|---------|-------------|-----|
+| [`@browseragentprotocol/cli`](./packages/cli) | CLI for shell-based AI agents | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/cli)](https://www.npmjs.com/package/@browseragentprotocol/cli) |
+| [`@browseragentprotocol/mcp`](./packages/mcp) | MCP integration for protocol-native agents | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/mcp)](https://www.npmjs.com/package/@browseragentprotocol/mcp) |
+| [`@browseragentprotocol/client`](./packages/client) | TypeScript client SDK | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/client)](https://www.npmjs.com/package/@browseragentprotocol/client) |
+| [`@browseragentprotocol/server-playwright`](./packages/server-playwright) | Server implementation using Playwright | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/server-playwright)](https://www.npmjs.com/package/@browseragentprotocol/server-playwright) |
+| [`@browseragentprotocol/protocol`](./packages/protocol) | Protocol types, schemas, and utilities | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/protocol)](https://www.npmjs.com/package/@browseragentprotocol/protocol) |
+| [`@browseragentprotocol/logger`](./packages/logger) | Pretty logging utilities | [![npm](https://img.shields.io/npm/v/@browseragentprotocol/logger)](https://www.npmjs.com/package/@browseragentprotocol/logger) |
+
+### Python
+
+| Package | Description | PyPI |
+|---------|-------------|------|
+| [`browser-agent-protocol`](./packages/python-sdk) | Python SDK with async/sync APIs | [![PyPI](https://img.shields.io/pypi/v/browser-agent-protocol)](https://pypi.org/project/browser-agent-protocol/) |
+
+## Architecture
+
+```
+AI Agent (shell)                AI Agent (MCP-native)
+    │                               │
+    ▼                               ▼
+@browseragentprotocol/cli    @browseragentprotocol/mcp
+    │                               │
+    ▼                               ▼
+@browseragentprotocol/client ───────┘
+    │
+    ▼  WebSocket (JSON-RPC 2.0)
+@browseragentprotocol/server-playwright
+    │
+    ▼  Playwright
+Browser (Chromium / Firefox / WebKit)
 ```
 
-### Using the TypeScript SDK
+The CLI spawns the server as a background daemon that persists across commands. The MCP bridge runs as a stdio process managed by the host agent.
 
-#### Start the Server
+## Using the SDKs
 
-```bash
-npx @browseragentprotocol/server-playwright
-```
-
-#### Connect from TypeScript
+### TypeScript
 
 ```typescript
 import { BAPClient, role } from "@browseragentprotocol/client";
@@ -168,21 +277,26 @@ import { BAPClient, role } from "@browseragentprotocol/client";
 const client = new BAPClient("ws://localhost:9222");
 await client.connect();
 
-// Launch browser and navigate
 await client.launch({ browser: "chromium", headless: false });
 await client.createPage({ url: "https://example.com" });
 
-// Use semantic selectors (AI-friendly)
+// Semantic selectors
 await client.click(role("button", "Submit"));
 await client.fill(role("textbox", "Email"), "user@example.com");
 
-// Get accessibility tree for AI reasoning
-const { tree } = await client.accessibility();
+// Composite actions
+const result = await client.act({
+  steps: [
+    { action: "action/fill", params: { selector: label("Email"), value: "user@example.com" } },
+    { action: "action/fill", params: { selector: label("Password"), value: "secret123" } },
+    { action: "action/click", params: { selector: role("button", "Sign In") } },
+  ],
+});
 
 await client.close();
 ```
 
-### Using the Python SDK
+### Python
 
 ```bash
 pip install browser-agent-protocol
@@ -194,165 +308,39 @@ from browseragentprotocol import BAPClient, role, label
 
 async def main():
     async with BAPClient("ws://localhost:9222") as client:
-        # Launch browser and navigate
         await client.launch(browser="chromium", headless=False)
         await client.create_page(url="https://example.com")
 
-        # Use semantic selectors (AI-friendly)
         await client.click(role("button", "Submit"))
         await client.fill(label("Email"), "user@example.com")
-
-        # Get accessibility tree for AI reasoning
-        tree = await client.accessibility()
 
 asyncio.run(main())
 ```
 
-For synchronous usage (scripts, notebooks):
+## Selectors
 
-```python
-from browseragentprotocol import BAPClientSync, role
+BAP uses semantic selectors that survive DOM changes:
 
-with BAPClientSync("ws://localhost:9222") as client:
-    client.launch(browser="chromium", headless=True)
-    client.create_page(url="https://example.com")
-    client.click(role("button", "Submit"))
-```
-
-### Semantic Selectors
-
-BAP uses semantic selectors that are more stable and readable than CSS selectors:
-
-```typescript
-import { role, text, label, testId, ref } from "@browseragentprotocol/client";
-
-// By accessibility role and name
-await client.click(role("button", "Submit"));
-await client.fill(role("textbox", "Search"));
-
-// By visible text content
-await client.click(text("Sign in"));
-
-// By associated label
-await client.fill(label("Email address"), "user@example.com");
-
-// By test ID (for automation)
-await client.click(testId("submit-button"));
-
-// By stable element reference (from agent/observe)
-await client.click(ref("@submitBtn"));
-```
-
-### AI Agent Methods
-
-BAP provides composite methods optimized for AI agents:
-
-```typescript
-// agent/observe - Get AI-optimized page snapshot
-const observation = await client.observe({
-  includeAccessibility: true,
-  includeInteractiveElements: true,
-  includeScreenshot: true,
-  maxElements: 50,
-  annotateScreenshot: true,  // Set-of-Marks style
-});
-
-// Interactive elements with stable refs
-for (const el of observation.interactiveElements) {
-  console.log(`${el.ref}: ${el.role} - ${el.name}`);
-  // @e1: button - Submit
-  // @e2: textbox - Email
-}
-
-// agent/act - Execute multi-step sequences atomically
-const result = await client.act({
-  steps: [
-    { action: "action/fill", params: { selector: label("Email"), value: "user@example.com" } },
-    { action: "action/fill", params: { selector: label("Password"), value: "secret123" } },
-    { action: "action/click", params: { selector: role("button", "Sign In") } },
-  ],
-});
-console.log(`Completed ${result.completed}/${result.total} steps`);
-
-// agent/extract - Extract structured data
-const data = await client.extract({
-  instruction: "Extract all product names and prices",
-  schema: {
-    type: "array",
-    items: {
-      type: "object",
-      properties: {
-        name: { type: "string" },
-        price: { type: "number" },
-      },
-    },
-  },
-});
-```
-
-> **Note:** `agent/extract` (and `extract` in MCP) uses heuristic-based extraction (CSS patterns). For complex pages, consider using `content` to get page content as markdown and extract data yourself.
-
-## Server Options
-
-```bash
-npx @browseragentprotocol/server-playwright [options]
-
-Options:
-  -p, --port <number>       WebSocket port (default: 9222)
-  -h, --host <host>         Host to bind to (default: localhost)
-  -b, --browser <browser>   Browser: chromium, firefox, webkit (default: chromium)
-  --headless                Run in headless mode (default: true)
-  --no-headless             Run with visible browser window
-  -t, --timeout <ms>        Default timeout in milliseconds (default: 30000)
-  -d, --debug               Enable debug logging
-  --token <token>           Authentication token for client connections
-  --help                    Show help
-  -v, --version             Show version
-```
-
-## CLI Tools
-
-### Python CLI
-
-```bash
-# Test connection to a BAP server
-bap connect ws://localhost:9222
-
-# Get server info
-bap info ws://localhost:9222 --json
-```
-
-### TypeScript Server CLI
-
-```bash
-# Start the server
-npx @browseragentprotocol/server-playwright --port 9222 --no-headless
-
-# Start with debug logging
-npx @browseragentprotocol/server-playwright --debug
-```
+| Selector | Example | Priority |
+|----------|---------|----------|
+| `role:<role>:"<name>"` | `role:button:"Submit"` | Best — ARIA role + accessible name |
+| `text:"<content>"` | `text:"Sign in"` | Visible text content |
+| `label:"<text>"` | `label:"Email"` | Form label association |
+| `placeholder:"<text>"` | `placeholder:"Search..."` | Input placeholder |
+| `testid:"<id>"` | `testid:"submit-btn"` | data-testid attribute |
+| `e<N>` / `@ref` | `e15`, `@e1` | From snapshot/observe (positional) |
+| `css:<selector>` | `css:.btn-primary` | Last resort — fragile |
 
 ## Development
 
 ```bash
-# Clone the repository
 git clone https://github.com/browseragentprotocol/bap.git
 cd bap
-
-# Install dependencies
 pnpm install
-
-# Build all packages
 pnpm build
-
-# Run type checking
 pnpm typecheck
-
-# Run linting
 pnpm lint
-
-# Install Python SDK in development mode
-cd packages/python-sdk && pip install -e .
+pnpm test
 ```
 
 ## Contributing
@@ -361,7 +349,7 @@ We welcome contributions! Please open an issue or submit a pull request on GitHu
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
 ## Links
 
