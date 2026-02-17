@@ -6,8 +6,7 @@
 import type { BAPClient } from "@browseragentprotocol/client";
 import type { GlobalFlags } from "../config/state.js";
 import { parseSelector } from "../selectors/parser.js";
-import { printPageSummary } from "../output/formatter.js";
-import { writeSnapshot } from "../output/filesystem.js";
+import { postActionSummary } from "./helpers.js";
 import { register } from "./registry.js";
 
 async function typeCommand(
@@ -30,15 +29,7 @@ async function typeCommand(
     await client.type(selector, args[1]!);
   }
 
-  const snapshot = await client.ariaSnapshot();
-  const snapshotPath = await writeSnapshot(snapshot.snapshot);
-
-  const obs = await client.observe({
-    includeMetadata: true,
-    includeInteractiveElements: false,
-    maxElements: 0,
-  });
-  printPageSummary(obs.metadata?.url, obs.metadata?.title, snapshotPath);
+  await postActionSummary(client);
 }
 
 register("type", typeCommand);

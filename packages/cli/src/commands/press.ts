@@ -4,8 +4,7 @@
 
 import type { BAPClient } from "@browseragentprotocol/client";
 import type { GlobalFlags } from "../config/state.js";
-import { printPageSummary } from "../output/formatter.js";
-import { writeSnapshot } from "../output/filesystem.js";
+import { postActionSummary } from "./helpers.js";
 import { register } from "./registry.js";
 
 async function pressCommand(
@@ -20,16 +19,7 @@ async function pressCommand(
   }
 
   await client.press(key);
-
-  const snapshot = await client.ariaSnapshot();
-  const snapshotPath = await writeSnapshot(snapshot.snapshot);
-
-  const obs = await client.observe({
-    includeMetadata: true,
-    includeInteractiveElements: false,
-    maxElements: 0,
-  });
-  printPageSummary(obs.metadata?.url, obs.metadata?.title, snapshotPath);
+  await postActionSummary(client);
 }
 
 register("press", pressCommand);

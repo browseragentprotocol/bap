@@ -8,6 +8,7 @@ import {
   createElementRegistry,
   cleanupStaleEntries,
   ELEMENT_STALE_THRESHOLD,
+  ELEMENT_REGISTRY_MAX_SIZE,
   type ElementRegistryEntry,
 } from "../shared/element-identity.js";
 import type { ElementIdentity } from "../types/agent.js";
@@ -390,5 +391,64 @@ describe("cleanupStaleEntries()", () => {
 describe("ELEMENT_STALE_THRESHOLD", () => {
   it("is 60 seconds (60000ms)", () => {
     expect(ELEMENT_STALE_THRESHOLD).toBe(60000);
+  });
+});
+
+describe("ELEMENT_REGISTRY_MAX_SIZE", () => {
+  it("is 2000", () => {
+    expect(ELEMENT_REGISTRY_MAX_SIZE).toBe(2000);
+  });
+});
+
+describe("cleanupStaleEntries() — max size enforcement", () => {
+  it("evicts oldest entries when registry exceeds max size", () => {
+    const registry = createElementRegistry("https://example.com");
+    const now = Date.now();
+
+    // Fill beyond max size with fresh entries (all within time threshold)
+    for (let i = 0; i < ELEMENT_REGISTRY_MAX_SIZE + 100; i++) {
+      const entry: ElementRegistryEntry = {
+        ref: `@el${i}`,
+        selector: { type: "css", value: `.el${i}` },
+        identity: { role: "button", tagName: "BUTTON" },
+        lastSeen: now - i, // Older entries have higher i (older lastSeen)
+      };
+      registry.elements.set(`@el${i}`, entry);
+    }
+
+    expect(registry.elements.size).toBe(ELEMENT_REGISTRY_MAX_SIZE + 100);
+
+    const removed = cleanupStaleEntries(registry, ELEMENT_STALE_THRESHOLD);
+
+    // Should have evicted 100 oldest entries
+    expect(removed).toBe(100);
+    expect(registry.elements.size).toBe(ELEMENT_REGISTRY_MAX_SIZE);
+
+    // Newest entries should survive (lowest i = newest lastSeen)
+    expect(registry.elements.has("@el0")).toBe(true);
+    expect(registry.elements.has("@el1")).toBe(true);
+
+    // Oldest entries should be evicted (highest i = oldest lastSeen)
+    const lastIndex = ELEMENT_REGISTRY_MAX_SIZE + 99;
+    expect(registry.elements.has(`@el${lastIndex}`)).toBe(false);
+  });
+
+  it("does not evict when within max size", () => {
+    const registry = createElementRegistry("https://example.com");
+    const now = Date.now();
+
+    for (let i = 0; i < 10; i++) {
+      const entry: ElementRegistryEntry = {
+        ref: `@el${i}`,
+        selector: { type: "css", value: `.el${i}` },
+        identity: { role: "button", tagName: "BUTTON" },
+        lastSeen: now,
+      };
+      registry.elements.set(`@el${i}`, entry);
+    }
+
+    const removed = cleanupStaleEntries(registry);
+    expect(removed).toBe(0);
+    expect(registry.elements.size).toBe(10);
   });
 });

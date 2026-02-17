@@ -63,6 +63,7 @@ bap extract --list="product"
 ```bash
 bap open [url]              # Open browser, optionally navigate
 bap goto <url>              # Navigate to URL
+bap goto <url> --observe    # Fused: navigate + observe in 1 server call
 bap back                    # Go back
 bap forward                 # Go forward
 bap reload                  # Reload page
@@ -89,6 +90,8 @@ bap observe --full          # Full accessibility tree
 bap observe --forms         # Form fields only
 bap observe --navigation    # Navigation elements only
 bap observe --max=20        # Limit elements
+bap observe --diff          # Incremental: only show changes since last observation
+bap observe --tier=minimal  # Response tier: full, interactive, minimal
 bap snapshot [--file=F]     # YAML accessibility snapshot
 bap screenshot [--file=F]   # PNG screenshot
 ```
@@ -97,6 +100,7 @@ bap screenshot [--file=F]   # PNG screenshot
 
 ```bash
 bap act <step1> <step2> ... # Execute multiple steps atomically
+bap act <steps> --observe   # Fused: act + observe in 1 server call
 ```
 
 Step syntax: `action:selector=value` or `action:selector`
@@ -112,6 +116,9 @@ bap act click:text:"Accept" goto:https://example.com/app
 
 # Fill and submit a search
 bap act fill:role:searchbox:"Search"="query here" press:Enter
+
+# Fused act + observe (1 server call instead of 3)
+bap act click:e3 --observe --tier=interactive
 ```
 
 ### Sessions & Tabs
@@ -167,6 +174,10 @@ bap skill init              # Install skill to current project
 --headless             Headless mode (default)
 --no-headless          Show browser window
 -v, --verbose          Verbose output
+--observe              Fused observation (for goto, act)
+--diff                 Incremental observation (for observe)
+--tier=<tier>          Response tier: full, interactive, minimal
+--max=<N>              Limit elements (default: 50)
 ```
 
 ## Architecture

@@ -22,6 +22,7 @@ npx @browseragentprotocol/mcp
 ## Why BAP?
 
 - **Composite Actions**: Execute multi-step flows in one command — 40x fewer tokens than one-action-at-a-time
+- **Fused Operations**: Combine navigate+observe, act+observe into single server calls — 50-85% fewer roundtrips
 - **Semantic Selectors**: Target elements by purpose (`role:button:"Submit"`) not position — survives redesigns
 - **Structured Extraction**: Extract validated JSON from any page with a schema
 - **Two Interfaces**: CLI (`bap act`) for shell-based agents, MCP tools for protocol-native agents

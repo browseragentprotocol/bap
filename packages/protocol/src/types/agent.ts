@@ -96,6 +96,13 @@ export const AgentActParamsSchema = z.object({
 
   /** Global timeout for entire sequence (ms) */
   timeout: z.number().optional(),
+
+  // Fusion: observe-act-observe kernel
+  /** Run agent/observe before executing steps (pre-observation) */
+  preObserve: z.lazy(() => AgentObserveParamsSchema).optional(),
+
+  /** Run agent/observe after executing steps (post-observation) */
+  postObserve: z.lazy(() => AgentObserveParamsSchema).optional(),
 });
 export type AgentActParams = z.infer<typeof AgentActParamsSchema>;
 
@@ -163,6 +170,13 @@ export const AgentActResultSchema = z.object({
 
   /** Index of first failed step (if any) */
   failedAt: z.number().optional(),
+
+  // Fusion: observe-act-observe kernel
+  /** Pre-execution observation result (if preObserve was requested) */
+  preObservation: z.lazy(() => AgentObserveResultSchema).optional(),
+
+  /** Post-execution observation result (if postObserve was requested) */
+  postObservation: z.lazy(() => AgentObserveResultSchema).optional(),
 });
 export type AgentActResult = z.infer<typeof AgentActResultSchema>;
 
@@ -366,6 +380,19 @@ export const AnnotationMappingSchema = z.object({
 });
 export type AnnotationMapping = z.infer<typeof AnnotationMappingSchema>;
 
+// =============================================================================
+// Fusion: Response Tiers & Incremental Observation
+// =============================================================================
+
+/**
+ * Response compression tier for observations
+ * - "full": All requested data (tree, elements, screenshot, metadata) — default
+ * - "interactive": Elements + metadata only (skip tree, skip screenshot)
+ * - "minimal": Element refs + names only (no bounds, stripped actionHints)
+ */
+export const ResponseTierSchema = z.enum(["full", "interactive", "minimal"]);
+export type ResponseTier = z.infer<typeof ResponseTierSchema>;
+
 /**
  * Parameters for agent/observe
  */
@@ -410,6 +437,13 @@ export const AgentObserveParamsSchema = z.object({
     z.boolean(),
     AnnotationOptionsSchema,
   ]).optional(),
+
+  // Fusion options
+  /** Response compression tier (default: "full") */
+  responseTier: ResponseTierSchema.optional(),
+
+  /** Return only changes since last observation (added, updated, removed) */
+  incremental: z.boolean().optional(),
 });
 export type AgentObserveParams = z.infer<typeof AgentObserveParamsSchema>;
 
@@ -440,6 +474,19 @@ export const ObserveScreenshotSchema = z.object({
 export type ObserveScreenshot = z.infer<typeof ObserveScreenshotSchema>;
 
 /**
+ * Incremental changes between observations (for fusion)
+ */
+export const ObserveChangesSchema = z.object({
+  /** Elements added since last observation */
+  added: z.array(InteractiveElementSchema),
+  /** Elements updated since last observation (value, name, or state changed) */
+  updated: z.array(InteractiveElementSchema),
+  /** Refs of elements removed since last observation */
+  removed: z.array(z.string()),
+});
+export type ObserveChanges = z.infer<typeof ObserveChangesSchema>;
+
+/**
  * Result of agent/observe
  */
 export const AgentObserveResultSchema = z.object({
@@ -464,6 +511,9 @@ export const AgentObserveResultSchema = z.object({
 
   /** Mapping from annotation labels to elements (if annotateScreenshot was used) */
   annotationMap: z.array(AnnotationMappingSchema).optional(),
+
+  /** Incremental changes since last observation (if incremental: true) */
+  changes: ObserveChangesSchema.optional(),
 });
 export type AgentObserveResult = z.infer<typeof AgentObserveResultSchema>;
 

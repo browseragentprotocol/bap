@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import { BAPSelectorSchema } from "./selectors.js";
+import { AgentObserveParamsSchema, AgentObserveResultSchema } from "./agent.js";
 import {
   BoundingBoxSchema,
   ActionOptionsSchema,
@@ -97,6 +98,10 @@ export const PageNavigateParamsSchema = z.object({
   waitUntil: WaitUntilStateSchema.optional(),
   timeout: z.number().optional(),
   referer: z.string().optional(),
+
+  // Fusion: navigate-observe kernel
+  /** Run agent/observe after navigation completes (fused in single call) */
+  observe: AgentObserveParamsSchema.optional(),
 });
 export type PageNavigateParams = z.infer<typeof PageNavigateParamsSchema>;
 
@@ -105,6 +110,10 @@ export const PageNavigateResultSchema = z.object({
   url: z.string(),
   status: z.number(),
   headers: z.record(z.string()),
+
+  // Fusion: navigate-observe kernel
+  /** Observation result (if observe was requested) */
+  observation: AgentObserveResultSchema.optional(),
 });
 export type PageNavigateResult = z.infer<typeof PageNavigateResultSchema>;
 

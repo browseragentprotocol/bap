@@ -13,6 +13,7 @@ import type {
   AgentActResult,
   AgentObserveResult,
   AgentExtractResult,
+  ObserveChanges,
 } from "@browseragentprotocol/protocol";
 
 /**
@@ -116,4 +117,38 @@ export function printExtractionResult(
 export function printSnapshotSummary(snapshotPath: string): void {
   console.log("### Snapshot");
   console.log(`[Snapshot](${snapshotPath})`);
+}
+
+/**
+ * Print incremental observation changes (--diff mode).
+ */
+export function printObserveChanges(changes: ObserveChanges): void {
+  console.log("### Changes");
+
+  if (changes.added.length > 0) {
+    console.log(`  + ${changes.added.length} added`);
+    for (const el of changes.added) {
+      const name = el.name ? ` "${el.name}"` : "";
+      console.log(`    + ${el.ref} ${el.role}${name}`);
+    }
+  }
+
+  if (changes.updated.length > 0) {
+    console.log(`  ~ ${changes.updated.length} updated`);
+    for (const el of changes.updated) {
+      const name = el.name ? ` "${el.name}"` : "";
+      console.log(`    ~ ${el.ref} ${el.role}${name}`);
+    }
+  }
+
+  if (changes.removed.length > 0) {
+    console.log(`  - ${changes.removed.length} removed`);
+    for (const ref of changes.removed) {
+      console.log(`    - ${ref}`);
+    }
+  }
+
+  if (changes.added.length === 0 && changes.updated.length === 0 && changes.removed.length === 0) {
+    console.log("  (no changes)");
+  }
 }

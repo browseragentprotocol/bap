@@ -6,8 +6,7 @@
 import type { BAPClient } from "@browseragentprotocol/client";
 import type { GlobalFlags } from "../config/state.js";
 import { parseSelector } from "../selectors/parser.js";
-import { printPageSummary } from "../output/formatter.js";
-import { writeSnapshot } from "../output/filesystem.js";
+import { postActionSummary } from "./helpers.js";
 import { register } from "./registry.js";
 
 async function checkCommand(
@@ -23,16 +22,7 @@ async function checkCommand(
 
   const selector = parseSelector(selectorStr);
   await client.check(selector);
-
-  const snapshot = await client.ariaSnapshot();
-  const snapshotPath = await writeSnapshot(snapshot.snapshot);
-
-  const obs = await client.observe({
-    includeMetadata: true,
-    includeInteractiveElements: false,
-    maxElements: 0,
-  });
-  printPageSummary(obs.metadata?.url, obs.metadata?.title, snapshotPath);
+  await postActionSummary(client);
 }
 
 async function uncheckCommand(
@@ -48,16 +38,7 @@ async function uncheckCommand(
 
   const selector = parseSelector(selectorStr);
   await client.uncheck(selector);
-
-  const snapshot = await client.ariaSnapshot();
-  const snapshotPath = await writeSnapshot(snapshot.snapshot);
-
-  const obs = await client.observe({
-    includeMetadata: true,
-    includeInteractiveElements: false,
-    maxElements: 0,
-  });
-  printPageSummary(obs.metadata?.url, obs.metadata?.title, snapshotPath);
+  await postActionSummary(client);
 }
 
 register("check", checkCommand);

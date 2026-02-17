@@ -34,6 +34,10 @@ export interface GlobalFlags {
   project?: boolean;
   global?: boolean;
   dryRun?: boolean;
+  // fusion flags
+  observe?: boolean;
+  diff?: boolean;
+  tier?: string;
   // output flags
   file?: string;
   // recipe flags
@@ -151,6 +155,16 @@ export function parseArgs(argv: string[]): GlobalFlags {
       flags.max = parseInt(arg.slice(6), 10);
     } else if (arg === "--max") {
       flags.max = parseInt(argv[++i] ?? "50", 10);
+    }
+    // fusion flags
+    else if (arg === "--observe") {
+      flags.observe = true;
+    } else if (arg === "--diff") {
+      flags.diff = true;
+    } else if (arg.startsWith("--tier=")) {
+      flags.tier = arg.slice(7);
+    } else if (arg === "--tier") {
+      flags.tier = argv[++i];
     }
     // extract flags
     else if (arg.startsWith("--fields=")) {

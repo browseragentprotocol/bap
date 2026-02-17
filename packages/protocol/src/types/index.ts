@@ -476,6 +476,11 @@ export {
   type AnnotationLabelFormat,
   type AnnotationOptions,
   type AnnotationMapping,
+  // Fusion: Response tiers & incremental observation
+  ResponseTierSchema,
+  ObserveChangesSchema,
+  type ResponseTier,
+  type ObserveChanges,
   // Observe params and result
   AgentObserveParamsSchema,
   ObserveMetadataSchema,

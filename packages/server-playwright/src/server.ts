@@ -577,6 +577,8 @@ interface FrameContext {
 
 /** Client state for a connected WebSocket client */
 interface ClientState {
+  /** Unique identifier for this client connection (for log correlation) */
+  clientId: string;
   initialized: boolean;
   browser: Browser | null;
   /** Default context (backwards compatible) */
@@ -627,6 +629,16 @@ interface ClientState {
   pendingApprovals: Map<string, PendingApproval>;
   /** Session-level approvals (for approve-session) */
   sessionApprovals: Set<string>;
+
+  // Fusion: Speculative prefetch
+  /** Cached speculative observation (fire-and-forget after navigation/click) */
+  speculativeObservation?: {
+    pageUrl: string;
+    result: AgentObserveResult;
+    timestamp: number;
+  };
+  /** Timer handle for pending speculative prefetch (for cancellation on cleanup/disconnect) */
+  speculativePrefetchTimer?: NodeJS.Timeout;
 }
 
 // =============================================================================
@@ -958,6 +970,7 @@ export class BAPPlaywrightServer extends EventEmitter {
     // Initialize client state with authorization and session tracking (v0.2.0)
     const now = Date.now();
     const state: ClientState = {
+      clientId: randomUUID().slice(0, 8),
       initialized: false,
       browser: null,
       context: null,
@@ -990,7 +1003,7 @@ export class BAPPlaywrightServer extends EventEmitter {
     this.setupSessionTimeouts(ws, state);
 
     this.clients.set(ws, state);
-    this.log(`Client connected (scopes: ${state.scopes.join(', ')})`);
+    this.log(`Client connected`, { clientId: state.clientId, scopes: state.scopes });
 
     ws.on("message", async (data) => {
       try {
@@ -1016,13 +1029,13 @@ export class BAPPlaywrightServer extends EventEmitter {
     });
 
     ws.on("close", async () => {
-      this.log("Client disconnected");
+      this.log("Client disconnected", { clientId: state.clientId });
       await this.cleanupClient(state);
       this.clients.delete(ws);
     });
 
     ws.on("error", (error) => {
-      this.log(`WebSocket error: ${error.message}`);
+      this.log(`WebSocket error: ${error.message}`, { clientId: state.clientId });
     });
   }
 
@@ -1035,6 +1048,10 @@ export class BAPPlaywrightServer extends EventEmitter {
     request: JSONRPCRequest
   ): Promise<JSONRPCResponse> {
     const { id, method, params } = request;
+    const requestId = randomUUID().slice(0, 8);
+    const startTime = performance.now();
+
+    this.log(`→ ${method}`, { clientId: state.clientId, reqId: requestId, rpcId: id });
 
     try {
       // Reset idle timeout on activity (v0.2.0)
@@ -1054,8 +1071,13 @@ export class BAPPlaywrightServer extends EventEmitter {
       }
 
       const result = await this.dispatch(ws, state, method as BAPMethod, params ?? {});
+      const duration = Math.round(performance.now() - startTime);
+      this.log(`✓ ${method}`, { clientId: state.clientId, reqId: requestId, duration: `${duration}ms` });
       return createSuccessResponse(id, result);
     } catch (error) {
+      const duration = Math.round(performance.now() - startTime);
+      const errMsg = error instanceof Error ? error.message : "Unknown error";
+      this.log(`✗ ${method}`, { clientId: state.clientId, reqId: requestId, duration: `${duration}ms`, error: errMsg });
       return this.handleError(id, error);
     }
   }
@@ -1531,11 +1553,27 @@ export class BAPPlaywrightServer extends EventEmitter {
       referer: params.referer as string | undefined,
     });
 
-    return {
+    const result: PageNavigateResult = {
       url: page.url(),
       status: response?.status() ?? 0,
       headers: response?.headers() ?? {},
     };
+
+    // Fusion 2: navigate-observe kernel — fused observation after navigation
+    const observeParams = (params as Record<string, unknown>).observe as AgentObserveParams | undefined;
+    if (observeParams) {
+      try {
+        const pageId = params.pageId as string | undefined;
+        (result as Record<string, unknown>).observation = await this.handleAgentObserve(
+          state,
+          { ...observeParams, pageId }
+        );
+      } catch {
+        // Non-fatal: observation failure doesn't block navigate result
+      }
+    }
+
+    return result;
   }
 
   private async handlePageReload(state: ClientState, params: Record<string, unknown>): Promise<void> {
@@ -2504,7 +2542,8 @@ export class BAPPlaywrightServer extends EventEmitter {
       }
     }
 
-    return {
+    // Build base result
+    const actResult: AgentActResult = {
       completed,
       total: params.steps.length,
       success: completed === params.steps.length,
@@ -2512,6 +2551,42 @@ export class BAPPlaywrightServer extends EventEmitter {
       duration: Date.now() - startTime,
       failedAt,
     };
+
+    // Fusion 1: observe-act-observe kernel — pre-observation
+    const preObserve = (params as Record<string, unknown>).preObserve as AgentObserveParams | undefined;
+    if (preObserve) {
+      try {
+        (actResult as Record<string, unknown>).preObservation = await this.handleAgentObserve(
+          state,
+          { ...preObserve, pageId: params.pageId }
+        );
+      } catch {
+        // Non-fatal: pre-observation failure doesn't block act result
+      }
+    }
+
+    // Fusion 1: observe-act-observe kernel — post-observation
+    const postObserve = (params as Record<string, unknown>).postObserve as AgentObserveParams | undefined;
+    if (postObserve) {
+      try {
+        (actResult as Record<string, unknown>).postObservation = await this.handleAgentObserve(
+          state,
+          { ...postObserve, pageId: params.pageId }
+        );
+      } catch {
+        // Non-fatal: post-observation failure doesn't block act result
+      }
+    }
+
+    // Fusion 6: speculative prefetch — after act that ends with navigate/click
+    if (!postObserve && results.length > 0) {
+      const lastStep = params.steps[results.length - 1];
+      if (lastStep && (lastStep.action === "page/navigate" || lastStep.action === "action/click")) {
+        this.speculativeObserve(state, params.pageId);
+      }
+    }
+
+    return actResult;
   }
 
   /**
@@ -2621,6 +2696,68 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   /**
+   * Fusion 6: Speculative prefetch — fire-and-forget observation after act
+   * Builds an "interactive" tier observation that can be served from cache
+   * if the next call is a matching agent/observe.
+   *
+   * Guards:
+   * - Timer tracked on state for cancellation on cleanup/disconnect
+   * - Checks page still exists and URL hasn't changed before caching
+   * - Aborts if client state is no longer initialized (disconnected)
+   */
+  private speculativeObserve(state: ClientState, pageId?: string): void {
+    // Cancel any pending speculative prefetch
+    if (state.speculativePrefetchTimer) {
+      clearTimeout(state.speculativePrefetchTimer);
+      state.speculativePrefetchTimer = undefined;
+    }
+
+    // Snapshot the URL at call time to detect navigation during delay
+    let urlAtCallTime: string | undefined;
+    try {
+      const p = this.getPage(state, pageId);
+      urlAtCallTime = p.url();
+    } catch {
+      return; // Page doesn't exist, skip
+    }
+
+    // Fire after 200ms delay to let page settle
+    state.speculativePrefetchTimer = setTimeout(async () => {
+      state.speculativePrefetchTimer = undefined;
+      try {
+        // Guard: client may have disconnected during delay
+        if (!state.initialized) return;
+
+        // Guard: page may have been closed during delay
+        const page = this.getPage(state, pageId);
+        // Guard: page may have navigated during delay
+        if (page.url() !== urlAtCallTime) return;
+
+        const result = await this.handleAgentObserve(state, {
+          pageId,
+          includeMetadata: true,
+          includeInteractiveElements: true,
+          includeScreenshot: false,
+          includeAccessibility: false,
+          maxElements: 50,
+          responseTier: "interactive",
+        });
+
+        // Guard: check URL hasn't changed during observation
+        if (page.url() !== urlAtCallTime) return;
+
+        state.speculativeObservation = {
+          pageUrl: page.url(),
+          result,
+          timestamp: Date.now(),
+        };
+      } catch {
+        // Speculative prefetch is fire-and-forget — silently ignore errors
+      }
+    }, 200);
+  }
+
+  /**
    * Get an AI-optimized observation of the page
    * Supports stable element refs and screenshot annotation (Set-of-Marks)
    */
@@ -2630,11 +2767,51 @@ export class BAPPlaywrightServer extends EventEmitter {
   ): Promise<AgentObserveResult> {
     const page = this.getPage(state, params.pageId);
     const pageId = params.pageId ?? state.activePage ?? "";
+    const pageUrl = page.url();
+
+    // Fusion 6: speculative cache — check for a valid pre-built observation
+    // Use if: URL matches, age < 5s, not requesting tree or screenshot (those are expensive/specific)
+    if (state.speculativeObservation) {
+      const spec = state.speculativeObservation;
+      const age = Date.now() - spec.timestamp;
+      const canUse = spec.pageUrl === pageUrl
+        && age < 5000
+        && !params.includeAccessibility
+        && !params.includeScreenshot
+        && !params.annotateScreenshot;
+      // Always clear the cache (one-shot)
+      state.speculativeObservation = undefined;
+      if (canUse) {
+        return spec.result;
+      }
+    }
+
     const result: AgentObserveResult = {};
+
+    // Fusion 5: response tiers — override include flags based on tier
+    const responseTier = params.responseTier ?? "full";
+    if (responseTier === "interactive" || responseTier === "minimal") {
+      // Force interactive-only: skip tree and screenshot
+      params = {
+        ...params,
+        includeAccessibility: false,
+        includeScreenshot: false,
+        includeInteractiveElements: true,
+        includeMetadata: true,
+      };
+    }
 
     // Get or create element registry for this page
     let registry = state.elementRegistries.get(pageId);
-    const pageUrl = page.url();
+
+    // Snapshot previous refs BEFORE registry update (needed for incremental diff)
+    const previousRefs = params.incremental && registry
+      ? new Map(Array.from(registry.elements.entries()).map(([ref, entry]) => [ref, {
+          name: entry.identity.name,
+          value: undefined as string | undefined, // registry doesn't track value, diff from element list
+          disabled: false,
+        }]))
+      : null;
 
     // Create new registry if needed or if URL changed (navigation)
     if (!registry || registry.pageUrl !== pageUrl || params.refreshRefs) {
@@ -2685,8 +2862,50 @@ export class BAPPlaywrightServer extends EventEmitter {
       interactiveElements = elements.elements;
 
       if (params.includeInteractiveElements) {
-        result.interactiveElements = elements.elements;
+        // Fusion 5: minimal tier — strip elements to essential fields only
+        if (responseTier === "minimal") {
+          result.interactiveElements = elements.elements.map(el => ({
+            ref: el.ref,
+            selector: el.selector,
+            role: el.role,
+            name: el.name,
+            tagName: el.tagName,
+            actionHints: [],
+          }));
+        } else {
+          result.interactiveElements = elements.elements;
+        }
         result.totalInteractiveElements = elements.total;
+      }
+
+      // Fusion 3: incremental observe — compute diff against previous observation
+      if (params.incremental && previousRefs) {
+        const currentRefs = new Set(elements.elements.map(el => el.ref));
+        const added: InteractiveElement[] = [];
+        const updated: InteractiveElement[] = [];
+        const removed: string[] = [];
+
+        for (const el of elements.elements) {
+          if (!previousRefs.has(el.ref)) {
+            added.push(el);
+          } else {
+            const prev = previousRefs.get(el.ref)!;
+            if (prev.name !== el.name || el.disabled || el.value !== undefined) {
+              // Heuristic: if name changed or element has notable state, include as updated
+              if (prev.name !== el.name) {
+                updated.push(el);
+              }
+            }
+          }
+        }
+
+        for (const [prevRef] of previousRefs) {
+          if (!currentRefs.has(prevRef)) {
+            removed.push(prevRef);
+          }
+        }
+
+        result.changes = { added, updated, removed };
       }
     }
 
@@ -3450,6 +3669,8 @@ export class BAPPlaywrightServer extends EventEmitter {
       actionHints: string[];
       selectorType: string;
       selectorValue: string;
+      /** Fusion 4: Pre-computed CSS path for selector caching */
+      cssPath: string;
       bounds: { x: number; y: number; width: number; height: number } | undefined;
       // Identity fields for stable refs
       testId?: string;
@@ -3594,6 +3815,9 @@ export class BAPPlaywrightServer extends EventEmitter {
             }
           }
 
+          // Fusion 4: always compute CSS path for selector caching
+          const cssPath = getCssPath(el);
+
           return {
             index,
             role,
@@ -3605,6 +3829,7 @@ export class BAPPlaywrightServer extends EventEmitter {
             actionHints: hints,
             selectorType,
             selectorValue,
+            cssPath,
             bounds: opts.includeBounds ? {
               x: Math.round(rect.x),
               y: Math.round(rect.y),
@@ -3704,13 +3929,14 @@ export class BAPPlaywrightServer extends EventEmitter {
           }
         }
 
-        // Update registry
+        // Update registry (Fusion 4: include cached CSS selector for fast resolution)
         registry.elements.set(ref, {
           ref,
           selector,
           identity,
           lastSeen: Date.now(),
           bounds: el.bounds,
+          cachedCssSelector: el.cssPath || undefined,
         });
       } else {
         // Use simple index-based ref
@@ -3866,7 +4092,12 @@ export class BAPPlaywrightServer extends EventEmitter {
             `Element ref not found: ${selector.ref}. The element may have been removed or the ref may be stale.`
           );
         }
-        // Use the stored selector to find the element
+        // Fusion 4: Use cached CSS selector for fast resolution (bypasses semantic lookup)
+        // Falls back to stored selector if cache miss or stale (executeStepWithRetry handles stale elements)
+        if (entry.cachedCssSelector) {
+          return page.locator(entry.cachedCssSelector);
+        }
+        // Fallback: Use the stored semantic selector
         return this.resolveSelector(page, entry.selector);
       }
 
@@ -4321,6 +4552,13 @@ export class BAPPlaywrightServer extends EventEmitter {
     // Clear session timeouts (v0.2.0)
     this.clearSessionTimeouts(state);
 
+    // Cancel any pending speculative prefetch
+    if (state.speculativePrefetchTimer) {
+      clearTimeout(state.speculativePrefetchTimer);
+      state.speculativePrefetchTimer = undefined;
+    }
+    state.speculativeObservation = undefined;
+
     if (state.tracing && state.context) {
       try {
         await state.context.tracing.stop();
@@ -4340,7 +4578,15 @@ export class BAPPlaywrightServer extends EventEmitter {
     state.browser = null;
     state.context = null;
     state.pages.clear();
+    state.pageToContext.clear();
     state.activePage = null;
+    state.elementRegistries.clear();
+    state.frameContexts.clear();
+    state.activeStreams.clear();
+    state.pendingApprovals.clear();
+    state.sessionApprovals.clear();
+    state.contexts.clear();
+    state.defaultContextId = null;
     state.initialized = false;
   }
 
@@ -4704,11 +4950,18 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   /**
-   * Log a debug message
+   * Log a debug message with optional structured context
    */
-  private log(message: string): void {
+  private log(message: string, context?: Record<string, unknown>): void {
     if (this.options.debug) {
-      console.log(`[BAP Server] ${message}`);
+      if (context) {
+        const ctx = Object.entries(context)
+          .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
+          .join(" ");
+        console.log(`[BAP Server] ${message} ${ctx}`);
+      } else {
+        console.log(`[BAP Server] ${message}`);
+      }
     }
   }
 }
