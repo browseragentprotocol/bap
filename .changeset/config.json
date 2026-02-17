@@ -4,7 +4,7 @@
   "commit": false,
   "fixed": [],
   "linked": [
-    ["@browseragentprotocol/protocol", "@browseragentprotocol/logger", "@browseragentprotocol/client", "@browseragentprotocol/server-playwright", "@browseragentprotocol/mcp"]
+    ["@browseragentprotocol/protocol", "@browseragentprotocol/logger", "@browseragentprotocol/client", "@browseragentprotocol/server-playwright", "@browseragentprotocol/mcp", "@browseragentprotocol/cli"]
   ],
   "access": "public",
   "baseBranch": "main",

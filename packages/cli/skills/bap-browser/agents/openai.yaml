@@ -1,0 +1,8 @@
+display_name: "BAP Browser"
+short_description: "AI-native browser automation with composite actions, semantic selectors, and structured extraction"
+default_prompt: "Use bap-browser to test the login flow on this app"
+icon: "🌐"
+category: "browser-automation"
+allow_implicit_invocation: true
+tools:
+  - Bash
