@@ -31,6 +31,25 @@ bap act fill:role:textbox:"Email"="user@example.com" \
 
 Each step uses the syntax `action:selector=value` or `action:selector`.
 
+## Fused Operations
+
+Fused operations combine multiple server calls into one, cutting roundtrips by 50-85%.
+
+```bash
+# Navigate + observe in 1 call (instead of bap goto + bap observe)
+bap goto https://example.com --observe
+
+# Act + post-observe in 1 call (get updated page state after actions)
+bap act click:role:button:"Submit" --observe
+
+# Control response size with --tier
+bap goto https://example.com --observe --tier=minimal    # refs + names only
+bap goto https://example.com --observe --tier=interactive # elements + roles (default)
+bap observe --tier=full                                   # everything + metadata
+```
+
+**Always prefer fused calls** — `bap goto <url> --observe` is 1 roundtrip vs 2 for `bap goto` then `bap observe`.
+
 ## Common Patterns
 
 ```bash
@@ -45,6 +64,12 @@ bap act fill:label:"Card number"="4111111111111111" \
         fill:label:"Expiry"="12/28" \
         fill:label:"CVV"="123" \
         click:role:button:"Pay now"
+
+# Login with fused observe (2 calls total)
+bap goto https://app.example.com/login --observe
+bap act fill:label:"Email"="user@example.com" \
+        fill:label:"Password"="secret" \
+        click:role:button:"Sign in" --observe
 ```
 
 ## Selectors
@@ -69,10 +94,12 @@ For the full selector reference, see [references/SELECTORS.md](references/SELECT
 ### Navigation
 
 ```bash
-bap open [url]              # Open browser
-bap goto <url>              # Navigate
-bap back / bap forward      # History navigation
-bap reload                  # Reload page
+bap open [url]                            # Open browser
+bap goto <url>                            # Navigate
+bap goto <url> --observe                  # Fused navigate+observe (1 call instead of 2)
+bap goto <url> --observe --tier=interactive  # Fused with response tier
+bap back / bap forward                    # History navigation
+bap reload                                # Reload page
 ```
 
 ### Interaction
@@ -91,12 +118,13 @@ bap hover <selector>        # Hover over element
 ### Observation
 
 ```bash
-bap observe                 # Compact interactive elements (default max 50)
-bap observe --full          # Full accessibility tree
-bap observe --forms         # Form fields only
-bap observe --max=20        # Limit number of elements returned
-bap snapshot                # Full YAML snapshot (playwright-cli compatible)
-bap screenshot [--file=F]   # Save screenshot to .bap/ directory
+bap observe                      # Compact interactive elements (default max 50)
+bap observe --full               # Full accessibility tree
+bap observe --forms              # Form fields only
+bap observe --max=20             # Limit number of elements returned
+bap observe --tier=interactive   # Response tier: full, interactive, minimal
+bap snapshot                     # Full YAML snapshot (playwright-cli compatible)
+bap screenshot [--file=F]        # Save screenshot to .bap/ directory
 ```
 
 ### Structured Extraction
