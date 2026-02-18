@@ -1,6 +1,6 @@
 {
   "name": "@browseragentprotocol/cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "BAP CLI - AI-native browser automation from the command line",
   "author": "Browser Agent Protocol",
   "license": "Apache-2.0",
