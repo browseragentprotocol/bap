@@ -104,27 +104,65 @@ act({
 
 This pattern turns 4+ round-trips into 2. Use it.
 
+## Fused Operations
+
+Fused operations combine multiple server calls into one, cutting roundtrips by 50-85%.
+
+### Navigate + Observe (1 call instead of 2)
+```
+navigate({ url: "https://example.com", observe: { maxElements: 30, responseTier: "interactive" } })
+```
+Returns navigation result AND observation in a single response. The `observation` field on the result contains the page elements.
+
+### Act + Post-Observe (1 call instead of 2)
+```
+act({
+  steps: [
+    { action: "action/click", selector: "role:button:Submit" }
+  ],
+  postObserve: { maxElements: 30, responseTier: "interactive" }
+})
+```
+Executes actions AND returns the resulting page state. The `postObservation` field on the result contains the updated elements.
+
+### Response Tiers
+Control how much data `observe` returns:
+
+| Tier | What's included | When to use |
+|------|----------------|-------------|
+| `"full"` | All fields, metadata, screenshots | First page load, debugging |
+| `"interactive"` | Interactive elements, refs, roles | Most interactions (default for fused) |
+| `"minimal"` | Refs and names only | Rapid polling, confirmation checks |
+
+```
+observe({ responseTier: "interactive", maxElements: 20 })
+```
+
 ## Efficiency Rules
 
 1. **`aria_snapshot` over `accessibility`.** Same structure, ~80% fewer tokens.
 2. **`observe` with `maxElements`.** Default is 50. Set it lower when you can: `maxElements: 20`.
 3. **`observe` with `filterRoles`.** Focus: `filterRoles: ["button", "link", "textbox"]`.
-4. **`act` over individual calls.** A login flow is 1 `act`, not 3 separate fill/click calls.
-5. **`extract` over manual parsing.** Define a JSON schema. Let BAP extract. Don't scrape HTML.
-6. **`content({ format: "markdown" })` over screenshots for text.** Markdown is compact and parseable.
-7. **`fill` over `type` for form fields.** `fill` clears and sets; `type` sends keystrokes one at a time.
+4. **`observe` with `responseTier`.** Use `"interactive"` for most flows, `"minimal"` for quick checks.
+5. **Fused `navigate` + observe.** Pass `observe: {}` to `navigate` instead of calling both separately.
+6. **Fused `act` + post-observe.** Pass `postObserve: {}` to `act` to get updated page state in one call.
+7. **`act` over individual calls.** A login flow is 1 `act`, not 3 separate fill/click calls.
+8. **`extract` over manual parsing.** Define a JSON schema. Let BAP extract. Don't scrape HTML.
+9. **`content({ format: "markdown" })` over screenshots for text.** Markdown is compact and parseable.
+10. **`fill` over `type` for form fields.** `fill` clears and sets; `type` sends keystrokes one at a time.
 
 ## Recipes
 
-### Login
+### Login (fused — 2 calls total)
 ```
+navigate({ url: "https://app.example.com/login", observe: { maxElements: 20 } })
 act({
   steps: [
-    { action: "page/navigate", url: "https://app.example.com/login" },
     { action: "action/fill", selector: "label:Email", value: "user@example.com" },
     { action: "action/fill", selector: "label:Password", value: "password123" },
     { action: "action/click", selector: "role:button:Sign in" }
-  ]
+  ],
+  postObserve: { responseTier: "interactive" }
 })
 ```
 
@@ -175,9 +213,9 @@ press({ key: "ArrowDown" })
 press({ key: "Enter" })
 ```
 
-### Google search
+### Google search (fused)
 ```
-navigate({ url: "https://www.google.com" })
+navigate({ url: "https://www.google.com", observe: { maxElements: 10 } })
 act({
   steps: [
     { action: "action/fill", selector: "role:combobox:Search", value: "best noise cancelling headphones 2025" },
@@ -232,6 +270,9 @@ extract({
 - Use CSS selectors copied from browser DevTools. They break.
 - Call `accessibility` when `aria_snapshot` works. Wastes tokens.
 - Make individual click/fill calls when `act` can batch them.
+- Call `navigate` then `observe` separately when you can fuse them with `observe: {}`.
+- Call `act` then `observe` separately when you can fuse them with `postObserve: {}`.
+- Use `responseTier: "full"` when `"interactive"` or `"minimal"` suffice.
 - Take a screenshot to read text. Use `content({ format: "markdown" })`.
 - Skip `observe` on pages you haven't seen. You'll guess wrong.
 - Parse raw HTML. Use `extract` with a schema.

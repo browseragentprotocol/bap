@@ -164,6 +164,17 @@ const state = await client.getStorageState();
 await client.setStorageState(state);
 ```
 
+### Fused Operations
+
+The server supports fused operations that combine multiple steps into single in-process calls, eliminating redundant DOM walks and WebSocket roundtrips:
+
+- **navigate + observe**: Pass `observe` params alongside navigate to get page observation without a second call
+- **act + observe**: Pass `preObserve`/`postObserve` to get observations before/after action execution
+- **Incremental observe**: Set `incremental: true` to get only changes (added/updated/removed elements) since last observation
+- **Response tiers**: Set `responseTier` to `"interactive"` or `"minimal"` to reduce observation payload size
+- **Selector caching**: Element CSS paths are cached in the registry for faster resolution
+- **Speculative prefetch**: After click/navigate actions, the server pre-builds observations for likely next requests
+
 ## Features
 
 - **Cross-browser**: Chromium, Firefox, and WebKit via Playwright

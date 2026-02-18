@@ -77,7 +77,7 @@ npx @browseragentprotocol/mcp --url ws://localhost:9222
 
 | Tool | Description |
 |------|-------------|
-| `navigate` | Navigate to a URL |
+| `navigate` | Navigate to a URL. Supports fused `observe` parameter to get page observation in one roundtrip |
 | `go_back` | Navigate back in browser history |
 | `go_forward` | Navigate forward in browser history |
 | `reload` | Reload the current page |
@@ -116,8 +116,8 @@ npx @browseragentprotocol/mcp --url ws://localhost:9222
 
 | Tool | Description |
 |------|-------------|
-| `observe` | AI-optimized page observation with interactive elements and stable refs |
-| `act` | Execute a sequence of browser actions in a single call |
+| `observe` | AI-optimized page observation with interactive elements and stable refs. Supports `incremental` (diff mode) and `responseTier` (full/interactive/minimal) |
+| `act` | Execute a sequence of browser actions in a single call. Supports fused `postObserve` to get observation in one roundtrip |
 | `extract` | Extract structured data from the page using schema and CSS heuristics |
 
 ### Selector Formats

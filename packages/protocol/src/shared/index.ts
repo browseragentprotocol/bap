@@ -58,6 +58,7 @@ export {
   createElementRegistry,
   cleanupStaleEntries,
   ELEMENT_STALE_THRESHOLD,
+  ELEMENT_REGISTRY_MAX_SIZE,
   type DOMElementInfo,
   type ElementRegistryEntry,
   type PageElementRegistry,

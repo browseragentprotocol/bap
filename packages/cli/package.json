@@ -1,0 +1,70 @@
+{
+  "name": "@browseragentprotocol/cli",
+  "version": "0.2.0",
+  "description": "BAP CLI - AI-native browser automation from the command line",
+  "author": "Browser Agent Protocol",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/cli.js",
+  "types": "./dist/cli.d.ts",
+  "bin": {
+    "bap": "./bin/bap.js"
+  },
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/cli.d.ts",
+        "default": "./dist/cli.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "skills",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/browseragentprotocol/bap.git",
+    "directory": "packages/cli"
+  },
+  "keywords": [
+    "bap",
+    "cli",
+    "browser",
+    "automation",
+    "ai",
+    "agent",
+    "playwright",
+    "web-scraping",
+    "composite-actions",
+    "semantic-selectors"
+  ],
+  "scripts": {
+    "build": "tsup src/cli.ts --format esm --dts --clean",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@browseragentprotocol/client": "workspace:*",
+    "@browseragentprotocol/logger": "workspace:*",
+    "@browseragentprotocol/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

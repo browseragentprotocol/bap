@@ -533,6 +533,8 @@ export class BAPClient extends EventEmitter {
       waitUntil?: WaitUntilState;
       timeout?: number;
       referer?: string;
+      /** Fusion: run agent/observe after navigation (fused in single call) */
+      observe?: AgentObserveParams;
     } = {}
   ): Promise<PageNavigateResult> {
     return this.request<PageNavigateResult>("page/navigate", {
@@ -1087,6 +1089,9 @@ export class BAPClient extends EventEmitter {
       stopOnFirstError: params.stopOnFirstError,
       continueOnConditionFail: params.continueOnConditionFail,
       timeout: params.timeout,
+      // Fusion: observe-act-observe kernel
+      preObserve: params.preObserve,
+      postObserve: params.postObserve,
     });
   }
 
@@ -1128,6 +1133,9 @@ export class BAPClient extends EventEmitter {
       includeRefHistory: params.includeRefHistory,
       // Screenshot Annotation options
       annotateScreenshot: params.annotateScreenshot,
+      // Fusion options
+      responseTier: params.responseTier,
+      incremental: params.incremental,
     });
   }
 

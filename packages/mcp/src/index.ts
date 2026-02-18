@@ -39,6 +39,7 @@ import {
   type AnnotationMapping,
   type ExtractionSchema,
   type AriaRole,
+  type AgentObserveResult,
 } from "@browseragentprotocol/protocol";
 
 // =============================================================================
@@ -215,6 +216,14 @@ const TOOLS: Tool[] = [
           type: "string",
           enum: ["load", "domcontentloaded", "networkidle"],
           description: "When to consider navigation complete (default: load)",
+        },
+        observe: {
+          type: "boolean",
+          description: "Fuse an observation after navigation (saves a round-trip). Returns interactive elements alongside navigate results.",
+        },
+        observeMaxElements: {
+          type: "number",
+          description: "Max interactive elements to return in fused observation (default: 50)",
         },
       },
       required: ["url"],
@@ -556,6 +565,14 @@ Each step can have conditions and error handling. More efficient than calling ac
           type: "boolean",
           description: "Stop execution if any step fails (default: true)",
         },
+        postObserve: {
+          type: "boolean",
+          description: "Fuse a post-execution observation into this call (saves a round-trip). Returns interactive elements alongside act results.",
+        },
+        observeMaxElements: {
+          type: "number",
+          description: "Max interactive elements to return in fused post-observation (default: 50)",
+        },
       },
       required: ["steps"],
     },
@@ -593,6 +610,15 @@ RECOMMENDED: Use this before complex interactions to understand the page.`,
         stableRefs: {
           type: "boolean",
           description: "Use stable element refs that persist across observations (default: true)",
+        },
+        incremental: {
+          type: "boolean",
+          description: "Return only changes since last observation (added, updated, removed elements). Useful for monitoring page state after actions.",
+        },
+        responseTier: {
+          type: "string",
+          enum: ["full", "interactive", "minimal"],
+          description: "Response compression tier: 'full' (default, all data), 'interactive' (elements+metadata only), 'minimal' (refs+names only)",
         },
       },
     },
@@ -938,12 +964,40 @@ export class BAPMCPServer {
         }
 
         const waitUntil = (args.waitUntil as WaitUntilState) ?? "load";
-        const result = await client.navigate(url, { waitUntil });
+
+        // Fusion: navigate-observe kernel
+        const observeFlag = args.observe as boolean | undefined;
+        const result = await client.navigate(url, {
+          waitUntil,
+          ...(observeFlag ? {
+            observe: {
+              includeMetadata: true,
+              includeInteractiveElements: true,
+              maxElements: (args.observeMaxElements as number) ?? 50,
+            },
+          } : {}),
+        });
+
+        const textParts = [`Navigated to: ${result.url}\nStatus: ${result.status}`];
+
+        // Append fused observation if present
+        const observation = (result as Record<string, unknown>).observation as AgentObserveResult | undefined;
+        if (observation?.interactiveElements && observation.interactiveElements.length > 0) {
+          const elementList = observation.interactiveElements
+            .map((el: InteractiveElement) => {
+              const selector = formatSelectorForDisplay(el.selector);
+              const hints = el.actionHints.join(", ");
+              return `${el.ref} ${el.role}${el.name ? `: "${el.name}"` : ""} - ${selector} (${hints})`;
+            })
+            .join("\n");
+          textParts.push(`\nInteractive Elements (${observation.interactiveElements.length}/${observation.totalInteractiveElements ?? "?"}):\n${elementList}`);
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: `Navigated to: ${result.url}\nStatus: ${result.status}`,
+              text: textParts.join("\n"),
             },
           ],
         };
@@ -1164,9 +1218,19 @@ export class BAPMCPServer {
           return step;
         });
 
+        // Fusion: observe-act-observe kernel
+        const postObserveFlag = args.postObserve as boolean | undefined;
         const result = await client.act({
           steps,
           stopOnFirstError: args.stopOnFirstError as boolean ?? true,
+          ...(postObserveFlag ? {
+            postObserve: {
+              includeMetadata: true,
+              includeInteractiveElements: true,
+              maxElements: (args.observeMaxElements as number) ?? 50,
+              responseTier: "interactive" as const,
+            },
+          } : {}),
         });
 
         // Format result for AI consumption
@@ -1182,11 +1246,26 @@ export class BAPMCPServer {
           )
           .join("\n");
 
+        const actTextParts = [`${summary}\n\n${stepDetails}\n\nTotal time: ${result.duration}ms`];
+
+        // Append fused post-observation if present
+        const postObs = (result as Record<string, unknown>).postObservation as AgentObserveResult | undefined;
+        if (postObs?.interactiveElements && postObs.interactiveElements.length > 0) {
+          const elementList = postObs.interactiveElements
+            .map((el: InteractiveElement) => {
+              const selector = formatSelectorForDisplay(el.selector);
+              const hints = el.actionHints.join(", ");
+              return `${el.ref} ${el.role}${el.name ? `: "${el.name}"` : ""} - ${selector} (${hints})`;
+            })
+            .join("\n");
+          actTextParts.push(`\nPost-execution Elements (${postObs.interactiveElements.length}/${postObs.totalInteractiveElements ?? "?"}):\n${elementList}`);
+        }
+
         return {
           content: [
             {
               type: "text",
-              text: `${summary}\n\n${stepDetails}\n\nTotal time: ${result.duration}ms`,
+              text: actTextParts.join("\n"),
             },
           ],
           isError: !result.success,
@@ -1206,6 +1285,9 @@ export class BAPMCPServer {
           // New features
           annotateScreenshot: annotate ? { enabled: true } : undefined,
           stableRefs: args.stableRefs as boolean | undefined,
+          // Fusion options
+          incremental: args.incremental as boolean | undefined,
+          responseTier: args.responseTier as "full" | "interactive" | "minimal" | undefined,
         });
 
         const content: Array<{ type: "text" | "image"; text?: string; data?: string; mimeType?: string }> = [];
@@ -1246,6 +1328,31 @@ export class BAPMCPServer {
             type: "text",
             text: `\nAnnotation Map:\n${mapText}`,
           });
+        }
+
+        // Incremental changes (if incremental mode was used)
+        if (result.changes) {
+          const changeParts: string[] = [];
+          if (result.changes.added.length > 0) {
+            changeParts.push(`+ ${result.changes.added.length} added: ${result.changes.added.map((el: InteractiveElement) => `${el.ref} ${el.role}`).join(", ")}`);
+          }
+          if (result.changes.updated.length > 0) {
+            changeParts.push(`~ ${result.changes.updated.length} updated: ${result.changes.updated.map((el: InteractiveElement) => `${el.ref} ${el.role}`).join(", ")}`);
+          }
+          if (result.changes.removed.length > 0) {
+            changeParts.push(`- ${result.changes.removed.length} removed: ${result.changes.removed.join(", ")}`);
+          }
+          if (changeParts.length > 0) {
+            content.push({
+              type: "text",
+              text: `\nChanges:\n${changeParts.join("\n")}`,
+            });
+          } else {
+            content.push({
+              type: "text",
+              text: "\nChanges: (no changes)",
+            });
+          }
         }
 
         // Screenshot

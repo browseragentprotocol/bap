@@ -203,6 +203,8 @@ export interface ElementRegistryEntry {
   identity: ElementIdentity;
   lastSeen: number;
   bounds?: { x: number; y: number; width: number; height: number };
+  /** Fusion 4: Cached CSS path for fast selector resolution (bypasses semantic lookup) */
+  cachedCssSelector?: string;
 }
 
 /**
@@ -235,7 +237,17 @@ export function createElementRegistry(pageUrl: string): PageElementRegistry {
 export const ELEMENT_STALE_THRESHOLD = 60000; // 1 minute
 
 /**
- * Clean up stale entries from registry
+ * Maximum number of entries in a single page element registry.
+ * Prevents unbounded memory growth on pages with heavy DOM churn.
+ * When exceeded, oldest entries (by lastSeen) are evicted first.
+ */
+export const ELEMENT_REGISTRY_MAX_SIZE = 2000;
+
+/**
+ * Clean up stale entries from registry.
+ * Also enforces max size by evicting oldest entries when the registry exceeds
+ * ELEMENT_REGISTRY_MAX_SIZE.
+ *
  * @param registry The registry to clean
  * @param threshold Maximum age in ms for entries (default: ELEMENT_STALE_THRESHOLD)
  * @returns Number of entries removed
@@ -247,9 +259,21 @@ export function cleanupStaleEntries(
   const now = Date.now();
   let removed = 0;
 
+  // Phase 1: Remove time-stale entries
   for (const [ref, entry] of registry.elements) {
     if (now - entry.lastSeen > threshold) {
       registry.elements.delete(ref);
+      removed++;
+    }
+  }
+
+  // Phase 2: Enforce max size cap (evict oldest by lastSeen)
+  if (registry.elements.size > ELEMENT_REGISTRY_MAX_SIZE) {
+    const entries = Array.from(registry.elements.entries())
+      .sort((a, b) => a[1].lastSeen - b[1].lastSeen);
+    const toRemove = entries.length - ELEMENT_REGISTRY_MAX_SIZE;
+    for (let i = 0; i < toRemove; i++) {
+      registry.elements.delete(entries[i]![0]);
       removed++;
     }
   }
