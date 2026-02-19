@@ -6,6 +6,35 @@
 
 An open standard for AI agents to interact with web browsers. Two interfaces: **CLI** for shell-based agents, **MCP** for protocol-native agents.
 
+## Claude Code Plugin
+
+Install BAP as a Claude Code plugin for browser automation:
+
+```
+/install-plugin https://github.com/browseragentprotocol/bap
+```
+
+**23 MCP tools** across five categories:
+
+| Category | Tools |
+|----------|-------|
+| Navigation | `navigate`, `go_back`, `go_forward`, `reload` |
+| Interaction | `click`, `fill`, `type`, `press`, `hover`, `scroll`, `select` |
+| Composite | `observe` (see the page), `act` (batch multi-step actions), `extract` (structured JSON) |
+| Inspection | `screenshot`, `aria_snapshot`, `accessibility`, `content`, `element` |
+| Tabs | `pages`, `activate_page`, `close_page` |
+
+**Example prompts:**
+
+- "Go to Hacker News and summarize the top 5 stories"
+- "Fill out the login form at example.com"
+- "Take a screenshot of the pricing page"
+- "Extract all product names and prices from this page as JSON"
+
+No API key needed — BAP runs a local Playwright browser via `npx`.
+
+---
+
 ```bash
 # CLI — any agent that can run shell commands
 npx @browseragentprotocol/cli open https://example.com

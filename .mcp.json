@@ -1,8 +1,6 @@
 {
-  "mcpServers": {
-    "bap-browser": {
-      "command": "npx",
-      "args": ["-y", "@browseragentprotocol/mcp@0.2.0"]
-    }
+  "bap-browser": {
+    "command": "npx",
+    "args": ["-y", "@browseragentprotocol/mcp@latest"]
   }
 }
