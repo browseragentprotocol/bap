@@ -13,7 +13,8 @@
  * See BAPScope type for available scopes.
  */
 
-import { randomUUID } from "crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import fs from "node:fs";
 import { EventEmitter } from "events";
 import * as http from "http";
 import * as path from "path";
@@ -116,6 +117,13 @@ import {
   createErrorResponse,
   createNotification,
   isRequest,
+  // Authorization (shared with protocol package)
+  type BAPScope,
+  ScopeProfiles,
+  MethodScopes,
+  hasScope,
+  parseScopes,
+  createAuthorizationError,
 } from "@browseragentprotocol/protocol";
 import {
   generateStableRef,
@@ -124,143 +132,6 @@ import {
   cleanupStaleEntries,
   type PageElementRegistry,
 } from "@browseragentprotocol/protocol";
-
-// =============================================================================
-// Authorization Types (v0.2.0) - Inlined for build compatibility
-// =============================================================================
-
-/**
- * BAP authorization scopes for fine-grained access control
- */
-type BAPScope =
-  | '*'
-  | 'browser:*' | 'browser:launch' | 'browser:close'
-  | 'context:*' | 'context:create' | 'context:read' | 'context:destroy'
-  | 'page:*' | 'page:read' | 'page:create' | 'page:navigate' | 'page:close'
-  | 'action:*' | 'action:click' | 'action:type' | 'action:fill' | 'action:scroll'
-  | 'action:select' | 'action:upload' | 'action:drag'
-  | 'observe:*' | 'observe:screenshot' | 'observe:accessibility' | 'observe:dom'
-  | 'observe:element' | 'observe:content' | 'observe:pdf'
-  | 'storage:*' | 'storage:read' | 'storage:write'
-  | 'network:*' | 'network:intercept'
-  | 'emulate:*' | 'emulate:viewport' | 'emulate:geolocation' | 'emulate:offline'
-  | 'trace:*' | 'trace:start' | 'trace:stop';
-
-/** Predefined scope profiles for common use cases */
-const ScopeProfiles = {
-  readonly: ['page:read', 'observe:*'] as BAPScope[],
-  standard: [
-    'browser:launch', 'browser:close', 'page:*',
-    'action:*',
-    'observe:*', 'emulate:viewport',
-  ] as BAPScope[],
-  full: ['browser:*', 'page:*', 'action:*', 'observe:*', 'emulate:*', 'trace:*'] as BAPScope[],
-  privileged: ['*'] as BAPScope[],
-} as const;
-
-/** Method to required scopes mapping */
-const MethodScopes: Record<string, BAPScope[]> = {
-  'initialize': [], 'shutdown': [], 'notifications/initialized': [],
-  'browser/launch': ['browser:launch', 'browser:*', '*'],
-  'browser/close': ['browser:close', 'browser:*', '*'],
-  // Context methods (Multi-Context Support)
-  'context/create': ['context:create', 'context:*', '*'],
-  'context/list': ['context:read', 'context:*', '*'],
-  'context/destroy': ['context:destroy', 'context:*', '*'],
-  // Page methods
-  'page/create': ['page:create', 'page:*', '*'],
-  'page/navigate': ['page:navigate', 'page:*', '*'],
-  'page/reload': ['page:navigate', 'page:*', '*'],
-  'page/goBack': ['page:navigate', 'page:*', '*'],
-  'page/goForward': ['page:navigate', 'page:*', '*'],
-  'page/close': ['page:close', 'page:*', '*'],
-  'page/list': ['page:read', 'page:*', '*'],
-  'page/activate': ['page:read', 'page:*', '*'],
-  // Frame methods (Frame & Shadow DOM Support)
-  'frame/list': ['page:read', 'page:*', '*'],
-  'frame/switch': ['page:navigate', 'page:*', '*'],
-  'frame/main': ['page:navigate', 'page:*', '*'],
-  'action/click': ['action:click', 'action:*', '*'],
-  'action/dblclick': ['action:click', 'action:*', '*'],
-  'action/type': ['action:type', 'action:*', '*'],
-  'action/fill': ['action:fill', 'action:*', '*'],
-  'action/clear': ['action:fill', 'action:*', '*'],
-  'action/press': ['action:type', 'action:*', '*'],
-  'action/hover': ['action:click', 'action:*', '*'],
-  'action/scroll': ['action:scroll', 'action:*', '*'],
-  'action/select': ['action:select', 'action:*', '*'],
-  'action/check': ['action:click', 'action:*', '*'],
-  'action/uncheck': ['action:click', 'action:*', '*'],
-  'action/upload': ['action:upload', 'action:*', '*'],
-  'action/drag': ['action:drag', 'action:*', '*'],
-  'observe/screenshot': ['observe:screenshot', 'observe:*', '*'],
-  'observe/accessibility': ['observe:accessibility', 'observe:*', '*'],
-  'observe/dom': ['observe:dom', 'observe:*', '*'],
-  'observe/element': ['observe:element', 'observe:*', '*'],
-  'observe/pdf': ['observe:pdf', 'observe:*', '*'],
-  'observe/content': ['observe:content', 'observe:*', '*'],
-  'observe/ariaSnapshot': ['observe:accessibility', 'observe:*', '*'],
-  'storage/getState': ['storage:read', 'storage:*', '*'],
-  'storage/setState': ['storage:write', 'storage:*', '*'],
-  'storage/getCookies': ['storage:read', 'storage:*', '*'],
-  'storage/setCookies': ['storage:write', 'storage:*', '*'],
-  'storage/clearCookies': ['storage:write', 'storage:*', '*'],
-  'network/intercept': ['network:intercept', 'network:*', '*'],
-  'network/fulfill': ['network:intercept', 'network:*', '*'],
-  'network/abort': ['network:intercept', 'network:*', '*'],
-  'network/continue': ['network:intercept', 'network:*', '*'],
-  'emulate/setViewport': ['emulate:viewport', 'emulate:*', '*'],
-  'emulate/setUserAgent': ['emulate:viewport', 'emulate:*', '*'],
-  'emulate/setGeolocation': ['emulate:geolocation', 'emulate:*', '*'],
-  'emulate/setOffline': ['emulate:offline', 'emulate:*', '*'],
-  'dialog/handle': ['action:click', 'action:*', '*'],
-  'trace/start': ['trace:start', 'trace:*', '*'],
-  'trace/stop': ['trace:stop', 'trace:*', '*'],
-  'events/subscribe': ['observe:*', '*'],
-  // Stream methods (Streaming Responses)
-  'stream/cancel': ['observe:*', '*'],
-  // Approval methods (Human-in-the-Loop)
-  'approval/respond': ['action:*', '*'],
-  // Agent methods (composite actions, observations, and data extraction)
-  'agent/act': ['action:*', '*'],
-  'agent/observe': ['observe:*', '*'],
-  'agent/extract': ['observe:*', '*'],
-};
-
-/** Check if client has permission for a method */
-function hasScope(grantedScopes: BAPScope[], method: string): boolean {
-  if (grantedScopes.includes('*')) return true;
-  const requiredScopes = MethodScopes[method];
-  if (!requiredScopes) return grantedScopes.includes('*');
-  if (requiredScopes.length === 0) return true;
-  return requiredScopes.some(required => {
-    if (grantedScopes.includes(required)) return true;
-    const [category] = required.split(':');
-    return grantedScopes.includes(`${category}:*` as BAPScope);
-  });
-}
-
-/** Parse scopes from string or array */
-function parseScopes(input: string | string[] | undefined): BAPScope[] {
-  if (!input) return [];
-  if (Array.isArray(input)) return input as BAPScope[];
-  return input.split(',').map(s => s.trim()) as BAPScope[];
-}
-
-/** Authorization error code */
-const AuthorizationErrorCode = -32023;
-
-/** Create an authorization error */
-function createAuthorizationError(method: string, requiredScopes: BAPScope[]) {
-  return {
-    code: AuthorizationErrorCode,
-    message: `Insufficient permissions for '${method}'. Required scopes: ${requiredScopes.join(' or ')}`,
-    data: {
-      retryable: false,
-      details: { method, requiredScopes },
-    },
-  };
-}
 
 /** Action confirmation event for agent feedback */
 interface ActionConfirmationEvent {
@@ -696,7 +567,6 @@ export class BAPPlaywrightServer extends EventEmitter {
    * SECURITY: Timing-safe token comparison to prevent timing attacks
    */
   private secureTokenCompare(provided: string, expected: string): boolean {
-    const { timingSafeEqual } = require('crypto');
     if (provided.length !== expected.length) {
       // Still do a comparison to maintain constant time
       timingSafeEqual(Buffer.from(provided), Buffer.from(provided));
@@ -1315,7 +1185,6 @@ export class BAPPlaywrightServer extends EventEmitter {
     // SECURITY FIX (CRIT-4): Validate downloads path to prevent path traversal attacks
     let validatedDownloadsPath: string | undefined = undefined;
     if (params.downloadsPath) {
-      const fs = require('fs');
       const allowedDownloadDirs = process.env.BAP_ALLOWED_DOWNLOAD_DIRS?.split(',').filter(Boolean) || [];
 
       // Resolve the path first
