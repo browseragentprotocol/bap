@@ -53,7 +53,7 @@
   - Roundtrip count per task
   - Task completion time
   - Success rate on WebVoyager-style benchmarks
-- [ ] Create a shareable benchmark table/graphic
+- [x] Create a shareable benchmark table/graphic — see `docs/browser-tools-guide.md` (Benchmark Results section)
 - [ ] Write a blog post: "We Measured the Token Cost of Browser Agents"
 
 ---
@@ -142,6 +142,7 @@
 - Don't over-emphasize security features initially — it's important but not what drives first adoption
 - Don't make the README longer — make it shorter with better content
 - Don't pay for promotion — organic developer content wins long-term
+- See `docs/browser-tools-guide.md` for the approved comparison framing — decision guide, not head-to-head battle
 
 ---
 

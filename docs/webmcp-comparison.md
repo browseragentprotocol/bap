@@ -174,6 +174,28 @@ BAP's discovery implementation follows a progressive detection strategy:
 
 This layered approach means agents get the best available information from every page without brittle feature detection or version checks.
 
+## Decision Guide: When to Use What
+
+| Priority | Approach | Why |
+|----------|----------|-----|
+| Max speed on cooperative sites | WebMCP tools (via `discover_tools`) | No DOM traversal, native function call — the site handles execution |
+| Universal coverage | BAP automation (`observe` + `act`) | Works on any site today, no site changes required |
+| Fewest tokens | BAP fused ops + response tiers | 50–85% fewer roundtrips via navigate+observe, act+postObserve; tiered payloads reduce response size |
+| Best of all worlds | BAP + `includeWebMCPTools` | Automatic fallback — use WebMCP when available, BAP automation otherwise |
+
+**Practical guidance:** Today, `discover_tools` returns empty on virtually every website — WebMCP adoption is still in early stages (Chrome 146 Canary behind a flag). But calling `discover_tools` costs nothing: it returns an empty list with `totalDiscovered: 0` and no errors. Call it speculatively on every page. When WebMCP adoption grows, agents automatically benefit without code changes.
+
+**The recommended pattern:**
+
+1. Navigate to the page with BAP
+2. Call `observe` with `includeWebMCPTools: true` — get interactive elements AND any WebMCP tools in a single fused call
+3. If WebMCP tools are available, prefer them for supported actions (they represent the site's intended agent interface)
+4. For everything else, use BAP's standard automation (click, fill, act, extract)
+
+This progressive approach ensures agents work everywhere today and get richer interactions as the web evolves.
+
+For a broader comparison of BAP with Playwright MCP and Playwright CLI, see the [Browser Automation for AI Agents: A Decision Guide](./browser-tools-guide.md).
+
 ## Summary
 
 | Aspect | BAP | WebMCP | Together |

@@ -14,7 +14,7 @@ Install BAP as a Claude Code plugin for browser automation:
 /install-plugin https://github.com/browseragentprotocol/bap
 ```
 
-**23 MCP tools** across five categories:
+**23 MCP tools** across six categories:
 
 | Category | Tools |
 |----------|-------|
@@ -22,6 +22,7 @@ Install BAP as a Claude Code plugin for browser automation:
 | Interaction | `click`, `fill`, `type`, `press`, `hover`, `scroll`, `select` |
 | Composite | `observe` (see the page), `act` (batch multi-step actions), `extract` (structured JSON) |
 | Inspection | `screenshot`, `aria_snapshot`, `accessibility`, `content`, `element` |
+| Discovery | `discover_tools` |
 | Tabs | `pages`, `activate_page`, `close_page` |
 
 **Example prompts:**
@@ -67,7 +68,13 @@ npx @browseragentprotocol/mcp
 - **WebMCP** requires websites to opt in — it exposes tools via HTML attributes or `navigator.modelContext`
 - **Together**: BAP uses WebMCP tools when available (`discovery/discover`), falls back to automation when not
 
-BAP is the universal agent-browser layer. WebMCP makes cooperative sites richer. See [docs/webmcp-comparison.md](./docs/webmcp-comparison.md) for a detailed comparison.
+BAP is the universal agent-browser layer. WebMCP makes cooperative sites richer. See [docs/webmcp-comparison.md](./docs/webmcp-comparison.md) for a detailed comparison including a [decision guide](./docs/webmcp-comparison.md#decision-guide-when-to-use-what).
+
+## Choosing a Browser Tool
+
+See [Browser Automation for AI Agents: A Decision Guide](./docs/browser-tools-guide.md) for a detailed comparison of BAP with Playwright MCP and Playwright CLI, including reproducible benchmark data.
+
+**Short version**: If you're a coding agent, use **BAP CLI** with `bap install-skill`. If you're an MCP-native agent, use **BAP MCP**. See the [guide](./docs/browser-tools-guide.md#what-should-you-use) for the full decision matrix.
 
 ## Quick Start
 
