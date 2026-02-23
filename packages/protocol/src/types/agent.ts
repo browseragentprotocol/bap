@@ -11,6 +11,7 @@
 import { z } from "zod";
 import { BAPSelectorSchema } from "./selectors.js";
 import { AccessibilityNodeSchema } from "./common.js";
+import { WebMCPToolSchema } from "./discovery.js";
 
 // =============================================================================
 // agent/act - Multi-step action execution
@@ -444,6 +445,9 @@ export const AgentObserveParamsSchema = z.object({
 
   /** Return only changes since last observation (added, updated, removed) */
   incremental: z.boolean().optional(),
+
+  /** Include WebMCP tools discovered on the page (opt-in) */
+  includeWebMCPTools: z.boolean().optional(),
 });
 export type AgentObserveParams = z.infer<typeof AgentObserveParamsSchema>;
 
@@ -514,6 +518,9 @@ export const AgentObserveResultSchema = z.object({
 
   /** Incremental changes since last observation (if incremental: true) */
   changes: ObserveChangesSchema.optional(),
+
+  /** WebMCP tools discovered on the page (if includeWebMCPTools: true) */
+  webmcpTools: z.array(WebMCPToolSchema).optional(),
 });
 export type AgentObserveResult = z.infer<typeof AgentObserveResultSchema>;
 

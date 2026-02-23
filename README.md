@@ -59,6 +59,16 @@ npx @browseragentprotocol/mcp
 - **Element References**: Stable refs (`@e1`, `e15`) that persist across observations
 - **Screenshot Annotation**: Set-of-Marks overlays with numbered badges for vision models
 
+## BAP & WebMCP
+
+[WebMCP](https://github.com/nicolo-ribaudo/tc39-proposal-model-context-protocol) is a W3C Community Group standard that lets websites expose structured tools to AI agents via browser-native APIs (Chrome 146 Canary). BAP and WebMCP are complementary:
+
+- **BAP** works on every website today — it controls browsers via automation (accessibility tree + Playwright)
+- **WebMCP** requires websites to opt in — it exposes tools via HTML attributes or `navigator.modelContext`
+- **Together**: BAP uses WebMCP tools when available (`discovery/discover`), falls back to automation when not
+
+BAP is the universal agent-browser layer. WebMCP makes cooperative sites richer. See [docs/webmcp-comparison.md](./docs/webmcp-comparison.md) for a detailed comparison.
+
 ## Quick Start
 
 ### CLI — For AI Agents That Run Shell Commands

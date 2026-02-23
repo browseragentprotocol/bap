@@ -83,6 +83,8 @@ import {
   type ApprovalRequiredParams,
   type ApprovalRespondParams,
   type ApprovalRespondResult,
+  // Discovery types (WebMCP)
+  type DiscoveryDiscoverResult,
 } from "@browseragentprotocol/protocol";
 
 // Re-export protocol types and helpers
@@ -1324,6 +1326,31 @@ export class BAPClient extends EventEmitter {
    */
   async respondToApproval(params: ApprovalRespondParams): Promise<ApprovalRespondResult> {
     return this.request<ApprovalRespondResult>("approval/respond", params);
+  }
+
+  // ===========================================================================
+  // Discovery Methods (WebMCP Tool Discovery)
+  // ===========================================================================
+
+  /**
+   * Discover WebMCP tools exposed by the current page
+   *
+   * @example
+   * ```typescript
+   * const result = await client.discoverTools();
+   * for (const tool of result.tools) {
+   *   console.log(`${tool.name} (${tool.source}): ${tool.description}`);
+   * }
+   * ```
+   */
+  async discoverTools(
+    pageId?: string,
+    options?: { maxTools?: number; includeInputSchemas?: boolean }
+  ): Promise<DiscoveryDiscoverResult> {
+    return this.request<DiscoveryDiscoverResult>("discovery/discover", {
+      pageId: pageId ?? this.activePage,
+      options,
+    });
   }
 
   /**

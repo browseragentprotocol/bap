@@ -994,5 +994,8 @@ export const BAPMethodSchema = z.enum([
   "agent/act",
   "agent/observe",
   "agent/extract",
+
+  // Discovery methods (WebMCP tool discovery)
+  "discovery/discover",
 ]);
 export type BAPMethod = z.infer<typeof BAPMethodSchema>;

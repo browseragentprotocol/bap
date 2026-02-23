@@ -40,6 +40,7 @@ import {
   type ExtractionSchema,
   type AriaRole,
   type AgentObserveResult,
+  type WebMCPTool,
 } from "@browseragentprotocol/protocol";
 
 // =============================================================================
@@ -620,6 +621,10 @@ RECOMMENDED: Use this before complex interactions to understand the page.`,
           enum: ["full", "interactive", "minimal"],
           description: "Response compression tier: 'full' (default, all data), 'interactive' (elements+metadata only), 'minimal' (refs+names only)",
         },
+        includeWebMCPTools: {
+          type: "boolean",
+          description: "Include WebMCP tools discovered on the page. WebMCP tools are exposed by cooperative websites for AI agent interaction.",
+        },
       },
     },
   },
@@ -665,6 +670,28 @@ Works best with standard HTML patterns (ul/ol, tables, cards). For complex pages
         },
       },
       required: ["instruction", "schema"],
+    },
+  },
+
+  // Discovery (WebMCP)
+  {
+    name: "discover_tools",
+    description: `Discover WebMCP tools exposed by the current page.
+Returns structured tool definitions that the page makes available for AI agent interaction.
+WebMCP tools are exposed by cooperative websites via HTML attributes or the navigator.modelContext API.
+Returns an empty array on pages without WebMCP support.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        maxTools: {
+          type: "number",
+          description: "Maximum number of tools to return (default: 50)",
+        },
+        includeInputSchemas: {
+          type: "boolean",
+          description: "Include JSON schemas for tool input parameters (default: true)",
+        },
+      },
     },
   },
 ];
@@ -1288,6 +1315,8 @@ export class BAPMCPServer {
           // Fusion options
           incremental: args.incremental as boolean | undefined,
           responseTier: args.responseTier as "full" | "interactive" | "minimal" | undefined,
+          // WebMCP discovery
+          includeWebMCPTools: args.includeWebMCPTools as boolean | undefined,
         });
 
         const content: Array<{ type: "text" | "image"; text?: string; data?: string; mimeType?: string }> = [];
@@ -1355,6 +1384,17 @@ export class BAPMCPServer {
           }
         }
 
+        // WebMCP tools (if discovered)
+        if (result.webmcpTools && result.webmcpTools.length > 0) {
+          const toolList = result.webmcpTools
+            .map((t: WebMCPTool) => `- ${t.name} (${t.source})${t.description ? `: ${t.description}` : ""}`)
+            .join("\n");
+          content.push({
+            type: "text",
+            text: `\nWebMCP Tools (${result.webmcpTools.length}):\n${toolList}`,
+          });
+        }
+
         // Screenshot
         if (result.screenshot) {
           const annotatedNote = result.screenshot.annotated ? " (annotated)" : "";
@@ -1400,6 +1440,42 @@ export class BAPMCPServer {
             isError: true,
           };
         }
+      }
+
+      case "discover_tools": {
+        const result = await client.discoverTools(
+          undefined,
+          {
+            maxTools: args.maxTools as number | undefined,
+            includeInputSchemas: args.includeInputSchemas as boolean | undefined,
+          }
+        );
+
+        if (result.tools.length === 0) {
+          return {
+            content: [{
+              type: "text",
+              text: "No WebMCP tools found on this page. WebMCP tools are exposed by cooperative websites via HTML attributes or the navigator.modelContext API.",
+            }],
+          };
+        }
+
+        const toolList = result.tools
+          .map((t: WebMCPTool) => {
+            const parts = [`- ${t.name} (${t.source})`];
+            if (t.description) parts.push(`  ${t.description}`);
+            if (t.inputSchema) parts.push(`  Schema: ${JSON.stringify(t.inputSchema)}`);
+            if (t.formSelector) parts.push(`  Form: ${t.formSelector}`);
+            return parts.join("\n");
+          })
+          .join("\n");
+
+        return {
+          content: [{
+            type: "text",
+            text: `WebMCP Tools (${result.tools.length}/${result.totalDiscovered})${result.apiVersion ? ` [API v${result.apiVersion}]` : ""}:\n${toolList}`,
+          }],
+        };
       }
 
       default:
