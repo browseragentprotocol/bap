@@ -22,7 +22,7 @@ bap open https://example.com
 
 ## Why BAP CLI?
 
-### Composite Actions — 40x Token Reduction
+### Composite Actions — Fewer Commands, Fewer Tokens
 
 Execute multi-step flows in **one command** instead of one-at-a-time:
 

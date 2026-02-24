@@ -2,7 +2,7 @@
  * bap act <step1> <step2> ... — Execute multiple steps atomically
  *
  * This is the killer feature. A login flow that costs playwright-cli
- * 3 commands / 3 snapshots / ~6000 tokens costs BAP 1 command / 1 snapshot / ~150 tokens.
+ * 3 commands / 3 snapshots / 3 LLM reasoning cycles costs BAP 1 command / 1 snapshot / 1 cycle.
  *
  * Fusion: --observe flag fuses act + post-observe into 1 server call (50% token reduction)
  *

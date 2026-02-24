@@ -51,8 +51,8 @@ npx @browseragentprotocol/mcp
 
 ## Why BAP?
 
-- **Composite Actions**: Execute multi-step flows in one command — [73% fewer tool calls](./docs/browser-tools-guide.md#results) in real benchmarks
-- **Fused Operations**: Combine navigate+observe, act+observe into single server calls — 50-85% fewer roundtrips
+- **Composite Actions**: Execute multi-step flows in one command — [up to 27% fewer tool calls](./docs/browser-tools-guide.md#results) vs Playwright MCP in reproducible benchmarks (up to 55% with fused operations)
+- **Fused Operations**: Combine navigate+observe, act+observe into single server calls
 - **Semantic Selectors**: Target elements by purpose (`role:button:"Submit"`) not position — survives redesigns
 - **Structured Extraction**: Extract validated JSON from any page with a schema
 - **Two Interfaces**: CLI (`bap act`) for shell-based agents, MCP tools for protocol-native agents

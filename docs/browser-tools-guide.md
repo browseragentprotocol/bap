@@ -88,32 +88,62 @@ All data from the [reproducible benchmark suite](https://github.com/browseragent
 - Token estimation: `ceil(responsePayloadBytes / 4)`
 - All tool calls timed with `performance.now()`
 
+### Three-Variant Model
+
+The benchmarks use three variants to separate BAP's core advantage (composite actions) from its optimization layer (fused operations):
+
+| Variant | Rules | What it measures |
+|---------|-------|-----------------|
+| **BAP Standard** | Must observe before acting, use refs from observe output. Re-observe after page navigation. | Apples-to-apples with Playwright |
+| **BAP Fused** | Can use semantic selectors without prior observe. Can use fused `navigate(observe:true)` and `act(postObserve:true)`. | BAP's full optimization layer |
+| **Playwright** | Standard snapshot-then-act workflow. Uses most efficient tools available (`browser_fill_form`, `browser_evaluate`). | Baseline |
+
+**The fair comparison is BAP Standard vs Playwright.** BAP Fused is explicitly an optimization layer.
+
 ### Results
 
-| Scenario | Site | BAP Calls | Playwright Calls | Δ | What BAP Does |
-|----------|------|-----------|-----------------|---|---------------|
-| baseline | quotes.toscrape.com | 2 | 2 | — | Equivalent (navigate + screenshot) |
-| extract | books.toscrape.com | 2 | 2 | Token story | `extract` with JSON Schema vs `browser_evaluate` with custom JS |
-| form | the-internet.herokuapp.com | 3 | 5 | 40% fewer calls | `act` batches fill+fill+click in 1 call |
-| observe | news.ycombinator.com | 2 | 2 | Output story | Structured elements vs raw accessibility tree |
-| **ecommerce** | **saucedemo.com** | **3** | **11** | **73% fewer calls** | **7 steps batched in 1 `act` call** |
-| workflow | books.toscrape.com | 4 | 5 | 20% fewer calls | `extract` eliminates a snapshot step |
+| Scenario | Site | BAP Standard | BAP Fused | Playwright | Std vs PW | Fused vs PW |
+|----------|------|:------------:|:---------:|:----------:|:---------:|:-----------:|
+| baseline | quotes.toscrape.com | 2 | 2 | 2 | Tie | Tie |
+| observe | news.ycombinator.com | 2 | 1 | 2 | Tie | -50% |
+| extract | books.toscrape.com | 2 | 2 | 2 | Tie | Tie |
+| form | the-internet.herokuapp.com | 4 | 3 | 5 | -20% | -40% |
+| **ecommerce** | **saucedemo.com** | **8** | **5** | **11** | **-27%** | **-55%** |
+| workflow | books.toscrape.com | 5 | 4 | 5 | Tie | -20% |
+| **Total** | | **23** | **17** | **27** | **~15%** | **~37%** |
 
 Source: [`src/scenarios/`](https://github.com/browseragentprotocol/benchmarks/tree/main/src/scenarios) in the benchmarks repo.
+
+### Where BAP Wins
+
+- **Composite `act`**: Batching multiple steps (fill+fill+click) into one call is the primary advantage. Most impactful in multi-step flows like ecommerce (8 vs 11 calls).
+- **Fused operations**: `navigate(observe:true)` and `act(postObserve:true)` eliminate redundant server roundtrips. Largest impact in ecommerce (-55%).
+- **Structured `extract`**: JSON Schema-based extraction vs writing custom JS for `browser_evaluate`.
+
+### Where Playwright Wins
+
+- **Per-call latency**: Playwright MCP is a single process. BAP's two-process WebSocket architecture adds ~50–200ms per call. Playwright wins wall-clock time on most scenarios.
+- **Element disambiguation**: Playwright's positional snapshot refs uniquely identify elements. BAP's observe can return ambiguous selectors for identical elements (e.g., 6 "Add to cart" buttons on saucedemo.com).
+- **Setup simplicity**: `npx @playwright/mcp` — single process, no daemon management.
+- **Ecosystem**: 27.5k GitHub stars, Microsoft-backed, extensive testing ecosystem integration.
 
 ### Fairness — Read This
 
 These benchmarks are designed to be honest, not promotional. Important caveats:
 
+- **BAP Standard is the fair comparison.** BAP Standard follows the same observe-then-act pattern as Playwright (observe the page, get element refs, act on them). BAP Fused shows what's possible with optimization but isn't an apples-to-apples comparison.
+
 - **Latency favors Playwright.** BAP's two-process architecture adds ~50–200ms WebSocket overhead per call. Playwright MCP is consistently faster on wall-clock time per call.
 
 - **Token estimation is approximate.** `ceil(bytes / 4)` is a rough heuristic. Screenshots inflate counts due to base64 encoding.
 
-- **Playwright call counts are optimistic.** All tool arguments are pre-written (no LLM). In real agent flows, Playwright would need additional `browser_snapshot` calls for the LLM to decide what to do — increasing its actual call count.
+- **No LLM involved.** All tool arguments are pre-written. In real agent flows, both tools would need additional calls for the LLM to decide what to do.
 
-- **BAP `extract` uses heuristics.** Playwright's `browser_evaluate` runs precise DOM queries and may return more accurate results. The extract scenario compares tool efficiency, not extraction accuracy.
+- **BAP `extract` uses heuristics.** Playwright's `browser_evaluate` runs precise DOM queries and may return more accurate results.
 
 - **Playwright uses its most efficient tools.** Each scenario uses `browser_fill_form` for batched fills and `browser_evaluate` for direct JS extraction. We do not artificially inflate Playwright's call counts.
+
+- **BAP has known limitations.** Identical elements (e.g., 6 "Add to cart" buttons) can produce ambiguous selectors. The cart icon on saucedemo.com has no accessible name, requiring direct URL navigation. See the [benchmark README](https://github.com/browseragentprotocol/benchmarks) for the full list.
 
 ---
 
@@ -168,7 +198,7 @@ Playwright MCP and Playwright CLI are separate processes with no shared state.
 
 ### The Bottom Line
 
-BAP and Playwright use the same engine (Playwright). BAP adds an AI-optimized layer: composite actions, semantic selectors, structured extraction, and fused operations. For agents that do more than click one button at a time, BAP reduces roundtrips, tokens, and complexity.
+BAP and Playwright use the same engine (Playwright). BAP adds composite actions, semantic selectors, structured extraction, and fused operations. In benchmarks, BAP Standard uses ~15% fewer tool calls than Playwright in an apples-to-apples comparison, primarily from batching multi-step actions. BAP Fused extends this to ~37% through navigate+observe and act+postObserve fusion. Playwright wins on per-call latency and element disambiguation.
 
 ---
 

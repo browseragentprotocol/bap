@@ -3,7 +3,7 @@
  * @fileoverview BAP CLI - AI-native browser automation
  *
  * Like playwright-cli but with superpowers:
- * - Composite actions (bap act) — 40x token reduction
+ * - Composite actions (bap act) — fewer commands and tokens
  * - Semantic selectors — resilient to layout changes
  * - Structured extraction — validated JSON output
  *
