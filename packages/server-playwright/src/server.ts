@@ -1312,13 +1312,19 @@ export class BAPPlaywrightServer extends EventEmitter {
 
     // Session persistence: check for conflicts and restore dormant sessions
     if (sessionId) {
-      // Reject if another active client already owns this sessionId
-      for (const [, existingState] of this.clients) {
-        if (existingState.sessionId === sessionId && existingState.initialized) {
-          throw new BAPServerError(
-            ErrorCodes.InvalidRequest,
-            `Session already in use: ${sessionId}`
-          );
+      // If another client still holds this sessionId (its close event hasn't
+      // been processed yet — race between WebSocket close and new connect),
+      // force-park its state so we can restore it immediately.
+      for (const [existingWs, existingState] of this.clients) {
+        if (existingState !== state && existingState.sessionId === sessionId && existingState.initialized) {
+          this.log("Force-parking stale session from previous connection", { sessionId });
+          if (existingState.browser?.isConnected()) {
+            this.parkSession(existingState);
+          }
+          // Remove stale client — its close handler will be a no-op
+          // (browser/pages already nullified by parkSession)
+          this.clients.delete(existingWs);
+          break;
         }
       }
 
