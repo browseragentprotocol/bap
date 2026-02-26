@@ -330,6 +330,8 @@ export interface BAPClientOptions {
   timeout?: number;
   /** Events to subscribe to */
   events?: string[];
+  /** Session ID for cross-connection persistence (CLI mode) */
+  sessionId?: string;
 }
 
 /**
@@ -370,6 +372,7 @@ export class BAPClient extends EventEmitter {
     version: string;
     timeout: number;
     events: string[];
+    sessionId?: string;
   };
 
   constructor(urlOrTransport: string | BAPTransport, options: BAPClientOptions = {}) {
@@ -381,6 +384,7 @@ export class BAPClient extends EventEmitter {
       version: options.version ?? "0.2.0",
       timeout: options.timeout ?? 30000,
       events: options.events ?? ["page", "console", "network", "dialog"],
+      sessionId: options.sessionId,
     };
 
     if (typeof urlOrTransport === "string") {
@@ -412,7 +416,7 @@ export class BAPClient extends EventEmitter {
       await this.transport.connect();
     }
 
-    const result = await this.request<InitializeResult>("initialize", {
+    const initParams: InitializeParams = {
       protocolVersion: BAP_VERSION,
       clientInfo: {
         name: this.options.name,
@@ -423,7 +427,12 @@ export class BAPClient extends EventEmitter {
         streaming: false,
         compression: false,
       },
-    } satisfies InitializeParams);
+    };
+    if (this.options.sessionId) {
+      initParams.sessionId = this.options.sessionId;
+    }
+
+    const result = await this.request<InitializeResult>("initialize", initParams);
 
     const serverVersion = result.protocolVersion;
     const serverParts = serverVersion.split(".").map(Number);
@@ -466,13 +475,18 @@ export class BAPClient extends EventEmitter {
    */
   async close(): Promise<void> {
     if (this.initialized) {
-      try {
-        await this.request("shutdown", {
-          saveState: false,
-          closePages: true,
-        });
-      } catch {
-        // Ignore errors during shutdown
+      // When sessionId is set, skip shutdown RPC — just close transport.
+      // This triggers ws.on("close") server-side, which parks the session
+      // instead of destroying the browser.
+      if (!this.options.sessionId) {
+        try {
+          await this.request("shutdown", {
+            saveState: false,
+            closePages: true,
+          });
+        } catch {
+          // Ignore errors during shutdown
+        }
       }
     }
 

@@ -109,7 +109,7 @@ ${pc.dim("Docs:")} ${pc.cyan("https://github.com/browseragentprotocol/bap")}
 }
 
 function printVersion(): void {
-  console.log("bap-cli 0.2.0");
+  console.log("bap-cli 0.3.0");
 }
 
 // =============================================================================
@@ -157,12 +157,14 @@ async function main(): Promise<void> {
   }
 
   // All other commands need a BAP server
+  const sessionId = flags.session ?? `cli-${flags.port}`;
   const serverManager = new ServerManager({
     port: flags.port,
     host: flags.host,
     browser: flags.browser,
     headless: flags.headless,
     verbose: flags.verbose,
+    sessionId,
   });
 
   try {

@@ -19,6 +19,27 @@ vi.mock("node:os", () => ({
 // Import after mocks
 const { parseArgs } = await import("../src/config/state.js");
 
+describe("parseArgs session flags", () => {
+  describe("-s (session)", () => {
+    it("parses -s=name session flag", () => {
+      const flags = parseArgs(["-s=my-session", "open", "https://example.com"]);
+      expect(flags.session).toBe("my-session");
+      expect(flags.command).toBe("open");
+    });
+
+    it("parses -s name session flag (space-separated)", () => {
+      const flags = parseArgs(["-s", "my-session", "open", "https://example.com"]);
+      expect(flags.session).toBe("my-session");
+      expect(flags.command).toBe("open");
+    });
+
+    it("defaults session to undefined when not set", () => {
+      const flags = parseArgs(["open", "https://example.com"]);
+      expect(flags.session).toBeUndefined();
+    });
+  });
+});
+
 describe("parseArgs fusion flags", () => {
   describe("--observe", () => {
     it("parses --observe flag", () => {

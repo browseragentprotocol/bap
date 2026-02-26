@@ -24,6 +24,7 @@ export interface ServerManagerOptions {
   browser: string;
   headless: boolean;
   verbose: boolean;
+  sessionId?: string;
 }
 
 // =============================================================================
@@ -148,7 +149,7 @@ const BROWSER_MAP: Record<string, string> = {
 // =============================================================================
 
 export class ServerManager {
-  private options: Required<ServerManagerOptions>;
+  private options: Required<Omit<ServerManagerOptions, 'sessionId'>> & Pick<ServerManagerOptions, 'sessionId'>;
   private client: BAPClient | null = null;
 
   constructor(options: ServerManagerOptions) {
@@ -172,7 +173,7 @@ export class ServerManager {
       if (verbose) {
         process.stderr.write(`[bap] Reusing server on ${host}:${port}\n`);
       }
-      this.client = await createClient(url, { name: "bap-cli" });
+      this.client = await createClient(url, { name: "bap-cli", sessionId: this.options.sessionId });
       return this.client;
     }
 
@@ -224,7 +225,7 @@ export class ServerManager {
       process.stderr.write(`[bap] Server ready on ws://${host}:${port}\n`);
     }
 
-    this.client = await createClient(url, { name: "bap-cli" });
+    this.client = await createClient(url, { name: "bap-cli", sessionId: this.options.sessionId });
     return this.client;
   }
 

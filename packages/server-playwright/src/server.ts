@@ -373,6 +373,13 @@ export interface BAPSessionOptions {
    * Sessions are terminated after this period of inactivity
    */
   idleTimeout?: number;
+  /**
+   * TTL for dormant sessions in seconds (default: 300 = 5 minutes)
+   * When a client with a sessionId disconnects, its browser/pages are parked
+   * in a dormant store. If no client reconnects with the same sessionId within
+   * this TTL, the dormant session is destroyed.
+   */
+  dormantSessionTtl?: number;
 }
 
 /**
@@ -528,6 +535,7 @@ const DEFAULT_OPTIONS: Required<Omit<BAPServerOptions, 'authToken' | 'authTokenE
   session: {
     maxDuration: 3600,    // 1 hour max session
     idleTimeout: 600,     // 10 minutes idle timeout
+    dormantSessionTtl: 300, // 5 minutes dormant TTL
   },
   // TLS enforcement (v0.2.0)
   tls: {
@@ -643,6 +651,26 @@ interface ClientState {
   };
   /** Timer handle for pending speculative prefetch (for cancellation on cleanup/disconnect) */
   speculativePrefetchTimer?: NodeJS.Timeout;
+
+  // Session persistence (v0.3.0)
+  /** Session ID for cross-connection persistence (set during initialize) */
+  sessionId?: string;
+}
+
+/** Dormant session: parked browser state awaiting reconnection */
+interface DormantSession {
+  sessionId: string;
+  browser: Browser;
+  context: BrowserContext | null;
+  contexts: Map<string, ContextState>;
+  defaultContextId: string | null;
+  pages: Map<string, PlaywrightPage>;
+  pageToContext: Map<string, string>;
+  activePage: string | null;
+  elementRegistries: Map<string, PageElementRegistry>;
+  frameContexts: Map<string, FrameContext>;
+  ttlHandle: NodeJS.Timeout;
+  parkedAt: number;
 }
 
 // =============================================================================
@@ -664,6 +692,7 @@ export class BAPPlaywrightServer extends EventEmitter {
   private httpServer: http.Server | null = null;
   private wss: WebSocketServer | null = null;
   private clients = new Map<WebSocket, ClientState>();
+  private dormantSessions = new Map<string, DormantSession>();
 
   constructor(options: BAPServerOptions = {}) {
     super();
@@ -917,6 +946,17 @@ export class BAPPlaywrightServer extends EventEmitter {
     }
     this.clients.clear();
 
+    // Close all dormant sessions
+    for (const [sessionId, dormant] of this.dormantSessions) {
+      clearTimeout(dormant.ttlHandle);
+      try {
+        await dormant.browser.close();
+      } catch {
+        // Browser may already be closed
+      }
+      this.dormantSessions.delete(sessionId);
+    }
+
     // Close WebSocket server
     if (this.wss) {
       this.wss.close();
@@ -1033,8 +1073,15 @@ export class BAPPlaywrightServer extends EventEmitter {
     });
 
     ws.on("close", async () => {
-      this.log("Client disconnected", { clientId: state.clientId });
-      await this.cleanupClient(state);
+      this.log("Client disconnected", { clientId: state.clientId, sessionId: state.sessionId ?? "none" });
+
+      // Session persistence: park instead of destroy when sessionId is set
+      if (state.sessionId && state.browser?.isConnected()) {
+        this.parkSession(state);
+      } else {
+        await this.cleanupClient(state);
+      }
+
       this.clients.delete(ws);
     });
 
@@ -1255,10 +1302,36 @@ export class BAPPlaywrightServer extends EventEmitter {
 
   private async handleInitialize(
     state: ClientState,
-    _params: InitializeParams
+    params: InitializeParams
   ): Promise<InitializeResult> {
     if (state.initialized) {
       throw new BAPServerError(ErrorCodes.AlreadyInitialized, "Already initialized");
+    }
+
+    const sessionId = params.sessionId;
+
+    // Session persistence: check for conflicts and restore dormant sessions
+    if (sessionId) {
+      // Reject if another active client already owns this sessionId
+      for (const [, existingState] of this.clients) {
+        if (existingState.sessionId === sessionId && existingState.initialized) {
+          throw new BAPServerError(
+            ErrorCodes.InvalidRequest,
+            `Session already in use: ${sessionId}`
+          );
+        }
+      }
+
+      state.sessionId = sessionId;
+
+      // Try to restore a dormant session
+      const dormant = this.dormantSessions.get(sessionId);
+      if (dormant) {
+        const restored = this.restoreSession(dormant, state);
+        if (restored) {
+          this.log("Restored dormant session", { sessionId, clientId: state.clientId });
+        }
+      }
     }
 
     state.initialized = true;
@@ -1293,6 +1366,7 @@ export class BAPPlaywrightServer extends EventEmitter {
         version: "0.2.0",
       },
       capabilities,
+      sessionId,
     };
   }
 
@@ -4744,6 +4818,107 @@ export class BAPPlaywrightServer extends EventEmitter {
     state.contexts.clear();
     state.defaultContextId = null;
     state.initialized = false;
+  }
+
+  // ===========================================================================
+  // Session Persistence (v0.3.0)
+  // ===========================================================================
+
+  /**
+   * Park a client's browser state into the dormant store.
+   * Called on disconnect when the client has a sessionId and browser is still alive.
+   * Nullifies browser/pages on state so cleanupClient() becomes a no-op for those.
+   */
+  private parkSession(state: ClientState): void {
+    const sessionId = state.sessionId!;
+
+    // If there's already a dormant session with this ID (shouldn't happen, but be safe),
+    // expire it first
+    const existing = this.dormantSessions.get(sessionId);
+    if (existing) {
+      clearTimeout(existing.ttlHandle);
+      try { existing.browser.close(); } catch { /* ignore */ }
+      this.dormantSessions.delete(sessionId);
+    }
+
+    const ttl = this.options.session.dormantSessionTtl * 1000;
+    const ttlHandle = setTimeout(() => {
+      this.expireDormantSession(sessionId);
+    }, ttl);
+
+    const dormant: DormantSession = {
+      sessionId,
+      browser: state.browser!,
+      context: state.context,
+      contexts: new Map(state.contexts),
+      defaultContextId: state.defaultContextId,
+      pages: new Map(state.pages),
+      pageToContext: new Map(state.pageToContext),
+      activePage: state.activePage,
+      elementRegistries: new Map(state.elementRegistries),
+      frameContexts: new Map(state.frameContexts),
+      ttlHandle,
+      parkedAt: Date.now(),
+    };
+
+    this.dormantSessions.set(sessionId, dormant);
+    this.log("Session parked", { sessionId, ttl: `${this.options.session.dormantSessionTtl}s` });
+
+    // Nullify state so cleanupClient() won't destroy the browser/pages
+    state.browser = null;
+    state.context = null;
+    state.pages = new Map();
+    state.pageToContext = new Map();
+    state.activePage = null;
+    state.elementRegistries = new Map();
+    state.frameContexts = new Map();
+    state.contexts = new Map();
+    state.defaultContextId = null;
+  }
+
+  /**
+   * Restore a dormant session into a new client's state.
+   * Returns true if restoration succeeded, false if browser crashed during dormancy.
+   */
+  private restoreSession(dormant: DormantSession, state: ClientState): boolean {
+    clearTimeout(dormant.ttlHandle);
+    this.dormantSessions.delete(dormant.sessionId);
+
+    // Verify browser is still alive
+    if (!dormant.browser.isConnected()) {
+      this.log("Dormant session browser crashed, starting fresh", { sessionId: dormant.sessionId });
+      try { dormant.browser.close(); } catch { /* ignore */ }
+      return false;
+    }
+
+    state.browser = dormant.browser;
+    state.context = dormant.context;
+    state.contexts = dormant.contexts;
+    state.defaultContextId = dormant.defaultContextId;
+    state.pages = dormant.pages;
+    state.pageToContext = dormant.pageToContext;
+    state.activePage = dormant.activePage;
+    state.elementRegistries = dormant.elementRegistries;
+    state.frameContexts = dormant.frameContexts;
+
+    return true;
+  }
+
+  /**
+   * Expire and destroy a dormant session after TTL.
+   */
+  private expireDormantSession(sessionId: string): void {
+    const dormant = this.dormantSessions.get(sessionId);
+    if (!dormant) return;
+
+    this.log("Dormant session expired", { sessionId });
+    this.dormantSessions.delete(sessionId);
+
+    try {
+      dormant.browser.close();
+    } catch {
+      // Browser may already be closed
+    }
   }
 
   /**
