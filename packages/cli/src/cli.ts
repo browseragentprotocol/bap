@@ -100,6 +100,8 @@ ${pc.cyan("GLOBAL OPTIONS")}
   -p, --port <N>                    Server port (default: 9222)
   -b, --browser <name>              Browser: chrome, firefox, webkit, edge
   --headless / --no-headless        Headless mode
+  --profile <path>                  Chrome profile dir (default: auto-detect)
+  --no-profile                      Fresh browser, no user profile
   -v, --verbose                     Verbose output
   -h, --help                        Show this help
   -V, --version                     Show version
@@ -113,11 +115,24 @@ function printVersion(): void {
 }
 
 // =============================================================================
-// Commands that don't need a server connection
+// Command routing
 // =============================================================================
 
+/** Commands that don't need a server connection at all */
 const NO_SERVER_COMMANDS = new Set([
   "config", "install-skill", "skill", "--help", "-h",
+]);
+
+/**
+ * Commands that need a server connection but manage their own browser/page
+ * lifecycle. These use ensureClient() (WebSocket only), not ensureReady().
+ */
+const CLIENT_ONLY_COMMANDS = new Set([
+  "open",       // explicitly launches browser + creates page
+  "close",      // tears down browser — don't auto-create one
+  "close-all",  // tears down everything — don't auto-create
+  "sessions",   // informational — just lists contexts
+  "tabs",       // informational — just lists pages
 ]);
 
 // =============================================================================
@@ -165,10 +180,13 @@ async function main(): Promise<void> {
     headless: flags.headless,
     verbose: flags.verbose,
     sessionId,
+    profile: flags.profile,
   });
 
   try {
-    const client = await serverManager.ensureClient();
+    const client = CLIENT_ONLY_COMMANDS.has(flags.command)
+      ? await serverManager.ensureClient()
+      : await serverManager.ensureReady();
     await handler(flags.args, flags, client);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

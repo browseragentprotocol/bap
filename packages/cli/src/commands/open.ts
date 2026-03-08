@@ -5,22 +5,8 @@
 import type { BAPClient } from "@browseragentprotocol/client";
 import type { GlobalFlags } from "../config/state.js";
 import { printPageSummary } from "../output/formatter.js";
+import { BROWSER_MAP, CHANNEL_MAP, resolveProfile } from "../server/manager.js";
 import { register } from "./registry.js";
-
-/** Map user-facing browser names to Playwright browser types */
-const BROWSER_MAP: Record<string, "chromium" | "firefox" | "webkit"> = {
-  chrome: "chromium",
-  chromium: "chromium",
-  firefox: "firefox",
-  webkit: "webkit",
-  edge: "chromium",
-};
-
-/** Map user-facing browser names to Playwright channels */
-const CHANNEL_MAP: Record<string, string> = {
-  chrome: "chrome",
-  edge: "msedge",
-};
 
 async function openCommand(
   args: string[],
@@ -29,12 +15,14 @@ async function openCommand(
 ): Promise<void> {
   const browser = BROWSER_MAP[flags.browser] ?? "chromium";
   const channel = CHANNEL_MAP[flags.browser];
+  const userDataDir = resolveProfile(flags.profile, flags.browser);
 
   // Launch browser
   await client.launch({
     browser,
     channel,
     headless: flags.headless,
+    ...(userDataDir ? { userDataDir } : {}),
   });
 
   // Create a page
