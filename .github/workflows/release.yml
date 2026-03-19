@@ -61,7 +61,7 @@ jobs:
       # PyPI Publishing - runs after npm packages are published
       - name: Setup Python
         if: steps.changesets.outputs.published == 'true'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
