@@ -244,6 +244,52 @@ describe("ServerManager.ensureReady", () => {
     });
   });
 
+  it("should treat about:blank pages as empty and re-initialize", async () => {
+    mockClient.listPages.mockResolvedValue({
+      pages: [{ id: "ghost-1", url: "about:blank" }],
+      activePage: "ghost-1",
+    });
+    mockClient.launch.mockResolvedValue({ browserId: "b1", version: "1.0" });
+    mockClient.createPage.mockResolvedValue({ id: "page-new", url: "about:blank" });
+
+    const manager = new ServerManager({
+      port: 9222,
+      browser: "chromium",
+      headless: true,
+      verbose: false,
+    });
+
+    await manager.ensureReady();
+
+    // Should NOT reuse the ghost page — should launch fresh
+    expect(mockClient.activatePage).not.toHaveBeenCalled();
+    expect(mockClient.launch).toHaveBeenCalledOnce();
+    expect(mockClient.createPage).toHaveBeenCalledOnce();
+  });
+
+  it("should reuse real pages even when mixed with about:blank pages", async () => {
+    mockClient.listPages.mockResolvedValue({
+      pages: [
+        { id: "ghost-1", url: "about:blank" },
+        { id: "real-1", url: "https://example.com" },
+      ],
+      activePage: "",
+    });
+
+    const manager = new ServerManager({
+      port: 9222,
+      browser: "chromium",
+      headless: true,
+      verbose: false,
+    });
+
+    await manager.ensureReady();
+
+    // Should activate the real page, not the ghost
+    expect(mockClient.activatePage).toHaveBeenCalledWith("real-1");
+    expect(mockClient.launch).not.toHaveBeenCalled();
+  });
+
   it("should not pass userDataDir for firefox even with profile auto", async () => {
     mockClient.listPages.mockResolvedValue({ pages: [], activePage: "" });
     mockClient.launch.mockResolvedValue({ browserId: "b1", version: "1.0" });

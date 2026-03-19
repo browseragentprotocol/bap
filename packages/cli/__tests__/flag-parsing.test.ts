@@ -151,6 +151,24 @@ describe("parseArgs fusion flags", () => {
     });
   });
 
+  describe("--pixels (scroll)", () => {
+    it("parses --pixels=500", () => {
+      const flags = parseArgs(["scroll", "down", "--pixels=500"]);
+      expect(flags.pixels).toBe(500);
+      expect(flags.command).toBe("scroll");
+    });
+
+    it("parses --pixels as separate arg", () => {
+      const flags = parseArgs(["scroll", "down", "--pixels", "1000"]);
+      expect(flags.pixels).toBe(1000);
+    });
+
+    it("defaults pixels to undefined when not set", () => {
+      const flags = parseArgs(["scroll", "down"]);
+      expect(flags.pixels).toBeUndefined();
+    });
+  });
+
   describe("combined flags", () => {
     it("parses --observe with --max", () => {
       const flags = parseArgs(["act", "click:e1", "--observe", "--max=20"]);
