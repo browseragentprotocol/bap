@@ -56,8 +56,10 @@ const mockClient = {
   close: vi.fn(),
 };
 
+const createClientMock = vi.fn(() => Promise.resolve(mockClient));
+
 vi.mock("@browseragentprotocol/client", () => ({
-  createClient: vi.fn(() => Promise.resolve(mockClient)),
+  createClient: createClientMock,
 }));
 
 const { ServerManager } = await import("../src/server/manager.js");
@@ -65,6 +67,29 @@ const { ServerManager } = await import("../src/server/manager.js");
 describe("ServerManager.ensureReady", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("passes the configured timeout to the client connection", async () => {
+    mockClient.listPages.mockResolvedValue({
+      pages: [{ id: "page-abc", url: "https://example.com" }],
+      activePage: "page-abc",
+    });
+
+    const manager = new ServerManager({
+      port: 9222,
+      browser: "chromium",
+      headless: true,
+      verbose: false,
+      timeout: 120000,
+    });
+
+    await manager.ensureReady();
+
+    expect(createClientMock).toHaveBeenCalledWith("ws://localhost:9222", {
+      name: "bap-cli",
+      sessionId: undefined,
+      timeout: 120000,
+    });
   });
 
   it("should auto-launch browser and create page when no pages exist", async () => {

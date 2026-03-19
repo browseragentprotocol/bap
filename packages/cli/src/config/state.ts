@@ -113,6 +113,7 @@ export function parseArgs(argv: string[]): GlobalFlags {
     host: "localhost",
     browser: config.browser,
     headless: config.headless,
+    timeout: config.timeout,
     profile: config.profile,
     verbose: false,
     help: false,

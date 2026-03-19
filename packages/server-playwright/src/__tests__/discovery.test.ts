@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { BAPPlaywrightServer } from "../server.js";
+import type { BAPScope } from "@browseragentprotocol/protocol";
+
+interface AuthorizationHarness {
+  checkAuthorization(state: { scopes: BAPScope[] }, method: string): void;
+}
 
 /**
  * Structural tests for discovery/discover method support.
@@ -14,10 +19,11 @@ describe("BAPPlaywrightServer - discovery support", () => {
 
   it("allows discovery/discover for observe-scoped clients", () => {
     const server = new BAPPlaywrightServer();
+    const harness = server as unknown as AuthorizationHarness;
     const state = {
-      scopes: ["observe:*"],
+      scopes: ["observe:*"] as BAPScope[],
     };
 
-    expect(() => (server as any).checkAuthorization(state, "discovery/discover")).not.toThrow();
+    expect(() => harness.checkAuthorization(state, "discovery/discover")).not.toThrow();
   });
 });

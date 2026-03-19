@@ -553,6 +553,21 @@ type PageOwner = {
   state: ClientState | DormantSession;
 };
 
+interface PlaywrightAccessibilityNode {
+  role?: string;
+  name?: string;
+  value?: string;
+  description?: string;
+  checked?: AccessibilityNode["checked"];
+  disabled?: boolean;
+  expanded?: boolean;
+  focused?: boolean;
+  selected?: boolean;
+  required?: boolean;
+  level?: number;
+  children?: PlaywrightAccessibilityNode[];
+}
+
 // =============================================================================
 // BAP Server
 // =============================================================================
@@ -862,7 +877,8 @@ export class BAPPlaywrightServer extends EventEmitter {
     const clientIP = req.socket.remoteAddress || 'unknown';
 
     // TLS ENFORCEMENT (v0.2.0): Check for secure connection
-    const isSecure = (req.socket as any).encrypted || req.headers['x-forwarded-proto'] === 'https';
+    const socket = req.socket as typeof req.socket & { encrypted?: boolean };
+    const isSecure = socket.encrypted === true || req.headers['x-forwarded-proto'] === 'https';
     if (this.options.tls.requireTLS && !isSecure) {
       this.logSecurity('TLS_REQUIRED', { ip: clientIP });
       ws.close(1008, 'TLS required: use wss:// instead of ws://');
@@ -1287,6 +1303,10 @@ export class BAPPlaywrightServer extends EventEmitter {
     state: ClientState,
     params: BrowserLaunchParams
   ): Promise<BrowserLaunchResult> {
+    if (state.context || state.browser) {
+      await this.handleBrowserClose(state);
+    }
+
     const browserType = params.browser ?? this.options.defaultBrowser;
     const launcher = this.getBrowserType(browserType);
 
@@ -3933,8 +3953,8 @@ export class BAPPlaywrightServer extends EventEmitter {
             hints.push('checkable');
           }
 
-          let selectorValue = '';
-          let selectorType = 'css';
+          let selectorValue: string;
+          let selectorType: 'css' | 'testId' | 'role' | 'text';
 
           const ariaLabel = el.getAttribute('aria-label');
           const text = el.textContent?.trim().slice(0, 50);
@@ -4737,7 +4757,7 @@ export class BAPPlaywrightServer extends EventEmitter {
   /**
    * Convert Playwright accessibility node to BAP format
    */
-  private convertAccessibilityNode(node: any): AccessibilityNode {
+  private convertAccessibilityNode(node: PlaywrightAccessibilityNode | null | undefined): AccessibilityNode {
     if (!node) {
       return { role: "none" };
     }
@@ -4754,7 +4774,7 @@ export class BAPPlaywrightServer extends EventEmitter {
       selected: node.selected,
       required: node.required,
       level: node.level,
-      children: node.children?.map((c: any) => this.convertAccessibilityNode(c)),
+      children: node.children?.map((child) => this.convertAccessibilityNode(child)),
     };
   }
 

@@ -9,14 +9,38 @@ license: Apache-2.0
 AI-first browser automation. Like playwright-cli but with composite actions,
 semantic selectors, and structured extraction.
 
+## Command Resolution
+
+Pick the command form based on the environment:
+
+```bash
+# Inside the bap repo (preferred for local development and release testing)
+pnpm exec bap open https://example.com
+
+# If bap is installed globally
+bap open https://example.com
+
+# Only when explicitly testing the published npm package
+npx @browseragentprotocol/cli open https://example.com
+```
+
+Important:
+- Inside the repo, prefer `pnpm exec bap` so you use the local workspace build.
+- Avoid `npx @browseragentprotocol/cli` for local development. It pulls the published npm version, which can lag behind the branch being tested.
+- If `bap` is not on `PATH`, do not assume it is globally installed.
+- In the examples below, `bap` is shorthand for the command form you picked above.
+
 ## Quick Start
 
 ```bash
-bap open https://example.com
-bap observe                          # compact interactive elements
-bap click role:button:"Get Started"  # semantic selector
-bap close
+pnpm exec bap goto https://example.com --observe
+pnpm exec bap click role:button:"Get Started"   # semantic selector
+pnpm exec bap close
 ```
+
+For normal "open this URL and work on the page" tasks, prefer `bap goto`.
+Use `bap open` when you explicitly want browser lifecycle behavior, such as
+opening a blank browser first.
 
 ## Composite Actions
 
@@ -74,10 +98,11 @@ bap act fill:label:"Email"="user@example.com" \
 
 ## Selectors
 
-BAP supports both positional refs (from snapshots) and semantic selectors:
+BAP supports stable refs, positional refs, and semantic selectors:
 
 | Selector | Example | When to use |
 |----------|---------|-------------|
+| `@<ref>` | `@ep44e3j` | Exact stable ref returned by `bap observe` |
 | `e<N>` | `e15` | From snapshot refs (playwright-cli compatible) |
 | `role:<role>:"<name>"` | `role:button:"Submit"` | When you know the element's purpose |
 | `text:"<content>"` | `text:"Sign in"` | By visible text |
@@ -85,7 +110,17 @@ BAP supports both positional refs (from snapshots) and semantic selectors:
 | `placeholder:"<text>"` | `placeholder:"Search..."` | By placeholder |
 | `testid:"<id>"` | `testid:"submit-btn"` | By data-testid |
 
-Prefer semantic selectors (`role:`, `label:`, `text:`) — they survive page layout changes. Use `e<N>` refs from `bap observe` or `bap snapshot` when semantic selectors are unclear.
+Prefer semantic selectors (`role:`, `label:`, `text:`) when they are clear — they survive page layout changes. When using `bap observe`, reuse the exact ref it prints, including the leading `@`.
+
+```bash
+pnpm exec bap observe --max=10
+# ...
+# @ep44e3j a "Learn more"
+
+pnpm exec bap click @ep44e3j
+```
+
+Do not strip the `@` prefix from stable refs. `bap click ep44e3j` is not the same as `bap click @ep44e3j`.
 
 For the full selector reference, see [references/SELECTORS.md](references/SELECTORS.md).
 
@@ -94,8 +129,8 @@ For the full selector reference, see [references/SELECTORS.md](references/SELECT
 ### Navigation
 
 ```bash
-bap open [url]                            # Open browser
-bap goto <url>                            # Navigate
+bap open [url]                            # Browser lifecycle command
+bap goto <url>                            # Recommended for "open this URL"
 bap goto <url> --observe                  # Fused navigate+observe (1 call instead of 2)
 bap goto <url> --observe --tier=interactive  # Fused with response tier
 bap back / bap forward                    # History navigation
@@ -173,12 +208,14 @@ Saved to .bap/snapshot-1739734242.yml
 
 | Problem | Fix |
 |---------|-----|
-| `bap: command not found` | Run `npm i -g @browseragentprotocol/cli` or use `npx @browseragentprotocol/cli` prefix |
+| `bap: command not found` | Inside this repo, use `pnpm exec bap`. Outside the repo, either install globally or use `npx @browseragentprotocol/cli` if you intentionally want the published package |
 | Element not found | Run `bap observe` to get fresh refs — the DOM changed after navigation |
-| Stale element ref | Refs (`e15`) invalidate after navigation. Re-run `bap observe` or `bap snapshot` |
-| Browser launch fails | Run `bap config browser firefox` to switch engines, or `bap config headless true` |
+| Stable ref click does not work | Use the exact ref from `bap observe`, including the leading `@` |
+| Stale element ref | Re-run `bap observe` or `bap snapshot` after navigation or major DOM changes |
+| Browser launch fails | Try `--no-profile` for a fresh browser, or use a dedicated `--profile <dir>` if the default Chrome profile is busy |
+| Chrome says it is controlled by automated test software | Expected for Playwright-launched Chrome. Use `--no-profile` for clean automation, or attach to a user-started browser in future workflows if that UX matters |
 | Server not responding | Run `bap close-all` to kill the daemon, then retry your command |
-| Navigation timeout | Page is slow to load. Try `bap goto <url>` again or check network connectivity |
+| Navigation timeout | Increase the timeout: `bap --timeout=120000 goto <url>` |
 | Click intercepted / overlay | An overlay may be blocking the element. Try `bap act click:text:"Accept" click:<target>` to dismiss it first |
 | Wrong tab active | Run `bap tabs` to list open tabs, then `bap tab-select <index>` |
 
@@ -194,5 +231,5 @@ Saved to .bap/snapshot-1739734242.yml
 
 ## Installation
 
-If `bap` command is not found, use `npx @browseragentprotocol/cli` as prefix.
-For browser issues, run `bap config browser firefox` to switch engines.
+Inside the repo, prefer `pnpm exec bap`.
+Use `npx @browseragentprotocol/cli` only when you explicitly want to test the published npm package.

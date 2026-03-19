@@ -141,6 +141,26 @@ const CLIENT_ONLY_COMMANDS = new Set([
 
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
+  let serverManager: ServerManager | null = null;
+  let shuttingDown = false;
+
+  const cleanupAndExit = (code: number) => async () => {
+    if (shuttingDown) {
+      return;
+    }
+    shuttingDown = true;
+
+    try {
+      await serverManager?.disconnect();
+    } catch {
+      // Best effort during shutdown
+    }
+
+    process.exit(code);
+  };
+
+  const handleSigint = cleanupAndExit(130);
+  const handleSigterm = cleanupAndExit(143);
 
   if (flags.help || (!flags.command && process.argv.length <= 2)) {
     printHelp();
@@ -173,15 +193,19 @@ async function main(): Promise<void> {
 
   // All other commands need a BAP server
   const sessionId = flags.session ?? `cli-${flags.port}`;
-  const serverManager = new ServerManager({
+  serverManager = new ServerManager({
     port: flags.port,
     host: flags.host,
     browser: flags.browser,
     headless: flags.headless,
     verbose: flags.verbose,
+    timeout: flags.timeout,
     sessionId,
     profile: flags.profile,
   });
+
+  process.once("SIGINT", handleSigint);
+  process.once("SIGTERM", handleSigterm);
 
   try {
     const client = CLIENT_ONLY_COMMANDS.has(flags.command)
@@ -194,6 +218,8 @@ async function main(): Promise<void> {
     process.exit(1);
   } finally {
     await serverManager.disconnect();
+    process.off("SIGINT", handleSigint);
+    process.off("SIGTERM", handleSigterm);
   }
 }
 

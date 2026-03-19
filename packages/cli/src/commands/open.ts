@@ -3,19 +3,67 @@
  */
 
 import type { BAPClient } from "@browseragentprotocol/client";
+import type { AgentObserveResult } from "@browseragentprotocol/protocol";
 import type { GlobalFlags } from "../config/state.js";
-import { printPageSummary } from "../output/formatter.js";
+import { printObserveResult, printPageSummary } from "../output/formatter.js";
 import { BROWSER_MAP, CHANNEL_MAP, resolveProfile } from "../server/manager.js";
 import { register } from "./registry.js";
 
-async function openCommand(
+async function navigateAndPrint(
+  url: string,
+  flags: GlobalFlags,
+  client: BAPClient,
+): Promise<void> {
+  if (flags.observe) {
+    const result = await client.navigate(url, {
+      timeout: flags.timeout,
+      observe: {
+        includeMetadata: true,
+        includeInteractiveElements: true,
+        maxElements: flags.max ?? 50,
+        responseTier: (flags.tier as "full" | "interactive" | "minimal") ?? undefined,
+      },
+    });
+
+    const observation = (result as Record<string, unknown>).observation as AgentObserveResult | undefined;
+    if (observation) {
+      printObserveResult(observation);
+    } else {
+      printPageSummary(result.url);
+    }
+    return;
+  }
+
+  const result = await client.navigate(url, { timeout: flags.timeout });
+  printPageSummary(result.url);
+}
+
+export async function openCommand(
   args: string[],
   flags: GlobalFlags,
   client: BAPClient,
 ): Promise<void> {
+  const { pages, activePage } = await client.listPages();
   const browser = BROWSER_MAP[flags.browser] ?? "chromium";
   const channel = CHANNEL_MAP[flags.browser];
   const userDataDir = resolveProfile(flags.profile, flags.browser);
+  const url = args[0];
+
+  if (pages.length > 0) {
+    const targetPage = activePage && activePage.length > 0
+      ? activePage
+      : pages[0]!.id;
+    await client.activatePage(targetPage);
+
+    if (url) {
+      await navigateAndPrint(url, flags, client);
+      return;
+    }
+
+    const page = pages.find((candidate) => candidate.id === targetPage) ?? pages[0]!;
+    printPageSummary(page.url, page.title);
+    return;
+  }
 
   // Launch browser
   await client.launch({
@@ -29,10 +77,8 @@ async function openCommand(
   await client.createPage();
 
   // Navigate if URL provided
-  const url = args[0];
   if (url) {
-    const result = await client.navigate(url);
-    printPageSummary(result.url);
+    await navigateAndPrint(url, flags, client);
   } else {
     console.log("### Browser opened");
     console.log("Use `bap goto <url>` to navigate.");

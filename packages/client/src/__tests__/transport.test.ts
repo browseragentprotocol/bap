@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { BAPClient, WebSocketTransport } from "../index.js";
 
+interface TransportUrlHarness {
+  getConnectionUrl(): string;
+}
+
+interface ClientTransportHarness {
+  transport: WebSocketTransport;
+}
+
 /**
  * WebSocketTransport tests
  *
@@ -189,19 +197,21 @@ describe("WebSocketTransport", () => {
   describe("token updates", () => {
     it("adds the latest token to future connection URLs", () => {
       const transport = new WebSocketTransport("ws://localhost:9222");
+      const harness = transport as unknown as TransportUrlHarness;
       transport.updateToken("token-1");
 
-      expect((transport as any).getConnectionUrl()).toBe(
+      expect(harness.getConnectionUrl()).toBe(
         "ws://localhost:9222/?token=token-1"
       );
     });
 
     it("replaces the token instead of appending duplicates", () => {
       const transport = new WebSocketTransport("ws://localhost:9222?existing=yes");
+      const harness = transport as unknown as TransportUrlHarness;
       transport.updateToken("token-1");
       transport.updateToken("token-2");
 
-      expect((transport as any).getConnectionUrl()).toBe(
+      expect(harness.getConnectionUrl()).toBe(
         "ws://localhost:9222/?existing=yes&token=token-2"
       );
     });
@@ -211,10 +221,11 @@ describe("WebSocketTransport", () => {
 describe("BAPClient token updates", () => {
   it("propagates updated tokens to the WebSocket transport", () => {
     const client = new BAPClient("ws://localhost:9222", { token: "initial-token" });
+    const clientHarness = client as unknown as ClientTransportHarness;
     client.updateToken("rotated-token");
 
-    const transport = (client as any).transport as WebSocketTransport;
-    expect((transport as any).getConnectionUrl()).toBe(
+    const transportHarness = clientHarness.transport as unknown as TransportUrlHarness;
+    expect(transportHarness.getConnectionUrl()).toBe(
       "ws://localhost:9222/?token=rotated-token"
     );
   });

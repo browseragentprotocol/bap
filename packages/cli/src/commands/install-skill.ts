@@ -22,15 +22,19 @@ function resolveSkillSource(): string {
   // Try to find the skills directory relative to this package
   try {
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
-    // In dist: packages/cli/dist/commands/ -> packages/cli/skills/
-    const fromDist = path.resolve(__dirname, "../../skills", SKILL_NAME);
-    if (fs.existsSync(path.join(fromDist, "SKILL.md"))) {
-      return fromDist;
-    }
-    // In src: packages/cli/src/commands/ -> packages/cli/skills/
-    const fromSrc = path.resolve(__dirname, "../../../skills", SKILL_NAME);
-    if (fs.existsSync(path.join(fromSrc, "SKILL.md"))) {
-      return fromSrc;
+    const candidates = [
+      // Bundled dist output: packages/cli/dist/ -> packages/cli/skills/
+      path.resolve(__dirname, "../skills", SKILL_NAME),
+      // Unbundled dist output: packages/cli/dist/commands/ -> packages/cli/skills/
+      path.resolve(__dirname, "../../skills", SKILL_NAME),
+      // Source tree: packages/cli/src/commands/ -> packages/cli/skills/
+      path.resolve(__dirname, "../../../skills", SKILL_NAME),
+    ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(path.join(candidate, "SKILL.md"))) {
+        return candidate;
+      }
     }
   } catch {
     // Fall through
@@ -54,6 +58,11 @@ function copyRecursive(src: string, dest: string): void {
       fs.copyFileSync(srcPath, destPath);
     }
   }
+}
+
+function replaceDirectory(src: string, dest: string): void {
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyRecursive(src, dest);
 }
 
 interface AgentTarget {
@@ -185,7 +194,7 @@ async function installSkillCommand(
         if (dryRun) {
           console.log(`  [dry-run] Would install to ${agent.dir}/${SKILL_NAME}/`);
         } else {
-          copyRecursive(skillSrc, path.join(agent.dir, SKILL_NAME));
+          replaceDirectory(skillSrc, path.join(agent.dir, SKILL_NAME));
           console.log(`  ✓ ${agent.name} (${agent.dir}/)`);
           installed.push(agent.name);
         }
@@ -204,7 +213,7 @@ async function installSkillCommand(
         if (dryRun) {
           console.log(`  [dry-run] Would install to ${agent.dir}/${SKILL_NAME}/`);
         } else {
-          copyRecursive(skillSrc, path.join(agent.dir, SKILL_NAME));
+          replaceDirectory(skillSrc, path.join(agent.dir, SKILL_NAME));
           console.log(`  ✓ ${agent.name} (${agent.dir}/)`);
           installed.push(agent.name);
         }

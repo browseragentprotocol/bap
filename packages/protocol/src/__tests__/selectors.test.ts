@@ -11,6 +11,7 @@ import {
   coords,
   ref,
   BAPSelectorSchema,
+  type AriaRole,
 } from "../types/selectors.js";
 
 describe("Selector Factory Functions", () => {
@@ -51,9 +52,9 @@ describe("Selector Factory Functions", () => {
     });
 
     it("supports all ARIA roles", () => {
-      const roles = ["button", "textbox", "link", "checkbox", "menuitem", "dialog"];
+      const roles: AriaRole[] = ["button", "textbox", "link", "checkbox", "menuitem", "dialog"];
       roles.forEach((r) => {
-        const selector = role(r as any);
+        const selector = role(r);
         expect(selector.role).toBe(r);
       });
     });
