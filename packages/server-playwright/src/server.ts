@@ -3933,8 +3933,8 @@ export class BAPPlaywrightServer extends EventEmitter {
             hints.push('checkable');
           }
 
-          let selectorValue = '';
-          let selectorType = 'css';
+          let selectorValue: string;
+          let selectorType: 'css' | 'testId' | 'role' | 'text';
 
           const ariaLabel = el.getAttribute('aria-label');
           const text = el.textContent?.trim().slice(0, 50);
