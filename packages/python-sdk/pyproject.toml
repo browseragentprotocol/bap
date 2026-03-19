@@ -1,6 +1,6 @@
 [project]
 name = "browser-agent-protocol"
-version = "0.3.0"
+version = "0.4.0"
 description = "Python SDK for the Browser Agent Protocol (BAP) - control browsers with AI agents"
 readme = "README.md"
 license = { text = "Apache-2.0" }
