@@ -1,22 +1,20 @@
 #!/usr/bin/env node
 /**
- * Demo 2: Skill Scorer — Multi-Tab Workflow
+ * Demo 2: Skill Scorer — Real agent workflow
  *
- * Story: BAP works across two sites — skills.menu and GitHub — managing
- * them like browser tabs. Shows tab switching for cross-site workflows.
- *
- * Technical note: Playwright's recordVideo captures a single page. We use
- * one page and navigate between URLs, with an injected tab bar overlay to
- * give the visual effect of tab switching.
+ * An agent browses GitHub like a human would — clicking through directories,
+ * then opens a second tab to score the file on skills.menu.
  *
  * Flow:
- *   1. Open skills.menu (landing page) — [Tab 1 active]
- *   2. Click "Try It"
- *   3. "Switch" to GitHub tab — navigate to SKILL.md — [Tab 2 active]
- *   4. Read the SKILL.md (scroll)
- *   5. "Switch" back to skills.menu tab — [Tab 1 active]
- *   6. Paste the SKILL.md content
- *   7. Click Score → show results
+ *   1. Open github.com/anthropics/skills
+ *   2. Click into skills/ directory
+ *   3. Click into frontend-design/ directory
+ *   4. Click SKILL.md to view the file
+ *   5. Open skills.menu in a "new tab"
+ *   6. Click "Try It"
+ *   7. Clear the editor and paste the SKILL.md
+ *   8. Click Score
+ *   9. Hold on results
  */
 
 import path from "node:path";
@@ -27,43 +25,41 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = path.resolve(__dirname, "../../assets/demos");
 
 // ---------------------------------------------------------------------------
-// Tab bar overlay — injected to visualize multi-tab state
+// Tab bar overlay
 // ---------------------------------------------------------------------------
 
 function tabBarScript(tabs, activeIndex) {
-  const tabsHtml = tabs
-    .map((tab, i) => {
-      const isActive = i === activeIndex;
-      const bg = isActive ? "background:#313244;" : "background:transparent;";
-      const color = isActive ? "color:#cdd6f4;font-weight:500;" : "color:#6c7086;font-weight:400;";
-      const dot = isActive ? "#a6e3a1" : "#585b70";
-      return `<div style="display:flex;align-items:center;gap:8px;padding:0 18px;${bg}${color}border-radius:8px 8px 0 0;margin-top:6px;white-space:nowrap;"><span style="width:8px;height:8px;border-radius:50%;background:${dot};"></span>${tab}</div>`;
+  const html = tabs
+    .map((label, i) => {
+      const active = i === activeIndex;
+      const bg = active ? "background:#313244;" : "background:transparent;";
+      const fg = active ? "color:#cdd6f4;font-weight:500;" : "color:#6c7086;font-weight:400;";
+      const dot = active ? "#a6e3a1" : "#585b70";
+      return `<div style="display:flex;align-items:center;gap:8px;padding:0 18px;${bg}${fg}border-radius:8px 8px 0 0;margin-top:6px;white-space:nowrap;"><span style="width:8px;height:8px;border-radius:50%;background:${dot};"></span>${label}</div>`;
     })
     .join("");
 
   return `(() => {
-    let bar = document.getElementById('__tabbar');
-    if (bar) bar.remove();
-    bar = document.createElement('div');
-    bar.id = '__tabbar';
-    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483645;height:44px;background:#1e1e2e;display:flex;align-items:stretch;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;padding:0 8px;gap:2px;box-shadow:0 2px 8px rgba(0,0,0,0.15);';
-    bar.innerHTML = ${JSON.stringify(tabsHtml)};
-    document.body.appendChild(bar);
+    let b = document.getElementById('__tabbar');
+    if (b) b.remove();
+    b = document.createElement('div');
+    b.id = '__tabbar';
+    b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2147483645;height:44px;background:#1e1e2e;display:flex;align-items:stretch;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;padding:0 8px;gap:2px;box-shadow:0 2px 8px rgba(0,0,0,0.15);';
+    b.innerHTML = ${JSON.stringify(html)};
+    document.body.appendChild(b);
     document.body.style.paddingTop = '44px';
   })()`;
 }
 
-const TABS = ["skills.menu — Try It", "GitHub — frontend-design/SKILL.md"];
-
 // ---------------------------------------------------------------------------
-// Fetch SKILL.md content
+// Pre-fetch SKILL.md content (for pasting later)
 // ---------------------------------------------------------------------------
 
 async function fetchSkillContent() {
   const res = await fetch(
     "https://raw.githubusercontent.com/anthropics/skills/main/skills/frontend-design/SKILL.md"
   );
-  if (!res.ok) throw new Error(`Failed to fetch SKILL.md: ${res.status}`);
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   return res.text();
 }
 
@@ -72,9 +68,9 @@ async function fetchSkillContent() {
 // ---------------------------------------------------------------------------
 
 async function main() {
-  console.log("Recording: Skill Scorer (multi-tab)");
+  console.log("Recording: Skill Scorer");
 
-  console.log("  Fetching SKILL.md...");
+  console.log("  Pre-fetching SKILL.md...");
   const skillContent = await fetchSkillContent();
 
   const ctx = await createRecordingContext({
@@ -83,80 +79,96 @@ async function main() {
     headless: !process.env.DEMO_HEADFUL,
   });
 
-  const { page, navigateTo, clickOn, smoothScroll, fillField, hold, waitForStable, ensureCursor } =
-    ctx;
+  const { page, navigateTo, clickOn, smoothScroll, fillField, hold, waitForStable } = ctx;
 
-  // Helper
-  async function showTabs(activeIdx) {
+  const TABS_GH_ONLY = ["GitHub — anthropics/skills"];
+  const TABS_BOTH_GH = ["GitHub — anthropics/skills", "skills.menu"];
+  const TABS_BOTH_SM = ["GitHub — anthropics/skills", "skills.menu — Try It"];
+
+  async function showTabs(tabs, active) {
     try {
-      await page.evaluate(tabBarScript(TABS, activeIdx));
+      await page.evaluate(tabBarScript(tabs, active));
     } catch {}
   }
 
   // =========================================================================
-  // 1. Open skills.menu landing page — [Tab 1]
+  // 1. Open github.com/anthropics/skills
   // =========================================================================
-  console.log("  1/8 skills.menu landing");
-  await navigateTo("https://www.skills.menu");
-  await showTabs(0);
-  await hold(2500);
+  console.log("  1/9  github.com/anthropics/skills");
+  await navigateTo("https://github.com/anthropics/skills");
+  await showTabs(TABS_GH_ONLY, 0);
+  await hold(2000);
 
   // =========================================================================
-  // 2. Click "Try It"
+  // 2. Click into skills/ directory
   // =========================================================================
-  console.log("  2/8 Click Try It");
-  await clickOn('a:has-text("Try It")', { hesitate: 200 });
+  console.log("  2/9  Click skills/ directory");
+  await clickOn('a[href="/anthropics/skills/tree/main/skills"] >> visible=true', { hesitate: 200 });
   await waitForStable();
-  await showTabs(0);
-  await hold(2000);
+  await showTabs(TABS_GH_ONLY, 0);
+  await hold(1800);
 
   // =========================================================================
-  // 3. "Switch to Tab 2" — navigate to GitHub SKILL.md
+  // 3. Click into frontend-design/ directory
   // =========================================================================
-  console.log("  3/8 Switch to GitHub tab");
-  await navigateTo(
-    "https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md"
-  );
-  await showTabs(1);
-  await hold(2500);
+  console.log("  3/9  Click frontend-design/");
+  await clickOn('a[href*="frontend-design"] >> visible=true', { hesitate: 200 });
+  await waitForStable();
+  await showTabs(TABS_GH_ONLY, 0);
+  await hold(1800);
 
   // =========================================================================
-  // 4. Read the SKILL.md on GitHub
+  // 4. Click SKILL.md to view the file
   // =========================================================================
-  console.log("  4/8 Reading SKILL.md");
-  await smoothScroll(500, { duration: 1500 });
-  await hold(2000);
+  console.log("  4/9  Click SKILL.md");
+  await clickOn('a[href*="SKILL.md"] >> visible=true', { hesitate: 200 });
+  await waitForStable();
+  await showTabs(TABS_GH_ONLY, 0);
+  await hold(1500);
+
+  // Scroll down to show file content
   await smoothScroll(400, { duration: 1200 });
   await hold(2000);
 
   // =========================================================================
-  // 5. "Switch back to Tab 1" — navigate to skills.menu/try
+  // 5. "Open new tab" — navigate to skills.menu
   // =========================================================================
-  console.log("  5/8 Switch to skills.menu");
-  await navigateTo("https://www.skills.menu/try");
-  await showTabs(0);
-  ctx.events.log("tab-switch", 0, 0, { tab: 1 });
+  console.log("  5/9  Open skills.menu tab");
+  await navigateTo("https://www.skills.menu");
+  await showTabs(
+    TABS_BOTH_GH.map((t, i) => (i === 1 ? "skills.menu" : t)),
+    1
+  );
+  await hold(2000);
+
+  // =========================================================================
+  // 6. Click "Try It"
+  // =========================================================================
+  console.log("  6/9  Click Try It");
+  await clickOn('a:has-text("Try It")', { hesitate: 200 });
+  await waitForStable();
+  await showTabs(TABS_BOTH_SM, 1);
   await hold(1500);
 
   // =========================================================================
-  // 6. Paste the SKILL.md
+  // 7. Clear editor and paste the SKILL.md
   // =========================================================================
-  console.log("  6/8 Pasting SKILL.md");
+  console.log("  7/9  Paste SKILL.md");
   await fillField("#skill-input", skillContent);
   await hold(1200);
 
   // =========================================================================
-  // 7. Click Score
+  // 8. Click Score
   // =========================================================================
-  console.log("  7/8 Scoring");
+  console.log("  8/9  Click Score");
   await clickOn('button:has-text("score")', { hesitate: 300 });
   await waitForStable();
   await hold(1500);
 
   // =========================================================================
-  // 8. Hold on results
+  // 9. Hold on results
   // =========================================================================
-  console.log("  8/8 Results");
+  console.log("  9/9  Results");
   await hold(4000);
 
   const videoPath = await ctx.finish();
