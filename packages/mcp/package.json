@@ -26,12 +26,18 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/browseragentprotocol/bap.git",
     "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/browseragentprotocol/bap/tree/main/packages/mcp",
+  "bugs": {
+    "url": "https://github.com/browseragentprotocol/bap/issues"
   },
   "keywords": [
     "bap",
@@ -57,7 +63,7 @@
     "@browseragentprotocol/client": "workspace:*",
     "@browseragentprotocol/logger": "workspace:*",
     "@browseragentprotocol/protocol": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "zod": "^3.23.0"
   },
   "devDependencies": {

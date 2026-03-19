@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * @fileoverview BAP CLI - AI-native browser automation
+ * @fileoverview BAP CLI - CLI-first browser automation for coding agents
  *
  * Like playwright-cli but with superpowers:
- * - Composite actions (bap act) — 40x token reduction
+ * - Composite actions (bap act) — fewer commands and tokens
  * - Semantic selectors — resilient to layout changes
  * - Structured extraction — validated JSON output
  *
@@ -25,7 +25,7 @@ import { ServerManager } from "./server/manager.js";
 
 function printHelp(): void {
   console.log(`
-${pc.bold("BAP CLI")} ${pc.dim("- AI-native browser automation")}
+${pc.bold("BAP CLI")} ${pc.dim("- CLI-first browser automation for coding agents")}
 
 ${pc.cyan("BASIC COMMANDS")} ${pc.dim("(playwright-cli compatible)")}
   bap open [url]                    Open browser (optionally navigate)
@@ -98,8 +98,10 @@ ${pc.cyan("CONFIGURATION")}
 ${pc.cyan("GLOBAL OPTIONS")}
   -s=<name>                         Named session
   -p, --port <N>                    Server port (default: 9222)
-  -b, --browser <name>              Browser: chrome, firefox, webkit, edge
-  --headless / --no-headless        Headless mode
+  -b, --browser <name>              Browser: chrome, chromium, firefox, webkit, edge
+  --headless / --no-headless        Browser visibility (default: visible)
+  --profile <path>                  Chrome profile dir (default: auto-detect)
+  --no-profile                      Fresh browser, no user profile
   -v, --verbose                     Verbose output
   -h, --help                        Show this help
   -V, --version                     Show version
@@ -109,15 +111,28 @@ ${pc.dim("Docs:")} ${pc.cyan("https://github.com/browseragentprotocol/bap")}
 }
 
 function printVersion(): void {
-  console.log("bap-cli 0.2.0");
+  console.log("bap-cli 0.3.0");
 }
 
 // =============================================================================
-// Commands that don't need a server connection
+// Command routing
 // =============================================================================
 
+/** Commands that don't need a server connection at all */
 const NO_SERVER_COMMANDS = new Set([
   "config", "install-skill", "skill", "--help", "-h",
+]);
+
+/**
+ * Commands that need a server connection but manage their own browser/page
+ * lifecycle. These use ensureClient() (WebSocket only), not ensureReady().
+ */
+const CLIENT_ONLY_COMMANDS = new Set([
+  "open",       // explicitly launches browser + creates page
+  "close",      // tears down browser — don't auto-create one
+  "close-all",  // tears down everything — don't auto-create
+  "sessions",   // informational — just lists contexts
+  "tabs",       // informational — just lists pages
 ]);
 
 // =============================================================================
@@ -157,16 +172,21 @@ async function main(): Promise<void> {
   }
 
   // All other commands need a BAP server
+  const sessionId = flags.session ?? `cli-${flags.port}`;
   const serverManager = new ServerManager({
     port: flags.port,
     host: flags.host,
     browser: flags.browser,
     headless: flags.headless,
     verbose: flags.verbose,
+    sessionId,
+    profile: flags.profile,
   });
 
   try {
-    const client = await serverManager.ensureClient();
+    const client = CLIENT_ONLY_COMMANDS.has(flags.command)
+      ? await serverManager.ensureClient()
+      : await serverManager.ensureReady();
     await handler(flags.args, flags, client);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

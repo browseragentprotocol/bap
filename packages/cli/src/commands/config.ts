@@ -38,7 +38,7 @@ async function configCommand(
       console.log(`${key}: ${val}`);
     } else {
       console.error(`Unknown config key: ${key}`);
-      console.error("Valid keys: browser, headless, timeout, port");
+      console.error("Valid keys: browser, headless, timeout, port, profile");
       process.exit(1);
     }
     return;
@@ -64,9 +64,16 @@ async function configCommand(
     case "port":
       updates.port = parseInt(value, 10);
       break;
+    case "profile":
+      if (value !== "auto" && value !== "none" && !value.startsWith("/") && !value.includes(":\\")) {
+        console.error("Valid profile values: auto, none, or an absolute path");
+        process.exit(1);
+      }
+      updates.profile = value;
+      break;
     default:
       console.error(`Unknown config key: ${key}`);
-      console.error("Valid keys: browser, headless, timeout, port");
+      console.error("Valid keys: browser, headless, timeout, port, profile");
       process.exit(1);
   }
 

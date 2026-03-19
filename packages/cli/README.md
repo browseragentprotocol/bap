@@ -3,7 +3,11 @@
 [![npm version](https://badge.fury.io/js/@browseragentprotocol%2Fcli.svg)](https://www.npmjs.com/package/@browseragentprotocol/cli)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-AI-native browser automation from the command line. Like playwright-cli but with superpowers: composite actions (`bap act`), semantic selectors, and structured extraction.
+CLI-first browser automation from the command line. BAP defaults to installed
+Chrome, an auto-detected profile when available, and a persistent daemon so
+agents can work against a real browser instead of starting fresh every time.
+Like playwright-cli but with superpowers: composite actions (`bap act`),
+semantic selectors, and structured extraction.
 
 ## Quick Start
 
@@ -20,9 +24,15 @@ npm i -g @browseragentprotocol/cli
 bap open https://example.com
 ```
 
+By default, the CLI prefers headful Chrome with a persistent session. Use
+`--headless` for CI or `--no-profile` for a fresh automation browser. Chrome
+can restrict automation of a live default profile, so a dedicated
+`--profile <dir>` is the most reliable production setup when you need cookies
+and long-lived state.
+
 ## Why BAP CLI?
 
-### Composite Actions — 40x Token Reduction
+### Composite Actions — Fewer Commands, Fewer Tokens
 
 Execute multi-step flows in **one command** instead of one-at-a-time:
 
@@ -170,9 +180,11 @@ bap skill init              # Install skill to current project
 ```
 -s=<name>              Named session
 -p, --port <N>         Server port (default: 9222)
--b, --browser <name>   Browser: chrome, firefox, webkit, edge
---headless             Headless mode (default)
---no-headless          Show browser window
+-b, --browser <name>   Browser: chrome, chromium, firefox, webkit, edge
+--headless             Headless mode for CI/background runs
+--no-headless          Show browser window (default)
+--profile <path>       Chrome profile dir (default: auto-detect)
+--no-profile           Fresh browser, no user profile
 -v, --verbose          Verbose output
 --observe              Fused observation (for goto, act)
 --diff                 Incremental observation (for observe)

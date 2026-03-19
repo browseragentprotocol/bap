@@ -83,6 +83,8 @@ import {
   type ApprovalRequiredParams,
   type ApprovalRespondParams,
   type ApprovalRespondResult,
+  // Discovery types (WebMCP)
+  type DiscoveryDiscoverResult,
 } from "@browseragentprotocol/protocol";
 
 // Re-export protocol types and helpers
@@ -156,6 +158,8 @@ export class WebSocketTransport implements BAPTransport {
   private readonly autoReconnect: boolean;
   private isClosing = false;
   private isReconnecting = false;
+  private baseUrl: string;
+  private token: string | undefined;
 
   onMessage: ((message: string) => void) | null = null;
   onClose: (() => void) | null = null;
@@ -166,12 +170,33 @@ export class WebSocketTransport implements BAPTransport {
   onReconnected: (() => void) | null = null;
 
   constructor(
-    private readonly url: string,
+    url: string,
     options: WebSocketTransportOptions = {}
   ) {
+    this.baseUrl = url;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
     this.reconnectDelay = options.reconnectDelay ?? 1000;
     this.autoReconnect = options.autoReconnect ?? false;
+  }
+
+  /**
+   * Get the current connection URL, including token if set.
+   */
+  private getConnectionUrl(): string {
+    if (!this.token) {
+      return this.baseUrl;
+    }
+
+    const url = new URL(this.baseUrl);
+    url.searchParams.set("token", this.token);
+    return url.toString();
+  }
+
+  /**
+   * Update the authentication token for future connects/reconnects.
+   */
+  updateToken(newToken: string): void {
+    this.token = newToken;
   }
 
   /**
@@ -189,7 +214,7 @@ export class WebSocketTransport implements BAPTransport {
         this.ws = null;
       }
 
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(this.getConnectionUrl());
 
       this.ws.on("open", () => {
         this.reconnectAttempts = 0;
@@ -328,6 +353,8 @@ export interface BAPClientOptions {
   timeout?: number;
   /** Events to subscribe to */
   events?: string[];
+  /** Session ID for cross-connection persistence (CLI mode) */
+  sessionId?: string;
 }
 
 /**
@@ -368,6 +395,7 @@ export class BAPClient extends EventEmitter {
     version: string;
     timeout: number;
     events: string[];
+    sessionId?: string;
   };
 
   constructor(urlOrTransport: string | BAPTransport, options: BAPClientOptions = {}) {
@@ -379,16 +407,15 @@ export class BAPClient extends EventEmitter {
       version: options.version ?? "0.2.0",
       timeout: options.timeout ?? 30000,
       events: options.events ?? ["page", "console", "network", "dialog"],
+      sessionId: options.sessionId,
     };
 
     if (typeof urlOrTransport === "string") {
-      let url = urlOrTransport;
+      const transport = new WebSocketTransport(urlOrTransport);
       if (options.token) {
-        const urlObj = new URL(url);
-        urlObj.searchParams.set("token", options.token);
-        url = urlObj.toString();
+        transport.updateToken(options.token);
       }
-      this.transport = new WebSocketTransport(url);
+      this.transport = transport;
     } else {
       this.transport = urlOrTransport;
     }
@@ -396,6 +423,16 @@ export class BAPClient extends EventEmitter {
     this.transport.onMessage = this.handleMessage.bind(this);
     this.transport.onClose = () => this.emit("close");
     this.transport.onError = (error) => this.emit("error", error);
+  }
+
+  /**
+   * Update the authentication token for future connects/reconnects.
+   */
+  updateToken(newToken: string): void {
+    this.options.token = newToken;
+    if (this.transport instanceof WebSocketTransport) {
+      this.transport.updateToken(newToken);
+    }
   }
 
   // ===========================================================================
@@ -410,7 +447,7 @@ export class BAPClient extends EventEmitter {
       await this.transport.connect();
     }
 
-    const result = await this.request<InitializeResult>("initialize", {
+    const initParams: InitializeParams = {
       protocolVersion: BAP_VERSION,
       clientInfo: {
         name: this.options.name,
@@ -421,7 +458,12 @@ export class BAPClient extends EventEmitter {
         streaming: false,
         compression: false,
       },
-    } satisfies InitializeParams);
+    };
+    if (this.options.sessionId) {
+      initParams.sessionId = this.options.sessionId;
+    }
+
+    const result = await this.request<InitializeResult>("initialize", initParams);
 
     const serverVersion = result.protocolVersion;
     const serverParts = serverVersion.split(".").map(Number);
@@ -464,13 +506,18 @@ export class BAPClient extends EventEmitter {
    */
   async close(): Promise<void> {
     if (this.initialized) {
-      try {
-        await this.request("shutdown", {
-          saveState: false,
-          closePages: true,
-        });
-      } catch {
-        // Ignore errors during shutdown
+      // When sessionId is set, skip shutdown RPC — just close transport.
+      // This triggers ws.on("close") server-side, which parks the session
+      // instead of destroying the browser.
+      if (!this.options.sessionId) {
+        try {
+          await this.request("shutdown", {
+            saveState: false,
+            closePages: true,
+          });
+        } catch {
+          // Ignore errors during shutdown
+        }
       }
     }
 
@@ -1324,6 +1371,31 @@ export class BAPClient extends EventEmitter {
    */
   async respondToApproval(params: ApprovalRespondParams): Promise<ApprovalRespondResult> {
     return this.request<ApprovalRespondResult>("approval/respond", params);
+  }
+
+  // ===========================================================================
+  // Discovery Methods (WebMCP Tool Discovery)
+  // ===========================================================================
+
+  /**
+   * Discover WebMCP tools exposed by the current page
+   *
+   * @example
+   * ```typescript
+   * const result = await client.discoverTools();
+   * for (const tool of result.tools) {
+   *   console.log(`${tool.name} (${tool.source}): ${tool.description}`);
+   * }
+   * ```
+   */
+  async discoverTools(
+    pageId?: string,
+    options?: { maxTools?: number; includeInputSchemas?: boolean }
+  ): Promise<DiscoveryDiscoverResult> {
+    return this.request<DiscoveryDiscoverResult>("discovery/discover", {
+      pageId: pageId ?? this.activePage,
+      options,
+    });
   }
 
   /**

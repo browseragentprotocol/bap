@@ -231,6 +231,10 @@ def test_id(value: str) -> TestIdSelector:
     return TestIdSelector(type="testId", value=value)
 
 
+# Prevent pytest from collecting the public selector helper as a test function.
+test_id.__test__ = False
+
+
 def semantic(description: str) -> SemanticSelector:
     """Create a semantic selector (AI-resolved)."""
     return SemanticSelector(type="semantic", description=description)

@@ -34,6 +34,12 @@ export type BAPScope =
   | 'browser:launch'
   | 'browser:close'
 
+  // Context scopes
+  | 'context:*'
+  | 'context:create'
+  | 'context:read'
+  | 'context:destroy'
+
   // Page scopes
   | 'page:*'
   | 'page:read'        // list, activate (non-destructive)
@@ -148,6 +154,11 @@ export const MethodScopes: Record<string, BAPScope[]> = {
   'browser/launch': ['browser:launch', 'browser:*', '*'],
   'browser/close': ['browser:close', 'browser:*', '*'],
 
+  // Context
+  'context/create': ['context:create', 'context:*', '*'],
+  'context/list': ['context:read', 'context:*', '*'],
+  'context/destroy': ['context:destroy', 'context:*', '*'],
+
   // Page
   'page/create': ['page:create', 'page:*', '*'],
   'page/navigate': ['page:navigate', 'page:*', '*'],
@@ -157,6 +168,11 @@ export const MethodScopes: Record<string, BAPScope[]> = {
   'page/close': ['page:close', 'page:*', '*'],
   'page/list': ['page:read', 'page:*', '*'],
   'page/activate': ['page:read', 'page:*', '*'],
+
+  // Frame
+  'frame/list': ['page:read', 'page:*', '*'],
+  'frame/switch': ['page:navigate', 'page:*', '*'],
+  'frame/main': ['page:navigate', 'page:*', '*'],
 
   // Actions
   'action/click': ['action:click', 'action:*', '*'],
@@ -210,6 +226,20 @@ export const MethodScopes: Record<string, BAPScope[]> = {
 
   // Events
   'events/subscribe': ['observe:*', '*'],
+
+  // Discovery
+  'discovery/discover': ['observe:*', '*'],
+
+  // Streaming
+  'stream/cancel': ['observe:*', '*'],
+
+  // Approval
+  'approval/respond': ['action:*', '*'],
+
+  // Agent
+  'agent/act': ['action:*', '*'],
+  'agent/observe': ['observe:*', '*'],
+  'agent/extract': ['observe:*', '*'],
 };
 
 /**

@@ -18,6 +18,7 @@ export interface GlobalFlags {
   host: string;
   browser: string;
   headless: boolean;
+  profile: string;
   verbose: boolean;
   help: boolean;
   version: boolean;
@@ -54,13 +55,15 @@ export interface BAPConfig {
   headless: boolean;
   timeout: number;
   port: number;
+  profile: string;
 }
 
 const DEFAULT_CONFIG: BAPConfig = {
   browser: "chrome",
-  headless: true,
+  headless: false,
   timeout: 30000,
   port: 9222,
+  profile: "auto",
 };
 
 // =============================================================================
@@ -110,6 +113,7 @@ export function parseArgs(argv: string[]): GlobalFlags {
     host: "localhost",
     browser: config.browser,
     headless: config.headless,
+    profile: config.profile,
     verbose: false,
     help: false,
     version: false,
@@ -139,6 +143,12 @@ export function parseArgs(argv: string[]): GlobalFlags {
       flags.headless = true;
     } else if (arg === "--no-headless") {
       flags.headless = false;
+    } else if (arg === "--no-profile") {
+      flags.profile = "none";
+    } else if (arg.startsWith("--profile=")) {
+      flags.profile = arg.slice(10);
+    } else if (arg === "--profile") {
+      flags.profile = argv[++i] ?? "auto";
     } else if (arg.startsWith("-s=")) {
       flags.session = arg.slice(3);
     } else if (arg === "-s") {

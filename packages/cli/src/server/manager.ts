@@ -24,6 +24,8 @@ export interface ServerManagerOptions {
   browser: string;
   headless: boolean;
   verbose: boolean;
+  sessionId?: string;
+  profile?: string;
 }
 
 // =============================================================================
@@ -135,7 +137,8 @@ function removePidFile(): void {
 // Browser Name Mapping
 // =============================================================================
 
-const BROWSER_MAP: Record<string, string> = {
+/** Map user-facing browser names to Playwright browser types */
+export const BROWSER_MAP: Record<string, "chromium" | "firefox" | "webkit"> = {
   chrome: "chromium",
   chromium: "chromium",
   firefox: "firefox",
@@ -143,12 +146,71 @@ const BROWSER_MAP: Record<string, string> = {
   edge: "chromium",
 };
 
+/** Map user-facing browser names to Playwright channels (e.g., system Chrome) */
+export const CHANNEL_MAP: Record<string, string> = {
+  chrome: "chrome",
+  edge: "msedge",
+};
+
+// =============================================================================
+// Profile Detection
+// =============================================================================
+
+/** Browsers that support persistent user data directories */
+const PROFILE_BROWSERS = new Set(["chrome", "chromium", "edge"]);
+
+/** Detect Chrome user data dir for current platform */
+export function getDefaultChromeProfileDir(): string | undefined {
+  const home = os.homedir();
+  let profileDir: string;
+
+  switch (process.platform) {
+    case "darwin":
+      profileDir = path.join(home, "Library", "Application Support", "Google", "Chrome");
+      break;
+    case "linux":
+      profileDir = path.join(home, ".config", "google-chrome");
+      break;
+    case "win32":
+      profileDir = path.join(process.env.LOCALAPPDATA ?? path.join(home, "AppData", "Local"), "Google", "Chrome", "User Data");
+      break;
+    default:
+      return undefined;
+  }
+
+  return fs.existsSync(profileDir) ? profileDir : undefined;
+}
+
+/** Resolve profile setting to concrete userDataDir path */
+export function resolveProfile(profile: string, browser: string): string | undefined {
+  // Only Chrome/Edge support persistent profiles
+  if (!PROFILE_BROWSERS.has(browser)) {
+    return undefined;
+  }
+
+  if (profile === "none") {
+    return undefined;
+  }
+
+  if (profile === "auto") {
+    return getDefaultChromeProfileDir();
+  }
+
+  // Explicit path — validate it exists
+  if (fs.existsSync(profile)) {
+    return profile;
+  }
+
+  process.stderr.write(`[bap] Warning: profile path does not exist: ${profile}\n`);
+  return undefined;
+}
+
 // =============================================================================
 // Server Manager
 // =============================================================================
 
 export class ServerManager {
-  private options: Required<ServerManagerOptions>;
+  private options: Required<Omit<ServerManagerOptions, 'sessionId' | 'profile'>> & Pick<ServerManagerOptions, 'sessionId' | 'profile'>;
   private client: BAPClient | null = null;
 
   constructor(options: ServerManagerOptions) {
@@ -172,7 +234,7 @@ export class ServerManager {
       if (verbose) {
         process.stderr.write(`[bap] Reusing server on ${host}:${port}\n`);
       }
-      this.client = await createClient(url, { name: "bap-cli" });
+      this.client = await createClient(url, { name: "bap-cli", sessionId: this.options.sessionId });
       return this.client;
     }
 
@@ -224,8 +286,50 @@ export class ServerManager {
       process.stderr.write(`[bap] Server ready on ws://${host}:${port}\n`);
     }
 
-    this.client = await createClient(url, { name: "bap-cli" });
+    this.client = await createClient(url, { name: "bap-cli", sessionId: this.options.sessionId });
     return this.client;
+  }
+
+  /**
+   * Get a ready-to-use client with browser and page auto-initialized.
+   *
+   * Ensures a browser is launched and at least one page exists.
+   * Reuses existing pages from session persistence when available.
+   * Falls back to ensureClient() semantics (WebSocket only) for
+   * commands that manage their own lifecycle (open, close, sessions).
+   */
+  async ensureReady(): Promise<BAPClient> {
+    const client = await this.ensureClient();
+
+    // Check if pages already exist (e.g., from session persistence)
+    const { pages, activePage } = await client.listPages();
+
+    if (pages.length > 0) {
+      // Sync client's active page tracking with server state
+      const targetPage = activePage && activePage.length > 0
+        ? activePage
+        : pages[0]!.id;
+      await client.activatePage(targetPage);
+      return client;
+    }
+
+    // No pages — auto-initialize browser + page
+    const browserType = BROWSER_MAP[this.options.browser] ?? "chromium";
+    const channel = CHANNEL_MAP[this.options.browser];
+    const userDataDir = this.options.profile
+      ? resolveProfile(this.options.profile, this.options.browser)
+      : undefined;
+
+    await client.launch({
+      browser: browserType,
+      channel,
+      headless: this.options.headless,
+      ...(userDataDir ? { userDataDir } : {}),
+    });
+
+    await client.createPage();
+
+    return client;
   }
 
   /**

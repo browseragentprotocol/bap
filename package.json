@@ -29,11 +29,13 @@
     "test": "turbo run test",
     "test:coverage": "vitest run --coverage",
     "check": "pnpm typecheck && pnpm lint",
+    "check:artifacts": "node ./scripts/check-release-artifacts.mjs",
     "clean": "turbo run clean && rm -rf node_modules",
     "format": "prettier --write \"packages/*/src/**/*.ts\"",
     "format:check": "prettier --check \"packages/*/src/**/*.ts\"",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && node ./scripts/sync-python-version.mjs",
+    "release:verify": "rm -rf .turbo && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm check:artifacts",
     "release": "pnpm build && changeset publish"
   },
   "devDependencies": {

@@ -118,6 +118,8 @@ export const InitializeParamsSchema = z.object({
   protocolVersion: z.string(),
   clientInfo: ClientInfoSchema,
   capabilities: ClientCapabilitiesSchema,
+  /** Optional session ID for cross-connection persistence (CLI mode) */
+  sessionId: z.string().optional(),
 });
 export type InitializeParams = z.infer<typeof InitializeParamsSchema>;
 
@@ -128,6 +130,8 @@ export const InitializeResultSchema = z.object({
   protocolVersion: z.string(),
   serverInfo: ServerInfoSchema,
   capabilities: ServerCapabilitiesSchema,
+  /** Echoed session ID when server supports session persistence */
+  sessionId: z.string().optional(),
 });
 export type InitializeResult = z.infer<typeof InitializeResultSchema>;
 

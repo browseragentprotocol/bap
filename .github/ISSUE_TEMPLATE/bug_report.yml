@@ -1,0 +1,52 @@
+name: Bug report
+description: Report a reproducible bug in BAP CLI, MCP, SDKs, or release tooling.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file this. Please include enough detail for us to reproduce it quickly.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Surface
+      options:
+        - CLI
+        - MCP
+        - TypeScript SDK
+        - Python SDK
+        - Server (Playwright)
+        - Docs / Examples
+        - Release / Packaging
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Paste commands, prompts, code, URLs, or test steps.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Include stack traces, screenshots, or terminal output if available.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, Python version, package version, and browser if relevant.
+      placeholder: "macOS 15, Node 22, Python 3.12, @browseragentprotocol/cli 0.3.0, Chrome"
+    validations:
+      required: true

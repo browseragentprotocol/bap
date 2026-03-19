@@ -19,6 +19,65 @@ vi.mock("node:os", () => ({
 // Import after mocks
 const { parseArgs } = await import("../src/config/state.js");
 
+describe("parseArgs session flags", () => {
+  describe("-s (session)", () => {
+    it("parses -s=name session flag", () => {
+      const flags = parseArgs(["-s=my-session", "open", "https://example.com"]);
+      expect(flags.session).toBe("my-session");
+      expect(flags.command).toBe("open");
+    });
+
+    it("parses -s name session flag (space-separated)", () => {
+      const flags = parseArgs(["-s", "my-session", "open", "https://example.com"]);
+      expect(flags.session).toBe("my-session");
+      expect(flags.command).toBe("open");
+    });
+
+    it("defaults session to undefined when not set", () => {
+      const flags = parseArgs(["open", "https://example.com"]);
+      expect(flags.session).toBeUndefined();
+    });
+  });
+});
+
+describe("parseArgs profile flags", () => {
+  describe("--profile", () => {
+    it("defaults profile to auto from config", () => {
+      const flags = parseArgs(["goto", "https://example.com"]);
+      expect(flags.profile).toBe("auto");
+    });
+
+    it("parses --no-profile to none", () => {
+      const flags = parseArgs(["goto", "https://example.com", "--no-profile"]);
+      expect(flags.profile).toBe("none");
+    });
+
+    it("parses --profile=<path>", () => {
+      const flags = parseArgs(["goto", "https://example.com", "--profile=/custom/path"]);
+      expect(flags.profile).toBe("/custom/path");
+    });
+
+    it("parses --profile <path> (space-separated)", () => {
+      const flags = parseArgs(["goto", "https://example.com", "--profile", "/custom/path"]);
+      expect(flags.profile).toBe("/custom/path");
+    });
+
+    it("parses --profile auto explicitly", () => {
+      const flags = parseArgs(["--no-profile", "goto", "https://example.com", "--profile", "auto"]);
+      expect(flags.profile).toBe("auto");
+    });
+  });
+});
+
+describe("parseArgs default browser behavior", () => {
+  it("defaults to visible Chrome with auto profile", () => {
+    const flags = parseArgs(["open", "https://example.com"]);
+    expect(flags.browser).toBe("chrome");
+    expect(flags.headless).toBe(false);
+    expect(flags.profile).toBe("auto");
+  });
+});
+
 describe("parseArgs fusion flags", () => {
   describe("--observe", () => {
     it("parses --observe flag", () => {

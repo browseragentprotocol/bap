@@ -505,3 +505,17 @@ export {
   type ExtractionSourceRef,
   type AgentExtractResult,
 } from "./agent.js";
+
+// Discovery types (WebMCP tool discovery)
+export {
+  WebMCPToolSourceSchema,
+  WebMCPToolSchema,
+  DiscoveryDiscoverOptionsSchema,
+  DiscoveryDiscoverParamsSchema,
+  DiscoveryDiscoverResultSchema,
+  type WebMCPToolSource,
+  type WebMCPTool,
+  type DiscoveryDiscoverOptions,
+  type DiscoveryDiscoverParams,
+  type DiscoveryDiscoverResult,
+} from "./discovery.js";

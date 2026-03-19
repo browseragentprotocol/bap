@@ -48,6 +48,7 @@ export const BrowserLaunchParamsSchema = z.object({
   args: z.array(z.string()).optional(),
   proxy: ProxyConfigSchema.optional(),
   downloadsPath: z.string().optional(),
+  userDataDir: z.string().optional(),
 });
 export type BrowserLaunchParams = z.infer<typeof BrowserLaunchParamsSchema>;
 
@@ -994,5 +995,8 @@ export const BAPMethodSchema = z.enum([
   "agent/act",
   "agent/observe",
   "agent/extract",
+
+  // Discovery methods (WebMCP tool discovery)
+  "discovery/discover",
 ]);
 export type BAPMethod = z.infer<typeof BAPMethodSchema>;
