@@ -1,25 +1,24 @@
 #!/usr/bin/env bash
 #
-# FFmpeg post-processing for demo recordings.
+# FFmpeg post-processing for 2K demo recordings.
 #
-# Takes a raw WebM + events JSON and produces:
-#   - <name>.mp4  (H.264, zoom-at-click effects)
-#   - <name>.gif  (960px wide, 15fps, optimized)
+# Input:  <base>-raw.webm + <base>-events.json
+# Output: <base>.mp4  (2560x1440 H.264, zoom-at-click)
+#         <base>.gif  (1280px wide, 15fps, optimized)
 #
-# Usage: ./ffmpeg-post.sh <base-path>
-#   e.g. ./ffmpeg-post.sh assets/demos/blog-reader
-#   expects: blog-reader-raw.webm and blog-reader-events.json
+# Usage: ./ffmpeg-post.sh assets/demos/blog-reader
 
 set -euo pipefail
 
 BASE="$1"
 NAME="$(basename "$BASE")"
-DIR="$(dirname "$BASE")"
 RAW="${BASE}-raw.webm"
 EVENTS="${BASE}-events.json"
 BASELINE="${BASE}-baseline.mp4"
 FINAL="${BASE}.mp4"
 GIF="${BASE}.gif"
+W=2560
+H=1440
 
 if [ ! -f "$RAW" ]; then
   echo "Error: Raw video not found: $RAW" >&2
@@ -29,104 +28,88 @@ fi
 echo "Post-processing: $NAME"
 
 # ============================================================================
-# Phase 1: WebM → baseline MP4 (H.264, high quality)
+# Phase 1: WebM → high-quality MP4
 # ============================================================================
-echo "  Phase 1: Converting WebM to MP4..."
-ffmpeg -y -i "$RAW" \
-  -c:v libx264 -preset slow -crf 20 \
+echo "  Phase 1: WebM → MP4 (H.264, CRF 18)"
+ffmpeg -y -loglevel error -i "$RAW" \
+  -c:v libx264 -preset slow -crf 18 \
   -vf "fps=30" \
   -pix_fmt yuv420p -movflags +faststart \
-  "$BASELINE" 2>/dev/null
+  "$BASELINE"
 
 # ============================================================================
-# Phase 2: Zoom-at-click effects
+# Phase 2: Zoom-at-click effects (crop + scale)
 # ============================================================================
-# Read click events from JSON and build FFmpeg zoom filter.
-# Each click triggers: 0.3s zoom-in → 0.8s hold → 0.3s zoom-out (1.4s total)
-
 if [ -f "$EVENTS" ] && command -v jq >/dev/null 2>&1; then
-  echo "  Phase 2: Applying zoom-at-click effects..."
-
-  # Extract click events: time, x, y
-  CLICKS=$(jq -r '.[] | select(.type == "click") | "\(.t) \(.x) \(.y)"' "$EVENTS")
+  CLICKS=$(jq -r '.[] | select(.type == "click") | "\(.t) \(.x) \(.y)"' "$EVENTS" 2>/dev/null || echo "")
 
   if [ -n "$CLICKS" ]; then
-    # Get video dimensions
-    W=1920
-    H=1080
+    echo "  Phase 2: Zoom-at-click effects"
 
-    # Build crop filter with zoom keyframes.
-    # Strategy: for each click, zoom to 1.4x centered on click point.
-    # Use crop+scale rather than zoompan (more predictable with video input).
-    ZOOM_EXPR="1"
-    X_EXPR="0"
-    Y_EXPR="0"
+    # Build nested FFmpeg expressions for zoom, pan-x, pan-y
+    ZOOM="1"
+    PX="0"
+    PY="0"
 
     while IFS=' ' read -r T CX CY; do
-      # Zoom window: T-0.2 to T+1.2 (1.4s total)
-      T_START=$(echo "$T - 0.2" | bc -l)
-      T_ZOOM_IN=$(echo "$T_START + 0.3" | bc -l)
-      T_HOLD_END=$(echo "$T_ZOOM_IN + 0.8" | bc -l)
-      T_END=$(echo "$T_HOLD_END + 0.3" | bc -l)
-      ZOOM_LEVEL="1.4"
+      # Each click: 0.25s zoom-in → 0.7s hold → 0.25s zoom-out
+      TS=$(echo "$T - 0.15" | bc -l)
+      T1=$(echo "$TS + 0.25" | bc -l)
+      T2=$(echo "$T1 + 0.70" | bc -l)
+      TE=$(echo "$T2 + 0.25" | bc -l)
+      Z="1.35"
 
-      # Nested if() for zoom: ramp up → hold → ramp down
-      RAMP_IN="1+(${ZOOM_LEVEL}-1)*(t-${T_START})/0.3"
-      RAMP_OUT="${ZOOM_LEVEL}-(${ZOOM_LEVEL}-1)*(t-${T_HOLD_END})/0.3"
+      ZOOM="if(between(t,$TS,$T1),1+($Z-1)*(t-$TS)/0.25,if(between(t,$T1,$T2),$Z,if(between(t,$T2,$TE),$Z-($Z-1)*(t-$T2)/0.25,$ZOOM)))"
 
-      ZOOM_EXPR="if(between(t,${T_START},${T_ZOOM_IN}),${RAMP_IN},if(between(t,${T_ZOOM_IN},${T_HOLD_END}),${ZOOM_LEVEL},if(between(t,${T_HOLD_END},${T_END}),${RAMP_OUT},${ZOOM_EXPR})))"
-
-      # Pan to center on click point (clamped to viewport)
-      # crop x = cx - (W/2/zoom), clamped to [0, W - W/zoom]
-      PAN_X="clip(${CX}-${W}/2/${ZOOM_LEVEL},0,${W}-${W}/${ZOOM_LEVEL})"
-      PAN_Y="clip(${CY}-${H}/2/${ZOOM_LEVEL},0,${H}-${H}/${ZOOM_LEVEL})"
-
-      X_EXPR="if(between(t,${T_START},${T_END}),${PAN_X},${X_EXPR})"
-      Y_EXPR="if(between(t,${T_START},${T_END}),${PAN_Y},${Y_EXPR})"
+      # Pan: center on click, clamped to viewport
+      PAN_X="clip($CX-$W/2/$Z,0,$W-$W/$Z)"
+      PAN_Y="clip($CY-$H/2/$Z,0,$H-$H/$Z)"
+      PX="if(between(t,$TS,$TE),$PAN_X,$PX)"
+      PY="if(between(t,$TS,$TE),$PAN_Y,$PY)"
     done <<< "$CLICKS"
 
-    # Apply crop+scale filter
-    FILTER="crop=w='${W}/(${ZOOM_EXPR})':h='${H}/(${ZOOM_EXPR})':x='${X_EXPR}':y='${Y_EXPR}',scale=${W}:${H}:flags=lanczos"
+    FILTER="crop=w='$W/($ZOOM)':h='$H/($ZOOM)':x='$PX':y='$PY',scale=${W}:${H}:flags=lanczos"
 
-    ffmpeg -y -i "$BASELINE" \
+    ffmpeg -y -loglevel error -i "$BASELINE" \
       -vf "$FILTER" \
-      -c:v libx264 -preset slow -crf 20 \
+      -c:v libx264 -preset slow -crf 18 \
       -pix_fmt yuv420p -movflags +faststart \
-      "$FINAL" 2>/dev/null
+      "$FINAL"
   else
-    echo "  No click events found, skipping zoom effects"
-    cp "$BASELINE" "$FINAL"
+    echo "  Phase 2: No clicks found, skipping zoom"
+    mv "$BASELINE" "$FINAL"
   fi
 else
-  echo "  Skipping zoom (no events file or jq not installed)"
-  cp "$BASELINE" "$FINAL"
+  echo "  Phase 2: Skipped (no events or jq missing)"
+  mv "$BASELINE" "$FINAL"
 fi
 
+# Clean up baseline if it still exists (wasn't moved)
+[ -f "$BASELINE" ] && rm -f "$BASELINE"
+
 # ============================================================================
-# Phase 3: GIF export (960px wide, 15fps)
+# Phase 3: GIF (960px wide, 10fps — keeps file under 10MB for README)
 # ============================================================================
-echo "  Phase 3: Generating GIF..."
+echo "  Phase 3: GIF export"
 
 if command -v gifski >/dev/null 2>&1; then
-  # gifski produces better quality at smaller file size
-  FRAME_DIR=$(mktemp -d)
-  ffmpeg -y -i "$FINAL" -vf "fps=15,scale=960:-1:flags=lanczos" \
-    "${FRAME_DIR}/frame_%04d.png" 2>/dev/null
-  gifski --fps 15 --width 960 --quality 80 -o "$GIF" "${FRAME_DIR}"/frame_*.png 2>/dev/null
-  rm -rf "$FRAME_DIR"
+  FRAMES=$(mktemp -d)
+  ffmpeg -y -loglevel error -i "$FINAL" \
+    -vf "fps=10,scale=960:-1:flags=lanczos" \
+    "${FRAMES}/f_%04d.png"
+  gifski --fps 15 --width 960 --quality 85 -o "$GIF" "${FRAMES}"/f_*.png 2>/dev/null
+  rm -rf "$FRAMES"
 else
-  # FFmpeg palettegen fallback
-  ffmpeg -y -i "$FINAL" \
-    -filter_complex "fps=15,scale=960:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle" \
-    "$GIF" 2>/dev/null
+  ffmpeg -y -loglevel error -i "$FINAL" \
+    -filter_complex "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=192:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle" \
+    "$GIF"
 fi
 
-# ============================================================================
-# Cleanup
-# ============================================================================
-rm -f "$BASELINE"
+# Clean up raw
 rm -f "$RAW"
 
-echo "  Output:"
-echo "    MP4: $(du -h "$FINAL" | cut -f1) $FINAL"
-echo "    GIF: $(du -h "$GIF" | cut -f1) $GIF"
+# Report
+MP4_SIZE=$(du -h "$FINAL" | cut -f1)
+GIF_SIZE=$(du -h "$GIF" | cut -f1)
+echo "  Output: ${MP4_SIZE} ${FINAL}"
+echo "  Output: ${GIF_SIZE} ${GIF}"

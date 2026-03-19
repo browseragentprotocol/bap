@@ -2,10 +2,15 @@
 /**
  * Demo 1: Blog Reader
  *
- * Navigate piyushvyas.com → click Writing → click the BAP blog post →
- * scroll through the article → show extraction.
+ * Story: BAP navigates a personal website, finds a blog post, reads it.
+ * Shows: navigate → click → scroll — the core BAP workflow.
  *
- * Produces: assets/demos/blog-reader-raw.webm + blog-reader-events.json
+ * Flow:
+ *   1. Land on piyushvyas.com (hold — let viewer absorb the site)
+ *   2. Click "Writing" (wait for blog listing to render)
+ *   3. Click "Introducing Browser Agent Protocol" (wait for article)
+ *   4. Scroll through the article at a readable pace
+ *   5. Hold at a visually interesting section
  */
 
 import path from "node:path";
@@ -16,7 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = path.resolve(__dirname, "../../assets/demos");
 
 async function main() {
-  console.log("Recording: Blog Reader demo");
+  console.log("Recording: Blog Reader");
 
   const ctx = await createRecordingContext({
     name: "blog-reader",
@@ -24,46 +29,46 @@ async function main() {
     headless: !process.env.DEMO_HEADFUL,
   });
 
-  const { navigateTo, clickOn, smoothScroll, pause, finish } = ctx;
+  const { navigateTo, clickOn, smoothScroll, hold, finish } = ctx;
 
-  // Step 1: Open the homepage
-  console.log("  1. Opening piyushvyas.com...");
+  // 1. Landing page — give viewer time to see the site
+  console.log("  1/5 Landing page");
   await navigateTo("https://piyushvyas.com");
-  await pause(2000); // Let viewer see the landing page
+  await hold(2500);
 
-  // Step 2: Click "Writing"
-  console.log('  2. Clicking "Writing"...');
-  await clickOn('text="Writing"', { hesitate: 200, postDelay: 1500 });
+  // 2. Click "Writing" — navigate to blog listing
+  console.log("  2/5 Writing page");
+  await clickOn('a:has-text("Writing")', { hesitate: 200 });
+  await ctx.waitForStable();
+  await hold(2000);
 
-  // Step 3: Click the BAP blog post
-  console.log('  3. Opening "Introducing Browser Agent Protocol"...');
-  await clickOn('text="Introducing Browser Agent Protocol"', {
-    hesitate: 300,
-    postDelay: 1500,
-  });
+  // 3. Click the BAP blog post
+  console.log("  3/5 Opening article");
+  await clickOn('a:has-text("Introducing Browser Agent Protocol")', { hesitate: 250 });
+  await ctx.waitForStable();
+  await hold(1500);
 
-  // Step 4: Scroll through the article
-  console.log("  4. Scrolling through article...");
-  await smoothScroll(800, { steps: 25 });
-  await pause(1000);
-  await smoothScroll(800, { steps: 25 });
-  await pause(1000);
-  await smoothScroll(800, { steps: 25 });
-  await pause(1000);
-  await smoothScroll(800, { steps: 25 });
-  await pause(2000); // Hold at end
+  // 4. Read through the article — smooth, natural pace
+  console.log("  4/5 Reading article");
+  await smoothScroll(600, { duration: 1800 });
+  await hold(1200);
+  await smoothScroll(700, { duration: 2000 });
+  await hold(1200);
+  await smoothScroll(600, { duration: 1800 });
+  await hold(1500);
+  await smoothScroll(500, { duration: 1500 });
+  await hold(2000);
 
-  // Step 5: Scroll back up a bit to show the article title area
-  console.log("  5. Scrolling back to show article header...");
-  await smoothScroll(1500, { steps: 30, direction: "up" });
-  await pause(2000);
+  // 5. Scroll back to show the article header — end on a strong frame
+  console.log("  5/5 Final hold");
+  await smoothScroll(1200, { duration: 2500, direction: "up" });
+  await hold(3000);
 
-  // Finish
   const videoPath = await finish();
   console.log(`  Done: ${videoPath}`);
 }
 
 main().catch((err) => {
-  console.error("Blog reader demo failed:", err);
+  console.error("Failed:", err.message);
   process.exit(1);
 });

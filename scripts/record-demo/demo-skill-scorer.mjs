@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 /**
- * Demo 2: Skill Scorer
+ * Demo 2: Skill Scorer — Multi-Tab Workflow
  *
- * Navigate to GitHub anthropics/skills → browse to frontend-design SKILL.md →
- * copy the raw content → navigate to skills.menu/try → paste → click Score →
- * show the results.
+ * Story: BAP manages two tabs — GitHub (source) and skills.menu (tool) —
+ * switching between them like a human would. Shows tab management for
+ * complex cross-site workflows.
  *
- * Produces: assets/demos/skill-scorer-raw.webm + skill-scorer-events.json
+ * Flow:
+ *   1. Open skills.menu/try in Tab 1 (the scoring tool)
+ *   2. Open GitHub SKILL.md in Tab 2 (the source)
+ *   3. Read the SKILL.md on GitHub (scroll through it)
+ *   4. Switch back to Tab 1 (skills.menu)
+ *   5. Paste the SKILL.md content into the editor
+ *   6. Click Score
+ *   7. Hold on results
  */
 
 import path from "node:path";
@@ -16,21 +23,18 @@ import { createRecordingContext } from "./harness.mjs";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUTPUT_DIR = path.resolve(__dirname, "../../assets/demos");
 
-// Pre-fetched via `gh api` to avoid complex in-browser copy flow.
-// This is the raw SKILL.md from anthropics/skills/skills/frontend-design.
 async function fetchSkillContent() {
-  const url =
-    "https://raw.githubusercontent.com/anthropics/skills/main/skills/frontend-design/SKILL.md";
-  const res = await fetch(url);
+  const res = await fetch(
+    "https://raw.githubusercontent.com/anthropics/skills/main/skills/frontend-design/SKILL.md"
+  );
   if (!res.ok) throw new Error(`Failed to fetch SKILL.md: ${res.status}`);
   return res.text();
 }
 
 async function main() {
-  console.log("Recording: Skill Scorer demo");
+  console.log("Recording: Skill Scorer (multi-tab)");
 
-  // Pre-fetch the SKILL.md content so we can paste it directly
-  console.log("  Fetching frontend-design SKILL.md from GitHub...");
+  console.log("  Fetching SKILL.md...");
   const skillContent = await fetchSkillContent();
 
   const ctx = await createRecordingContext({
@@ -39,54 +43,80 @@ async function main() {
     headless: !process.env.DEMO_HEADFUL,
   });
 
-  const { navigateTo, clickOn, smoothScroll, pause, page, finish } = ctx;
+  const {
+    page,
+    navigateTo,
+    clickOn,
+    smoothScroll,
+    fillField,
+    hold,
+    waitForStable,
+    ensureCursor,
+    finish,
+  } = ctx;
 
-  // Step 1: Show the GitHub repo
-  console.log("  1. Opening anthropics/skills on GitHub...");
-  await navigateTo("https://github.com/anthropics/skills");
-  await pause(2000);
-
-  // Step 2: Navigate directly to the SKILL.md file (avoids fragile tree navigation)
-  console.log("  2. Browsing to skills/frontend-design/SKILL.md...");
-  await navigateTo(
-    "https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md"
-  );
-  await pause(2000);
-
-  // Step 3: Scroll to show the file content
-  console.log("  3. Showing SKILL.md content...");
-  await smoothScroll(400, { steps: 15 });
-  await pause(1500);
-
-  // Step 6: Navigate to skills.menu/try
-  console.log("  4. Navigating to skills.menu/try...");
+  // 1. Open skills.menu/try in Tab 1
+  console.log("  1/7 Tab 1: skills.menu/try");
   await navigateTo("https://www.skills.menu/try");
-  await pause(1500);
+  await hold(2000);
 
-  // Step 7: Click the textarea and paste the SKILL.md content
-  console.log("  5. Pasting SKILL.md into the editor...");
-  await clickOn("#skill-input", { hesitate: 200, postDelay: 300 });
+  // 2. Open GitHub SKILL.md in Tab 2
+  console.log("  2/7 Tab 2: GitHub SKILL.md");
+  const tab2 = await page.context().newPage();
+  await tab2.goto(
+    "https://github.com/anthropics/skills/blob/main/skills/frontend-design/SKILL.md",
+    { waitUntil: "networkidle" }
+  );
+  await tab2.bringToFront();
 
-  // Select all existing content and replace with our SKILL.md
-  await page.keyboard.press("Meta+a");
-  await page.keyboard.insertText(skillContent);
-  await pause(1000);
+  // Inject cursor into tab2
+  await tab2.evaluate(`(() => {
+    if (document.getElementById('__dc')) return;
+    const c = document.createElement('div');
+    c.id = '__dc';
+    c.style.cssText = 'position:fixed;z-index:2147483647;pointer-events:none;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,0.65);border:2.5px solid rgba(255,255,255,0.95);box-shadow:0 2px 12px rgba(0,0,0,0.35);transform:translate(-50%,-50%);top:-50px;left:-50px;';
+    document.body.appendChild(c);
+  })()`);
+  ctx.events.log("tab-switch", 0, 0, { tab: 2, url: tab2.url() });
+  await hold(2500);
 
-  // Step 8: Click Score button
-  console.log("  6. Clicking Score...");
-  await clickOn('button:has-text("score")', { hesitate: 300, postDelay: 2500 });
+  // 3. Scroll through the SKILL.md on GitHub
+  console.log("  3/7 Reading SKILL.md on GitHub");
+  await tab2.evaluate("window.scrollBy(0, 500)");
+  await hold(2000);
+  await tab2.evaluate("window.scrollBy(0, 400)");
+  await hold(2000);
 
-  // Step 9: Scroll down to see full results
-  console.log("  7. Showing results...");
-  await smoothScroll(300, { steps: 15 });
-  await pause(3000); // Hold on results
+  // 4. Switch back to Tab 1 (skills.menu)
+  console.log("  4/7 Switching to Tab 1: skills.menu");
+  await page.bringToFront();
+  await ensureCursor();
+  ctx.events.log("tab-switch", 0, 0, { tab: 1, url: page.url() });
+  await hold(1500);
 
-  // Finish
+  // 5. Paste the SKILL.md
+  console.log("  5/7 Pasting SKILL.md");
+  await fillField("#skill-input", skillContent);
+  await hold(1200);
+
+  // 6. Click Score
+  console.log("  6/7 Scoring");
+  await clickOn('button:has-text("score")', { hesitate: 300 });
+  await waitForStable();
+  await hold(1500);
+
+  // 7. Hold on results
+  console.log("  7/7 Results");
+  await hold(4000);
+
+  // Close tab2 before finishing
+  await tab2.close();
+
   const videoPath = await finish();
   console.log(`  Done: ${videoPath}`);
 }
 
 main().catch((err) => {
-  console.error("Skill scorer demo failed:", err);
+  console.error("Failed:", err.message);
   process.exit(1);
 });
