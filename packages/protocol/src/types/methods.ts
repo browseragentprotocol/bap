@@ -48,6 +48,7 @@ export const BrowserLaunchParamsSchema = z.object({
   args: z.array(z.string()).optional(),
   proxy: ProxyConfigSchema.optional(),
   downloadsPath: z.string().optional(),
+  userDataDir: z.string().optional(),
 });
 export type BrowserLaunchParams = z.infer<typeof BrowserLaunchParamsSchema>;
 

@@ -11,4 +11,13 @@ describe("BAPPlaywrightServer - discovery support", () => {
     const server = new BAPPlaywrightServer();
     expect(server).toBeInstanceOf(BAPPlaywrightServer);
   });
+
+  it("allows discovery/discover for observe-scoped clients", () => {
+    const server = new BAPPlaywrightServer();
+    const state = {
+      scopes: ["observe:*"],
+    };
+
+    expect(() => (server as any).checkAuthorization(state, "discovery/discover")).not.toThrow();
+  });
 });

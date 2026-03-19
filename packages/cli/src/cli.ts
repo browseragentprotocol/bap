@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * @fileoverview BAP CLI - AI-native browser automation
+ * @fileoverview BAP CLI - CLI-first browser automation for coding agents
  *
  * Like playwright-cli but with superpowers:
  * - Composite actions (bap act) — fewer commands and tokens
@@ -25,7 +25,7 @@ import { ServerManager } from "./server/manager.js";
 
 function printHelp(): void {
   console.log(`
-${pc.bold("BAP CLI")} ${pc.dim("- AI-native browser automation")}
+${pc.bold("BAP CLI")} ${pc.dim("- CLI-first browser automation for coding agents")}
 
 ${pc.cyan("BASIC COMMANDS")} ${pc.dim("(playwright-cli compatible)")}
   bap open [url]                    Open browser (optionally navigate)
@@ -98,8 +98,8 @@ ${pc.cyan("CONFIGURATION")}
 ${pc.cyan("GLOBAL OPTIONS")}
   -s=<name>                         Named session
   -p, --port <N>                    Server port (default: 9222)
-  -b, --browser <name>              Browser: chrome, firefox, webkit, edge
-  --headless / --no-headless        Headless mode
+  -b, --browser <name>              Browser: chrome, chromium, firefox, webkit, edge
+  --headless / --no-headless        Browser visibility (default: visible)
   --profile <path>                  Chrome profile dir (default: auto-detect)
   --no-profile                      Fresh browser, no user profile
   -v, --verbose                     Verbose output

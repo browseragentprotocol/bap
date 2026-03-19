@@ -13,7 +13,8 @@
  * See BAPScope type for available scopes.
  */
 
-import { randomUUID } from "crypto";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import fs from "node:fs";
 import { EventEmitter } from "events";
 import * as http from "http";
 import * as path from "path";
@@ -115,6 +116,13 @@ import {
   DiscoveryDiscoverParams,
   DiscoveryDiscoverResult,
   WebMCPTool,
+  // Authorization
+  type BAPScope,
+  ScopeProfiles,
+  MethodScopes,
+  hasScope,
+  parseScopes,
+  createAuthorizationError,
   // Helpers
   createSuccessResponse,
   createErrorResponse,
@@ -128,143 +136,6 @@ import {
   cleanupStaleEntries,
   type PageElementRegistry,
 } from "@browseragentprotocol/protocol";
-
-// =============================================================================
-// Authorization Types (v0.2.0) - Inlined for build compatibility
-// =============================================================================
-
-/**
- * BAP authorization scopes for fine-grained access control
- */
-type BAPScope =
-  | '*'
-  | 'browser:*' | 'browser:launch' | 'browser:close'
-  | 'context:*' | 'context:create' | 'context:read' | 'context:destroy'
-  | 'page:*' | 'page:read' | 'page:create' | 'page:navigate' | 'page:close'
-  | 'action:*' | 'action:click' | 'action:type' | 'action:fill' | 'action:scroll'
-  | 'action:select' | 'action:upload' | 'action:drag'
-  | 'observe:*' | 'observe:screenshot' | 'observe:accessibility' | 'observe:dom'
-  | 'observe:element' | 'observe:content' | 'observe:pdf'
-  | 'storage:*' | 'storage:read' | 'storage:write'
-  | 'network:*' | 'network:intercept'
-  | 'emulate:*' | 'emulate:viewport' | 'emulate:geolocation' | 'emulate:offline'
-  | 'trace:*' | 'trace:start' | 'trace:stop';
-
-/** Predefined scope profiles for common use cases */
-const ScopeProfiles = {
-  readonly: ['page:read', 'observe:*'] as BAPScope[],
-  standard: [
-    'browser:launch', 'browser:close', 'page:*',
-    'action:*',
-    'observe:*', 'emulate:viewport',
-  ] as BAPScope[],
-  full: ['browser:*', 'page:*', 'action:*', 'observe:*', 'emulate:*', 'trace:*'] as BAPScope[],
-  privileged: ['*'] as BAPScope[],
-} as const;
-
-/** Method to required scopes mapping */
-const MethodScopes: Record<string, BAPScope[]> = {
-  'initialize': [], 'shutdown': [], 'notifications/initialized': [],
-  'browser/launch': ['browser:launch', 'browser:*', '*'],
-  'browser/close': ['browser:close', 'browser:*', '*'],
-  // Context methods (Multi-Context Support)
-  'context/create': ['context:create', 'context:*', '*'],
-  'context/list': ['context:read', 'context:*', '*'],
-  'context/destroy': ['context:destroy', 'context:*', '*'],
-  // Page methods
-  'page/create': ['page:create', 'page:*', '*'],
-  'page/navigate': ['page:navigate', 'page:*', '*'],
-  'page/reload': ['page:navigate', 'page:*', '*'],
-  'page/goBack': ['page:navigate', 'page:*', '*'],
-  'page/goForward': ['page:navigate', 'page:*', '*'],
-  'page/close': ['page:close', 'page:*', '*'],
-  'page/list': ['page:read', 'page:*', '*'],
-  'page/activate': ['page:read', 'page:*', '*'],
-  // Frame methods (Frame & Shadow DOM Support)
-  'frame/list': ['page:read', 'page:*', '*'],
-  'frame/switch': ['page:navigate', 'page:*', '*'],
-  'frame/main': ['page:navigate', 'page:*', '*'],
-  'action/click': ['action:click', 'action:*', '*'],
-  'action/dblclick': ['action:click', 'action:*', '*'],
-  'action/type': ['action:type', 'action:*', '*'],
-  'action/fill': ['action:fill', 'action:*', '*'],
-  'action/clear': ['action:fill', 'action:*', '*'],
-  'action/press': ['action:type', 'action:*', '*'],
-  'action/hover': ['action:click', 'action:*', '*'],
-  'action/scroll': ['action:scroll', 'action:*', '*'],
-  'action/select': ['action:select', 'action:*', '*'],
-  'action/check': ['action:click', 'action:*', '*'],
-  'action/uncheck': ['action:click', 'action:*', '*'],
-  'action/upload': ['action:upload', 'action:*', '*'],
-  'action/drag': ['action:drag', 'action:*', '*'],
-  'observe/screenshot': ['observe:screenshot', 'observe:*', '*'],
-  'observe/accessibility': ['observe:accessibility', 'observe:*', '*'],
-  'observe/dom': ['observe:dom', 'observe:*', '*'],
-  'observe/element': ['observe:element', 'observe:*', '*'],
-  'observe/pdf': ['observe:pdf', 'observe:*', '*'],
-  'observe/content': ['observe:content', 'observe:*', '*'],
-  'observe/ariaSnapshot': ['observe:accessibility', 'observe:*', '*'],
-  'storage/getState': ['storage:read', 'storage:*', '*'],
-  'storage/setState': ['storage:write', 'storage:*', '*'],
-  'storage/getCookies': ['storage:read', 'storage:*', '*'],
-  'storage/setCookies': ['storage:write', 'storage:*', '*'],
-  'storage/clearCookies': ['storage:write', 'storage:*', '*'],
-  'network/intercept': ['network:intercept', 'network:*', '*'],
-  'network/fulfill': ['network:intercept', 'network:*', '*'],
-  'network/abort': ['network:intercept', 'network:*', '*'],
-  'network/continue': ['network:intercept', 'network:*', '*'],
-  'emulate/setViewport': ['emulate:viewport', 'emulate:*', '*'],
-  'emulate/setUserAgent': ['emulate:viewport', 'emulate:*', '*'],
-  'emulate/setGeolocation': ['emulate:geolocation', 'emulate:*', '*'],
-  'emulate/setOffline': ['emulate:offline', 'emulate:*', '*'],
-  'dialog/handle': ['action:click', 'action:*', '*'],
-  'trace/start': ['trace:start', 'trace:*', '*'],
-  'trace/stop': ['trace:stop', 'trace:*', '*'],
-  'events/subscribe': ['observe:*', '*'],
-  // Stream methods (Streaming Responses)
-  'stream/cancel': ['observe:*', '*'],
-  // Approval methods (Human-in-the-Loop)
-  'approval/respond': ['action:*', '*'],
-  // Agent methods (composite actions, observations, and data extraction)
-  'agent/act': ['action:*', '*'],
-  'agent/observe': ['observe:*', '*'],
-  'agent/extract': ['observe:*', '*'],
-};
-
-/** Check if client has permission for a method */
-function hasScope(grantedScopes: BAPScope[], method: string): boolean {
-  if (grantedScopes.includes('*')) return true;
-  const requiredScopes = MethodScopes[method];
-  if (!requiredScopes) return grantedScopes.includes('*');
-  if (requiredScopes.length === 0) return true;
-  return requiredScopes.some(required => {
-    if (grantedScopes.includes(required)) return true;
-    const [category] = required.split(':');
-    return grantedScopes.includes(`${category}:*` as BAPScope);
-  });
-}
-
-/** Parse scopes from string or array */
-function parseScopes(input: string | string[] | undefined): BAPScope[] {
-  if (!input) return [];
-  if (Array.isArray(input)) return input as BAPScope[];
-  return input.split(',').map(s => s.trim()) as BAPScope[];
-}
-
-/** Authorization error code */
-const AuthorizationErrorCode = -32023;
-
-/** Create an authorization error */
-function createAuthorizationError(method: string, requiredScopes: BAPScope[]) {
-  return {
-    code: AuthorizationErrorCode,
-    message: `Insufficient permissions for '${method}'. Required scopes: ${requiredScopes.join(' or ')}`,
-    data: {
-      retryable: false,
-      details: { method, requiredScopes },
-    },
-  };
-}
 
 /** Action confirmation event for agent feedback */
 interface ActionConfirmationEvent {
@@ -593,6 +464,8 @@ interface ClientState {
   clientId: string;
   initialized: boolean;
   browser: Browser | null;
+  /** Whether launched via launchPersistentContext (no Browser object) */
+  isPersistent: boolean;
   /** Default context (backwards compatible) */
   context: BrowserContext | null;
   /** Multi-context support: named contexts */
@@ -660,7 +533,8 @@ interface ClientState {
 /** Dormant session: parked browser state awaiting reconnection */
 interface DormantSession {
   sessionId: string;
-  browser: Browser;
+  browser: Browser | null;
+  isPersistent: boolean;
   context: BrowserContext | null;
   contexts: Map<string, ContextState>;
   defaultContextId: string | null;
@@ -669,9 +543,15 @@ interface DormantSession {
   activePage: string | null;
   elementRegistries: Map<string, PageElementRegistry>;
   frameContexts: Map<string, FrameContext>;
+  sessionApprovals: Set<string>;
   ttlHandle: NodeJS.Timeout;
   parkedAt: number;
 }
+
+type PageOwner = {
+  ws: WebSocket | null;
+  state: ClientState | DormantSession;
+};
 
 // =============================================================================
 // BAP Server
@@ -729,7 +609,6 @@ export class BAPPlaywrightServer extends EventEmitter {
    * SECURITY: Timing-safe token comparison to prevent timing attacks
    */
   private secureTokenCompare(provided: string, expected: string): boolean {
-    const { timingSafeEqual } = require('crypto');
     if (provided.length !== expected.length) {
       // Still do a comparison to maintain constant time
       timingSafeEqual(Buffer.from(provided), Buffer.from(provided));
@@ -950,7 +829,11 @@ export class BAPPlaywrightServer extends EventEmitter {
     for (const [sessionId, dormant] of this.dormantSessions) {
       clearTimeout(dormant.ttlHandle);
       try {
-        await dormant.browser.close();
+        if (dormant.isPersistent) {
+          await dormant.context?.close();
+        } else {
+          await dormant.browser?.close();
+        }
       } catch {
         // Browser may already be closed
       }
@@ -1017,6 +900,7 @@ export class BAPPlaywrightServer extends EventEmitter {
       clientId: randomUUID().slice(0, 8),
       initialized: false,
       browser: null,
+      isPersistent: false,
       context: null,
       // Multi-context support
       contexts: new Map(),
@@ -1076,7 +960,10 @@ export class BAPPlaywrightServer extends EventEmitter {
       this.log("Client disconnected", { clientId: state.clientId, sessionId: state.sessionId ?? "none" });
 
       // Session persistence: park instead of destroy when sessionId is set
-      if (state.sessionId && state.browser?.isConnected()) {
+      const isAlive = state.isPersistent
+        ? this.isContextAlive(state.context)
+        : Boolean(state.browser?.isConnected());
+      if (state.sessionId && isAlive) {
         this.parkSession(state);
       } else {
         await this.cleanupClient(state);
@@ -1318,8 +1205,14 @@ export class BAPPlaywrightServer extends EventEmitter {
       for (const [existingWs, existingState] of this.clients) {
         if (existingState !== state && existingState.sessionId === sessionId && existingState.initialized) {
           this.log("Force-parking stale session from previous connection", { sessionId });
-          if (existingState.browser?.isConnected()) {
+          const isAlive = existingState.isPersistent
+            ? this.isContextAlive(existingState.context)
+            : Boolean(existingState.browser?.isConnected());
+          if (isAlive) {
             this.parkSession(existingState);
+          }
+          if (existingWs.readyState === WebSocket.OPEN || existingWs.readyState === WebSocket.CONNECTING) {
+            existingWs.close(4001, "Session replaced by newer connection");
           }
           // Remove stale client — its close handler will be a no-op
           // (browser/pages already nullified by parkSession)
@@ -1403,7 +1296,6 @@ export class BAPPlaywrightServer extends EventEmitter {
     // SECURITY FIX (CRIT-4): Validate downloads path to prevent path traversal attacks
     let validatedDownloadsPath: string | undefined = undefined;
     if (params.downloadsPath) {
-      const fs = require('fs');
       const allowedDownloadDirs = process.env.BAP_ALLOWED_DOWNLOAD_DIRS?.split(',').filter(Boolean) || [];
 
       // Resolve the path first
@@ -1456,24 +1348,57 @@ export class BAPPlaywrightServer extends EventEmitter {
     }
 
     const channel = params.channel ?? this.options.defaultChannel;
+    const headless = params.headless ?? this.options.headless;
 
-    state.browser = await launcher.launch({
-      headless: params.headless ?? this.options.headless,
-      channel,
-      args: sanitizedArgs.length > 0 ? sanitizedArgs : undefined,
-      proxy: params.proxy,
-      downloadsPath: validatedDownloadsPath,
-    });
-
-    // Create the default context
-    // Force deviceScaleFactor: 1 for consistent screenshot sizes across platforms
-    // (retina Macs default to 2x, which doubles pixel count and inflates payloads)
-    const defaultContext = await state.browser.newContext({
-      deviceScaleFactor: 1,
-    });
-    const version = state.browser.version();
     // Use crypto.randomUUID for unique IDs
     const contextId = `ctx-${randomUUID().slice(0, 8)}`;
+
+    let defaultContext: BrowserContext;
+    let version: string;
+
+    if (params.userDataDir) {
+      // Persistent context mode: launchPersistentContext returns a BrowserContext directly
+      // (no Browser object). Cannot create additional contexts.
+      try {
+        defaultContext = await launcher.launchPersistentContext(params.userDataDir, {
+          headless,
+          channel,
+          args: sanitizedArgs.length > 0 ? sanitizedArgs : undefined,
+          // Force deviceScaleFactor: 1 for consistent screenshot sizes across platforms
+          deviceScaleFactor: 1,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("SingletonLock") || message.includes("lock") || message.includes("already running")) {
+          throw new BAPServerError(
+            ErrorCodes.ActionFailed,
+            "Chrome is already using that profile. Close Chrome, choose a dedicated `--profile <dir>`, or use `--no-profile` for a fresh browser."
+          );
+        }
+        throw error;
+      }
+
+      state.browser = null;
+      state.isPersistent = true;
+      version = "";
+    } else {
+      // Normal mode: launch browser, create fresh context
+      state.browser = await launcher.launch({
+        headless,
+        channel,
+        args: sanitizedArgs.length > 0 ? sanitizedArgs : undefined,
+        proxy: params.proxy,
+        downloadsPath: validatedDownloadsPath,
+      });
+
+      // Force deviceScaleFactor: 1 for consistent screenshot sizes across platforms
+      // (retina Macs default to 2x, which doubles pixel count and inflates payloads)
+      defaultContext = await state.browser.newContext({
+        deviceScaleFactor: 1,
+      });
+      version = state.browser.version();
+      state.isPersistent = false;
+    }
 
     // Set up default context (backwards compatible)
     state.context = defaultContext;
@@ -1502,31 +1427,36 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   private async handleBrowserClose(state: ClientState): Promise<void> {
-    if (state.browser) {
+    if (state.isPersistent && state.context) {
+      // Persistent mode: close the context (which closes the browser process)
+      await state.context.close();
+    } else if (state.browser) {
       await state.browser.close();
-      state.browser = null;
-      state.context = null;
-      // Clean up multi-context state
-      state.contexts.clear();
-      state.defaultContextId = null;
-      state.pages.clear();
-      state.pageToContext.clear();
-      state.activePage = null;
-      state.elementRegistries.clear();
-      state.frameContexts.clear();
-      // Clean up streams
-      for (const stream of state.activeStreams.values()) {
-        stream.cancelled = true;
-      }
-      state.activeStreams.clear();
-      // Clean up pending approvals
-      for (const pending of state.pendingApprovals.values()) {
-        clearTimeout(pending.timeoutHandle);
-        pending.reject(new BAPServerError(ErrorCodes.TargetClosed, "Browser closed"));
-      }
-      state.pendingApprovals.clear();
-      state.sessionApprovals.clear();
     }
+
+    state.browser = null;
+    state.isPersistent = false;
+    state.context = null;
+    // Clean up multi-context state
+    state.contexts.clear();
+    state.defaultContextId = null;
+    state.pages.clear();
+    state.pageToContext.clear();
+    state.activePage = null;
+    state.elementRegistries.clear();
+    state.frameContexts.clear();
+    // Clean up streams
+    for (const stream of state.activeStreams.values()) {
+      stream.cancelled = true;
+    }
+    state.activeStreams.clear();
+    // Clean up pending approvals
+    for (const pending of state.pendingApprovals.values()) {
+      clearTimeout(pending.timeoutHandle);
+      pending.reject(new BAPServerError(ErrorCodes.TargetClosed, "Browser closed"));
+    }
+    state.pendingApprovals.clear();
+    state.sessionApprovals.clear();
   }
 
   // ===========================================================================
@@ -1534,7 +1464,7 @@ export class BAPPlaywrightServer extends EventEmitter {
   // ===========================================================================
 
   private async handlePageCreate(
-    ws: WebSocket,
+    _ws: WebSocket,
     state: ClientState,
     params: PageCreateOptions & { contextId?: string }
   ): Promise<Page> {
@@ -1578,7 +1508,7 @@ export class BAPPlaywrightServer extends EventEmitter {
     state.pageToContext.set(pageId, contextId);
 
     // Set up event listeners
-    this.setupPageListeners(ws, state, page, pageId);
+    this.setupPageListeners(page, pageId);
 
     // Apply options
     if (params.viewport) {
@@ -4307,14 +4237,14 @@ export class BAPPlaywrightServer extends EventEmitter {
       case "ref": {
         // Look up the element by its stable ref in the registry
         const pageId = this.getPageId(page);
-        const state = this.clients.values().next().value;
-        if (!state) {
+        const owner = this.findPageOwner(pageId);
+        if (!owner) {
           throw new BAPServerError(
             ErrorCodes.ElementNotFound,
             `No client state available for ref lookup: ${selector.ref}`
           );
         }
-        const registry = state.elementRegistries.get(pageId);
+        const registry = owner.state.elementRegistries.get(pageId);
         if (!registry) {
           throw new BAPServerError(
             ErrorCodes.ElementNotFound,
@@ -4375,7 +4305,10 @@ export class BAPPlaywrightServer extends EventEmitter {
    * Ensure browser is launched
    */
   private ensureBrowser(state: ClientState): void {
-    if (!state.browser || !state.context) {
+    if (!state.context) {
+      throw new BAPServerError(ErrorCodes.BrowserNotLaunched, "Browser not launched");
+    }
+    if (!state.isPersistent && !state.browser) {
       throw new BAPServerError(ErrorCodes.BrowserNotLaunched, "Browser not launched");
     }
   }
@@ -4588,138 +4521,198 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   /**
+   * Find the connected client that currently owns a page.
+   */
+  private findConnectedClientForPage(pageId: string): { ws: WebSocket; state: ClientState } | null {
+    for (const [ws, state] of this.clients) {
+      if (state.pages.has(pageId)) {
+        return { ws, state };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find a dormant session that currently owns a page.
+   */
+  private findDormantSessionForPage(pageId: string): DormantSession | null {
+    for (const dormant of this.dormantSessions.values()) {
+      if (dormant.pages.has(pageId)) {
+        return dormant;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Find the current owner of a page across live and dormant sessions.
+   */
+  private findPageOwner(pageId: string): PageOwner | null {
+    const connectedOwner = this.findConnectedClientForPage(pageId);
+    if (connectedOwner) {
+      return connectedOwner;
+    }
+
+    const dormantOwner = this.findDormantSessionForPage(pageId);
+    if (dormantOwner) {
+      return { ws: null, state: dormantOwner };
+    }
+
+    return null;
+  }
+
+  /**
+   * Remove all page-scoped bookkeeping for a page from its owner.
+   */
+  private removePageFromOwner(state: ClientState | DormantSession, pageId: string): void {
+    state.pages.delete(pageId);
+    state.pageToContext.delete(pageId);
+    state.elementRegistries.delete(pageId);
+    state.frameContexts.delete(pageId);
+
+    if (state.activePage === pageId) {
+      state.activePage = state.pages.keys().next().value ?? null;
+    }
+  }
+
+  /**
+   * Emit an event to the active owner of a page if it is subscribed.
+   */
+  private emitOwnedEvent(
+    pageId: string,
+    subscription: string,
+    method: string,
+    params: Record<string, unknown>
+  ): void {
+    const owner = this.findConnectedClientForPage(pageId);
+    if (!owner || !owner.state.eventSubscriptions.has(subscription)) {
+      return;
+    }
+
+    this.sendEvent(owner.ws, method, params);
+  }
+
+  /**
    * Get page ID from a Playwright page object
    */
   private getPageId(page: PlaywrightPage): string {
-    // Find the page ID by searching the pages map
-    const state = this.clients.values().next().value;
-    if (state) {
+    for (const state of this.clients.values()) {
       for (const [pageId, p] of state.pages) {
         if (p === page) {
           return pageId;
         }
       }
     }
+
+    for (const dormant of this.dormantSessions.values()) {
+      for (const [pageId, p] of dormant.pages) {
+        if (p === page) {
+          return pageId;
+        }
+      }
+    }
+
     throw new BAPServerError(ErrorCodes.PageNotFound, "Page not found in registry");
   }
 
   /**
    * Set up event listeners for a page
    */
-  private setupPageListeners(
-    ws: WebSocket,
-    state: ClientState,
-    page: PlaywrightPage,
-    pageId: string
-  ): void {
+  private setupPageListeners(page: PlaywrightPage, pageId: string): void {
     // Page events
     page.on("load", () => {
-      if (state.eventSubscriptions.has("page")) {
-        this.sendEvent(ws, "events/page", {
-          type: "load",
-          pageId,
-          url: page.url(),
-          timestamp: Date.now(),
-        });
-      }
+      this.emitOwnedEvent(pageId, "page", "events/page", {
+        type: "load",
+        pageId,
+        url: page.url(),
+        timestamp: Date.now(),
+      });
     });
 
     page.on("domcontentloaded", () => {
-      if (state.eventSubscriptions.has("page")) {
-        this.sendEvent(ws, "events/page", {
-          type: "domcontentloaded",
-          pageId,
-          url: page.url(),
-          timestamp: Date.now(),
-        });
-      }
+      this.emitOwnedEvent(pageId, "page", "events/page", {
+        type: "domcontentloaded",
+        pageId,
+        url: page.url(),
+        timestamp: Date.now(),
+      });
     });
 
     // Console events
     page.on("console", (msg: ConsoleMessage) => {
-      if (state.eventSubscriptions.has("console")) {
-        this.sendEvent(ws, "events/console", {
-          pageId,
-          level: msg.type() as "log" | "debug" | "info" | "warn" | "error",
-          text: msg.text(),
-          url: msg.location().url,
-          line: msg.location().lineNumber,
-          column: msg.location().columnNumber,
-          timestamp: Date.now(),
-        });
-      }
+      this.emitOwnedEvent(pageId, "console", "events/console", {
+        pageId,
+        level: msg.type() as "log" | "debug" | "info" | "warn" | "error",
+        text: msg.text(),
+        url: msg.location().url,
+        line: msg.location().lineNumber,
+        column: msg.location().columnNumber,
+        timestamp: Date.now(),
+      });
     });
 
     // Network events
     page.on("request", (request: Request) => {
-      if (state.eventSubscriptions.has("network")) {
-        this.sendEvent(ws, "events/network", {
-          type: "request",
-          requestId: request.url() + "-" + Date.now(),
-          pageId,
-          url: request.url(),
-          method: request.method(),
-          resourceType: request.resourceType(),
-          headers: request.headers(),
-          postData: request.postData(),
-          timestamp: Date.now(),
-        });
-      }
+      this.emitOwnedEvent(pageId, "network", "events/network", {
+        type: "request",
+        requestId: request.url() + "-" + Date.now(),
+        pageId,
+        url: request.url(),
+        method: request.method(),
+        resourceType: request.resourceType(),
+        headers: request.headers(),
+        postData: request.postData(),
+        timestamp: Date.now(),
+      });
     });
 
     page.on("response", (response: Response) => {
-      if (state.eventSubscriptions.has("network")) {
-        this.sendEvent(ws, "events/network", {
-          type: "response",
-          requestId: response.url() + "-" + Date.now(),
-          pageId,
-          url: response.url(),
-          status: response.status(),
-          headers: response.headers(),
-          timestamp: Date.now(),
-        });
-      }
+      this.emitOwnedEvent(pageId, "network", "events/network", {
+        type: "response",
+        requestId: response.url() + "-" + Date.now(),
+        pageId,
+        url: response.url(),
+        status: response.status(),
+        headers: response.headers(),
+        timestamp: Date.now(),
+      });
     });
 
     // Dialog events
     page.on("dialog", (dialog: Dialog) => {
-      if (state.eventSubscriptions.has("dialog")) {
-        this.sendEvent(ws, "events/dialog", {
-          pageId,
-          type: dialog.type() as "alert" | "confirm" | "prompt" | "beforeunload",
-          message: dialog.message(),
-          defaultValue: dialog.defaultValue(),
-          timestamp: Date.now(),
-        });
-      }
+      this.emitOwnedEvent(pageId, "dialog", "events/dialog", {
+        pageId,
+        type: dialog.type() as "alert" | "confirm" | "prompt" | "beforeunload",
+        message: dialog.message(),
+        defaultValue: dialog.defaultValue(),
+        timestamp: Date.now(),
+      });
     });
 
     // Download events
     page.on("download", (download: Download) => {
-      if (state.eventSubscriptions.has("download")) {
-        this.sendEvent(ws, "events/download", {
-          pageId,
-          url: download.url(),
-          suggestedFilename: download.suggestedFilename(),
-          state: "started",
-          timestamp: Date.now(),
-        });
-      }
+      this.emitOwnedEvent(pageId, "download", "events/download", {
+        pageId,
+        url: download.url(),
+        suggestedFilename: download.suggestedFilename(),
+        state: "started",
+        timestamp: Date.now(),
+      });
     });
 
     // Handle external page close (user closes tab, browser crash, etc.)
     page.on("close", () => {
-      // Remove page from state
-      state.pages.delete(pageId);
+      const activeOwner = this.findConnectedClientForPage(pageId);
+      const owner = activeOwner ?? this.findPageOwner(pageId);
 
-      // Update active page if this was the active one
-      if (state.activePage === pageId) {
-        state.activePage = state.pages.keys().next().value ?? null;
+      if (owner) {
+        this.removePageFromOwner(owner.state, pageId);
       }
 
-      // Notify client if subscribed to page events
-      if (state.eventSubscriptions.has("page")) {
-        this.sendEvent(ws, "events/page", {
+      if (activeOwner?.state.eventSubscriptions.has("page")) {
+        this.sendEvent(activeOwner.ws, "events/page", {
           type: "close",
           pageId,
           timestamp: Date.now(),
@@ -4734,6 +4727,9 @@ export class BAPPlaywrightServer extends EventEmitter {
    * Send an event notification to the client
    */
   private sendEvent(ws: WebSocket, method: string, params: Record<string, unknown>): void {
+    if (ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
     const notification = createNotification(method, params);
     ws.send(JSON.stringify(notification));
   }
@@ -4782,18 +4778,55 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   /**
+   * Check whether a browser context is still usable.
+   */
+  private isContextAlive(context: BrowserContext | null): boolean {
+    if (!context) {
+      return false;
+    }
+
+    try {
+      const browser = context.browser();
+      if (browser) {
+        return browser.isConnected();
+      }
+      void context.pages();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Clear state tied to a single WebSocket connection before parking or cleanup.
+   */
+  private clearConnectionScopedState(state: ClientState, errorMessage: string): void {
+    if (state.speculativePrefetchTimer) {
+      clearTimeout(state.speculativePrefetchTimer);
+      state.speculativePrefetchTimer = undefined;
+    }
+    state.speculativeObservation = undefined;
+
+    for (const stream of state.activeStreams.values()) {
+      stream.cancelled = true;
+    }
+    state.activeStreams.clear();
+
+    for (const pending of state.pendingApprovals.values()) {
+      clearTimeout(pending.timeoutHandle);
+      pending.reject(new BAPServerError(ErrorCodes.TargetClosed, errorMessage));
+    }
+    state.pendingApprovals.clear();
+  }
+
+  /**
    * Clean up client state
    */
   private async cleanupClient(state: ClientState): Promise<void> {
     // Clear session timeouts (v0.2.0)
     this.clearSessionTimeouts(state);
 
-    // Cancel any pending speculative prefetch
-    if (state.speculativePrefetchTimer) {
-      clearTimeout(state.speculativePrefetchTimer);
-      state.speculativePrefetchTimer = undefined;
-    }
-    state.speculativeObservation = undefined;
+    this.clearConnectionScopedState(state, "Client disconnected");
 
     if (state.tracing && state.context) {
       try {
@@ -4803,7 +4836,13 @@ export class BAPPlaywrightServer extends EventEmitter {
       }
     }
 
-    if (state.browser) {
+    if (state.isPersistent && state.context) {
+      try {
+        await state.context.close();
+      } catch {
+        // Ignore
+      }
+    } else if (state.browser) {
       try {
         await state.browser.close();
       } catch {
@@ -4812,14 +4851,13 @@ export class BAPPlaywrightServer extends EventEmitter {
     }
 
     state.browser = null;
+    state.isPersistent = false;
     state.context = null;
     state.pages.clear();
     state.pageToContext.clear();
     state.activePage = null;
     state.elementRegistries.clear();
     state.frameContexts.clear();
-    state.activeStreams.clear();
-    state.pendingApprovals.clear();
     state.sessionApprovals.clear();
     state.contexts.clear();
     state.defaultContextId = null;
@@ -4838,12 +4876,20 @@ export class BAPPlaywrightServer extends EventEmitter {
   private parkSession(state: ClientState): void {
     const sessionId = state.sessionId!;
 
+    this.clearConnectionScopedState(state, "Client disconnected");
+
     // If there's already a dormant session with this ID (shouldn't happen, but be safe),
     // expire it first
     const existing = this.dormantSessions.get(sessionId);
     if (existing) {
       clearTimeout(existing.ttlHandle);
-      try { existing.browser.close(); } catch { /* ignore */ }
+      try {
+        if (existing.isPersistent) {
+          existing.context?.close();
+        } else {
+          existing.browser?.close();
+        }
+      } catch { /* ignore */ }
       this.dormantSessions.delete(sessionId);
     }
 
@@ -4854,7 +4900,8 @@ export class BAPPlaywrightServer extends EventEmitter {
 
     const dormant: DormantSession = {
       sessionId,
-      browser: state.browser!,
+      browser: state.browser,
+      isPersistent: state.isPersistent,
       context: state.context,
       contexts: new Map(state.contexts),
       defaultContextId: state.defaultContextId,
@@ -4863,6 +4910,7 @@ export class BAPPlaywrightServer extends EventEmitter {
       activePage: state.activePage,
       elementRegistries: new Map(state.elementRegistries),
       frameContexts: new Map(state.frameContexts),
+      sessionApprovals: new Set(state.sessionApprovals),
       ttlHandle,
       parkedAt: Date.now(),
     };
@@ -4872,6 +4920,7 @@ export class BAPPlaywrightServer extends EventEmitter {
 
     // Nullify state so cleanupClient() won't destroy the browser/pages
     state.browser = null;
+    state.isPersistent = false;
     state.context = null;
     state.pages = new Map();
     state.pageToContext = new Map();
@@ -4890,14 +4939,24 @@ export class BAPPlaywrightServer extends EventEmitter {
     clearTimeout(dormant.ttlHandle);
     this.dormantSessions.delete(dormant.sessionId);
 
-    // Verify browser is still alive
-    if (!dormant.browser.isConnected()) {
+    // Verify browser/context is still alive
+    const isAlive = dormant.isPersistent
+      ? this.isContextAlive(dormant.context)
+      : Boolean(dormant.browser?.isConnected());
+    if (!isAlive) {
       this.log("Dormant session browser crashed, starting fresh", { sessionId: dormant.sessionId });
-      try { dormant.browser.close(); } catch { /* ignore */ }
+      try {
+        if (dormant.isPersistent) {
+          dormant.context?.close();
+        } else {
+          dormant.browser?.close();
+        }
+      } catch { /* ignore */ }
       return false;
     }
 
     state.browser = dormant.browser;
+    state.isPersistent = dormant.isPersistent;
     state.context = dormant.context;
     state.contexts = dormant.contexts;
     state.defaultContextId = dormant.defaultContextId;
@@ -4906,6 +4965,7 @@ export class BAPPlaywrightServer extends EventEmitter {
     state.activePage = dormant.activePage;
     state.elementRegistries = dormant.elementRegistries;
     state.frameContexts = dormant.frameContexts;
+    state.sessionApprovals = dormant.sessionApprovals;
 
     return true;
   }
@@ -4921,7 +4981,11 @@ export class BAPPlaywrightServer extends EventEmitter {
     this.dormantSessions.delete(sessionId);
 
     try {
-      dormant.browser.close();
+      if (dormant.isPersistent) {
+        dormant.context?.close();
+      } else {
+        dormant.browser?.close();
+      }
     } catch {
       // Browser may already be closed
     }
@@ -4980,6 +5044,12 @@ export class BAPPlaywrightServer extends EventEmitter {
     state: ClientState,
     params: ContextCreateParams
   ): Promise<ContextCreateResult> {
+    if (state.isPersistent) {
+      throw new BAPServerError(
+        ErrorCodes.InvalidParams,
+        "Cannot create additional contexts in persistent profile mode"
+      );
+    }
     if (!state.browser) {
       throw new BAPServerError(ErrorCodes.BrowserNotLaunched, "Browser not launched");
     }

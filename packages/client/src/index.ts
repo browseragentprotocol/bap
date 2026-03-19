@@ -158,6 +158,8 @@ export class WebSocketTransport implements BAPTransport {
   private readonly autoReconnect: boolean;
   private isClosing = false;
   private isReconnecting = false;
+  private baseUrl: string;
+  private token: string | undefined;
 
   onMessage: ((message: string) => void) | null = null;
   onClose: (() => void) | null = null;
@@ -168,12 +170,33 @@ export class WebSocketTransport implements BAPTransport {
   onReconnected: (() => void) | null = null;
 
   constructor(
-    private readonly url: string,
+    url: string,
     options: WebSocketTransportOptions = {}
   ) {
+    this.baseUrl = url;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
     this.reconnectDelay = options.reconnectDelay ?? 1000;
     this.autoReconnect = options.autoReconnect ?? false;
+  }
+
+  /**
+   * Get the current connection URL, including token if set.
+   */
+  private getConnectionUrl(): string {
+    if (!this.token) {
+      return this.baseUrl;
+    }
+
+    const url = new URL(this.baseUrl);
+    url.searchParams.set("token", this.token);
+    return url.toString();
+  }
+
+  /**
+   * Update the authentication token for future connects/reconnects.
+   */
+  updateToken(newToken: string): void {
+    this.token = newToken;
   }
 
   /**
@@ -191,7 +214,7 @@ export class WebSocketTransport implements BAPTransport {
         this.ws = null;
       }
 
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(this.getConnectionUrl());
 
       this.ws.on("open", () => {
         this.reconnectAttempts = 0;
@@ -388,13 +411,11 @@ export class BAPClient extends EventEmitter {
     };
 
     if (typeof urlOrTransport === "string") {
-      let url = urlOrTransport;
+      const transport = new WebSocketTransport(urlOrTransport);
       if (options.token) {
-        const urlObj = new URL(url);
-        urlObj.searchParams.set("token", options.token);
-        url = urlObj.toString();
+        transport.updateToken(options.token);
       }
-      this.transport = new WebSocketTransport(url);
+      this.transport = transport;
     } else {
       this.transport = urlOrTransport;
     }
@@ -402,6 +423,16 @@ export class BAPClient extends EventEmitter {
     this.transport.onMessage = this.handleMessage.bind(this);
     this.transport.onClose = () => this.emit("close");
     this.transport.onError = (error) => this.emit("error", error);
+  }
+
+  /**
+   * Update the authentication token for future connects/reconnects.
+   */
+  updateToken(newToken: string): void {
+    this.options.token = newToken;
+    if (this.transport instanceof WebSocketTransport) {
+      this.transport.updateToken(newToken);
+    }
   }
 
   // ===========================================================================

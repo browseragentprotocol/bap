@@ -26,12 +26,18 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "repository": {
     "type": "git",
     "url": "https://github.com/browseragentprotocol/bap.git",
     "directory": "packages/mcp"
+  },
+  "homepage": "https://github.com/browseragentprotocol/bap/tree/main/packages/mcp",
+  "bugs": {
+    "url": "https://github.com/browseragentprotocol/bap/issues"
   },
   "keywords": [
     "bap",

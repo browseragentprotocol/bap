@@ -29,6 +29,16 @@ describe("hasScope()", () => {
       expect(hasScope([], "initialize")).toBe(true);
       expect(hasScope([], "shutdown")).toBe(true);
     });
+
+    it("covers context, frame, streaming, approval, agent, and discovery methods", () => {
+      expect(hasScope(["context:create"], "context/create")).toBe(true);
+      expect(hasScope(["page:*"], "frame/list")).toBe(true);
+      expect(hasScope(["observe:*"], "stream/cancel")).toBe(true);
+      expect(hasScope(["action:*"], "approval/respond")).toBe(true);
+      expect(hasScope(["action:*"], "agent/act")).toBe(true);
+      expect(hasScope(["observe:*"], "agent/observe")).toBe(true);
+      expect(hasScope(["observe:*"], "discovery/discover")).toBe(true);
+    });
   });
 
   describe("wildcard matching", () => {
@@ -287,6 +297,17 @@ describe("ScopeProfiles", () => {
     expect(fullAllows("action/click")).toBe(true);
     expect(standardAllows("observe/screenshot")).toBe(true);
     expect(fullAllows("observe/screenshot")).toBe(true);
+  });
+});
+
+describe("MethodScopes", () => {
+  it("includes extended server methods used outside the core page/action set", () => {
+    expect(MethodScopes["context/create"]).toEqual(["context:create", "context:*", "*"]);
+    expect(MethodScopes["frame/list"]).toEqual(["page:read", "page:*", "*"]);
+    expect(MethodScopes["stream/cancel"]).toEqual(["observe:*", "*"]);
+    expect(MethodScopes["approval/respond"]).toEqual(["action:*", "*"]);
+    expect(MethodScopes["agent/act"]).toEqual(["action:*", "*"]);
+    expect(MethodScopes["discovery/discover"]).toEqual(["observe:*", "*"]);
   });
 });
 

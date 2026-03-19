@@ -7,7 +7,8 @@ Thank you for your interest in contributing to BAP. This document covers the pro
 ### Prerequisites
 
 - Node.js >= 20.0.0
-- pnpm 9.x (`corepack enable && corepack prepare pnpm@9.15.0 --activate`)
+- pnpm 9.x (`corepack enable && corepack prepare pnpm@9.15.0 --activate`, or use `npx pnpm`)
+- Python >= 3.10 if you are touching `packages/python-sdk`
 - Git
 
 ### Setup
@@ -25,6 +26,7 @@ pnpm build
 pnpm typecheck   # Type checking across all packages
 pnpm lint        # ESLint
 pnpm test        # Vitest test suites
+pnpm check:artifacts  # Verify npm package contents and Python version alignment
 ```
 
 ## Repository Structure
@@ -66,6 +68,7 @@ pnpm build       # Build all packages (respects dependency order)
 pnpm typecheck   # Must pass with zero errors
 pnpm lint        # Must pass with zero errors (warnings are acceptable)
 pnpm test        # All tests must pass
+pnpm check:artifacts  # Release artifact sanity checks
 ```
 
 ### 4. Submit a pull request
@@ -98,12 +101,23 @@ pnpm --filter @browseragentprotocol/protocol test
 pnpm test:coverage
 ```
 
+For Python SDK changes, also run:
+
+```bash
+cd packages/python-sdk
+python -m pip install -e .[dev]
+python -m pytest
+python -m build
+twine check dist/*
+```
+
 ### Test guidelines
 
 - Schema validation tests go in `packages/protocol/src/__tests__/`
 - CLI flag/command tests go in `packages/cli/__tests__/`
 - MCP tool tests go in `packages/mcp/src/__tests__/`
 - Integration tests that require a browser go in `packages/server-playwright/src/__tests__/`
+- Python SDK tests go in `packages/python-sdk/tests/`
 
 ## Protocol Changes
 

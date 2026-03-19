@@ -60,7 +60,7 @@ export interface BAPConfig {
 
 const DEFAULT_CONFIG: BAPConfig = {
   browser: "chrome",
-  headless: true,
+  headless: false,
   timeout: 30000,
   port: 9222,
   profile: "auto",

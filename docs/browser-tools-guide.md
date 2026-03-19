@@ -1,10 +1,11 @@
 # Browser Automation for AI Agents: A Decision Guide
 
-AI agents increasingly need browser access — to fill forms, extract data, navigate workflows, and interact with web applications. Today, three categories of browser tools exist for agents:
+AI agents increasingly need browser access — to fill forms, extract data, navigate workflows, and interact with web applications. Today, four categories of browser tools exist for agents:
 
 1. **MCP servers** — expose browser actions as tools via the Model Context Protocol
 2. **CLI tools** — shell commands that agents invoke directly (often paired with SKILL.md files)
-3. **Screenshot/vision** — pixel-level interaction via screenshots and coordinates
+3. **Browser protocols** — raw Chrome DevTools / CDP access for debugging and custom control
+4. **Screenshot/vision** — pixel-level interaction via screenshots and coordinates
 
 This guide covers the MCP and CLI approaches with verifiable facts, focusing on [BAP (Browser Agent Protocol)](https://github.com/browseragentprotocol/bap) and [Playwright MCP](https://github.com/microsoft/playwright-mcp) / [Playwright CLI](https://github.com/microsoft/playwright-cli). All benchmark data is reproducible via the [benchmark suite](https://github.com/browseragentprotocol/benchmarks).
 
@@ -18,10 +19,13 @@ This guide covers the MCP and CLI approaches with verifiable facts, focusing on 
 | BAP CLI | Shell commands | [browseragentprotocol](https://github.com/browseragentprotocol) | `@browseragentprotocol/cli` | Apache-2.0 |
 | Playwright MCP | MCP (stdio) | [Microsoft](https://github.com/microsoft) | `@playwright/mcp` | Apache-2.0 |
 | Playwright CLI | Shell commands | [Microsoft](https://github.com/microsoft) | `@playwright/cli` | Apache-2.0 |
+| Chrome DevTools / CDP | Browser protocol | [Google / Chromium](https://developer.chrome.com/docs/devtools/) | built into Chrome | Chromium licenses |
 
 > **Playwright MCP GitHub stars:** ~27.5k (as of Feb 2026). Microsoft-backed with a large ecosystem.
 
-All four tools use [Playwright](https://playwright.dev/) as the underlying browser engine.
+BAP and Playwright both use [Playwright](https://playwright.dev/) as the
+automation engine. Chrome DevTools / CDP talks directly to Chrome's native
+debugging protocol.
 
 ---
 
@@ -46,6 +50,15 @@ Standalone shell commands. Each invocation is a separate process. The `--install
 ### BAP CLI
 
 Shell commands that connect to a persistent daemon (shared with MCP). The browser survives across commands, and element refs from `bap observe` remain valid for subsequent `bap act` calls.
+
+### Chrome DevTools / CDP
+
+Chrome DevTools Protocol is the lowest-level option in this landscape. It is
+excellent for debugging, profiling, network inspection, and custom browser
+instrumentation, but it is not an agent-ready workflow on its own. You have to
+orchestrate DOM queries, event subscriptions, and multi-step actions manually.
+BAP sits above this layer with semantic selectors, `observe`, `act`, `extract`,
+response tiers, and shared browser state.
 
 ### What Playwright MCP Recommends
 
@@ -166,13 +179,30 @@ For a detailed command-by-command mapping between Playwright CLI and BAP CLI, se
 
 ---
 
+## BAP vs Chrome DevTools
+
+| Dimension | BAP CLI / MCP | Chrome DevTools / CDP |
+|-----------|----------------|------------------------|
+| **Level** | Agent-ready workflow layer | Raw browser debugging protocol |
+| **Selectors** | Semantic selectors, refs, structured observe output | Manual DOM / runtime scripting |
+| **Multi-step actions** | `act` batches steps and fused observe flows | You compose sequences yourself |
+| **Extraction** | `extract` with schema or field hints | Custom JS / protocol calls |
+| **Token efficiency** | Response tiers + fewer roundtrips | Depends on your own orchestration |
+| **Best for** | Coding agents and repeated browser tasks | Debugging, profiling, low-level custom tooling |
+
+Use Chrome DevTools when you need raw protocol domains or existing browser
+inspection. Use BAP when you want a default browser interface for agents that
+need to get work done with fewer calls and less prompt overhead.
+
+---
+
 ## What Should You Use?
 
 ### Coding agent (Claude Code, Codex, Gemini CLI, Cursor, etc.)?
 
 **→ BAP CLI** with `bap install-skill`
 
-Why: Composite `bap act` batches multi-step flows into one shell command. Semantic selectors (`role:button:"Submit"`) survive page redesigns. Structured `bap extract --fields="title,price"` eliminates writing custom JS. SKILL.md for 13 platforms.
+Why: Composite `bap act` batches multi-step flows into one shell command. Semantic selectors (`role:button:"Submit"`) survive page redesigns. Structured `bap extract --fields="title,price"` eliminates writing custom JS. The persistent daemon keeps browser state warm across commands, which is the right shape for coding agents. SKILL.md is available for 13 platforms.
 
 Alternative: Playwright CLI for simple single-action interactions where composite batching isn't needed.
 
@@ -194,11 +224,18 @@ Playwright MCP and Playwright CLI are separate processes with no shared state.
 
 **→ Playwright MCP** is the zero-friction add-on for your existing Playwright setup. If you already use Playwright for testing, adding the MCP server requires no new dependencies.
 
+### Need raw debugger, profiler, or protocol-domain access?
+
+**→ Chrome DevTools / CDP**
+
+Use DevTools when you need low-level browser debugging or custom protocol work.
+Use BAP when the job is agent automation rather than browser instrumentation.
+
 ---
 
 ### The Bottom Line
 
-BAP and Playwright use the same engine (Playwright). BAP adds composite actions, semantic selectors, structured extraction, and fused operations. In benchmarks, BAP Standard uses ~15% fewer tool calls than Playwright in an apples-to-apples comparison, primarily from batching multi-step actions. BAP Fused extends this to ~37% through navigate+observe and act+postObserve fusion. Playwright wins on per-call latency and element disambiguation.
+BAP and Playwright use the same engine (Playwright). BAP adds composite actions, semantic selectors, structured extraction, fused operations, and a CLI-first workflow for coding agents. In benchmarks, BAP Standard uses ~15% fewer tool calls than Playwright in an apples-to-apples comparison, primarily from batching multi-step actions. BAP Fused extends this to ~37% through navigate+observe and act+postObserve fusion. Playwright wins on per-call latency and element disambiguation. Chrome DevTools is lower-level than both: great for debugging, but not the default interface most agents should use for day-to-day browser work.
 
 ---
 
