@@ -47,7 +47,7 @@
     "eslint": "^9.0.0",
     "prettier": "^3.4.0",
     "tsup": "^8.3.0",
-    "turbo": "^2.3.0",
+    "turbo": "^2.8.19",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.0.0",
     "vitest": "4.0.18"
