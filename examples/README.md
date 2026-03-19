@@ -1,13 +1,15 @@
 # Examples
 
-These examples are designed for launch demos, onboarding, and release-smoke
-validation.
+Runnable BAP examples for learning, demos, and local sanity checks.
 
 ## Available examples
 
 - [`hacker-news-cli`](./hacker-news-cli/README.md): a fast CLI demo that opens
   Hacker News, captures an AI-friendly observation, writes a screenshot, and
   saves an accessibility snapshot.
+- [`launch-feedback-agent`](./launch-feedback-agent/README.md): a browser
+  research workflow where an AI coding agent reviews a discussion thread,
+  collects evidence, and writes a report.
 
 ## Running examples from the repo
 

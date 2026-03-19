@@ -69,12 +69,30 @@ describe("parseArgs profile flags", () => {
   });
 });
 
+describe("parseArgs timeout flags", () => {
+  it("defaults timeout from config", () => {
+    const flags = parseArgs(["open", "https://example.com"]);
+    expect(flags.timeout).toBe(30000);
+  });
+
+  it("parses --timeout=<ms>", () => {
+    const flags = parseArgs(["open", "https://example.com", "--timeout=120000"]);
+    expect(flags.timeout).toBe(120000);
+  });
+
+  it("parses --timeout <ms> (space-separated)", () => {
+    const flags = parseArgs(["open", "https://example.com", "--timeout", "45000"]);
+    expect(flags.timeout).toBe(45000);
+  });
+});
+
 describe("parseArgs default browser behavior", () => {
   it("defaults to visible Chrome with auto profile", () => {
     const flags = parseArgs(["open", "https://example.com"]);
     expect(flags.browser).toBe("chrome");
     expect(flags.headless).toBe(false);
     expect(flags.profile).toBe("auto");
+    expect(flags.timeout).toBe(30000);
   });
 });
 

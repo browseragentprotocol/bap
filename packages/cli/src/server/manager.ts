@@ -24,6 +24,7 @@ export interface ServerManagerOptions {
   browser: string;
   headless: boolean;
   verbose: boolean;
+  timeout?: number;
   sessionId?: string;
   profile?: string;
 }
@@ -210,12 +211,13 @@ export function resolveProfile(profile: string, browser: string): string | undef
 // =============================================================================
 
 export class ServerManager {
-  private options: Required<Omit<ServerManagerOptions, 'sessionId' | 'profile'>> & Pick<ServerManagerOptions, 'sessionId' | 'profile'>;
+  private options: Required<Omit<ServerManagerOptions, "sessionId" | "profile">> & Pick<ServerManagerOptions, "sessionId" | "profile">;
   private client: BAPClient | null = null;
 
   constructor(options: ServerManagerOptions) {
     this.options = {
       host: "localhost",
+      timeout: 30000,
       ...options,
     };
   }
@@ -234,7 +236,11 @@ export class ServerManager {
       if (verbose) {
         process.stderr.write(`[bap] Reusing server on ${host}:${port}\n`);
       }
-      this.client = await createClient(url, { name: "bap-cli", sessionId: this.options.sessionId });
+      this.client = await createClient(url, {
+        name: "bap-cli",
+        sessionId: this.options.sessionId,
+        timeout: this.options.timeout,
+      });
       return this.client;
     }
 
@@ -286,7 +292,11 @@ export class ServerManager {
       process.stderr.write(`[bap] Server ready on ws://${host}:${port}\n`);
     }
 
-    this.client = await createClient(url, { name: "bap-cli", sessionId: this.options.sessionId });
+    this.client = await createClient(url, {
+      name: "bap-cli",
+      sessionId: this.options.sessionId,
+      timeout: this.options.timeout,
+    });
     return this.client;
   }
 

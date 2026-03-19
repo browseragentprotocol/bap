@@ -2,19 +2,31 @@
 
 ## Overview
 
-BAP supports two selector systems: positional refs (compatible with
-playwright-cli snapshots) and semantic selectors (BAP-exclusive).
+BAP supports three selector styles:
+- stable refs returned by `bap observe`
+- positional refs from snapshot-style workflows
+- semantic selectors
 
 Semantic selectors describe elements by their purpose, not their position.
 They survive page layout changes, dynamic content updates, and A/B tests.
 
 ## Selector Types
 
+### Stable Refs
+```
+@ep44e3j     → Stable ref returned by `bap observe`
+@submitBtn   → Named stable ref
+```
+
+Use the exact ref that BAP prints, including the leading `@`.
+
 ### Positional Refs (Compatibility)
 ```
 e15          → Element ref from last snapshot (playwright-cli compatible)
-@e1          → Stable BAP element reference (persists across observations)
 ```
+
+`e<N>` refs are useful for playwright-cli compatibility, but current `bap observe`
+commonly returns stable refs such as `@ep44e3j`.
 
 ### Role Selector
 ```
@@ -67,6 +79,7 @@ Matches by `data-testid` attribute. Most stable for apps that use test IDs.
 bap click role:button:"Submit"
 bap fill label:"Email" "user@example.com"
 bap hover text:"Learn more"
+bap click @ep44e3j
 ```
 
 ### In composite actions (`bap act`)
@@ -81,9 +94,16 @@ Step syntax: `action:selector=value` (for fill/type) or `action:selector` (for c
 ## Selector Precedence
 
 When multiple elements match, BAP returns the first visible, interactive match.
-To disambiguate, combine with more specific roles or use positional refs.
+To disambiguate, combine with more specific roles or use the exact stable ref
+returned by `bap observe`.
 
 ## Fallback Behavior
 
 If a semantic selector doesn't match, BAP returns a clear error message
 with the closest matches found on the page, helping the agent self-correct.
+
+## Best Practice
+
+1. Start with semantic selectors when the target is obvious.
+2. If the page is noisy, run `bap observe --max=<N>`.
+3. Reuse the exact `@ref` from the observation output for precise clicks.

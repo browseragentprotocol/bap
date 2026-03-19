@@ -25,6 +25,7 @@ async function gotoCommand(
   // Fusion path: --observe flag fuses navigate + observe into 1 call
   if (flags.observe) {
     const result = await client.navigate(url, {
+      timeout: flags.timeout,
       observe: {
         includeMetadata: true,
         includeInteractiveElements: true,
@@ -44,7 +45,7 @@ async function gotoCommand(
   }
 
   // Default path
-  const result = await client.navigate(url);
+  const result = await client.navigate(url, { timeout: flags.timeout });
   printPageSummary(result.url);
 }
 

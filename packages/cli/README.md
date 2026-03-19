@@ -12,8 +12,7 @@ semantic selectors, and structured extraction.
 ## Quick Start
 
 ```bash
-npx @browseragentprotocol/cli open https://example.com
-npx @browseragentprotocol/cli observe --max=20
+npx @browseragentprotocol/cli goto https://example.com --observe
 npx @browseragentprotocol/cli click role:button:"Get Started"
 ```
 
@@ -71,13 +70,17 @@ bap extract --list="product"
 ### Navigation
 
 ```bash
-bap open [url]              # Open browser, optionally navigate
-bap goto <url>              # Navigate to URL
+bap open [url]              # Browser lifecycle command, optionally navigate
+bap goto <url>              # Recommended for "open this URL"
 bap goto <url> --observe    # Fused: navigate + observe in 1 server call
 bap back                    # Go back
 bap forward                 # Go forward
 bap reload                  # Reload page
 ```
+
+For most agent-driven browsing, prefer `bap goto`. It reuses the active page
+when possible and supports fused observation. Use `bap open` when you
+specifically want to open a browser first or inspect an existing session.
 
 ### Interaction
 

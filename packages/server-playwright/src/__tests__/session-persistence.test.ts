@@ -2,8 +2,55 @@ import { EventEmitter } from "node:events";
 import type { Browser } from "playwright";
 import type { WebSocket } from "ws";
 import { describe, it, expect, vi } from "vitest";
+import type { BAPScope } from "@browseragentprotocol/protocol";
 import { BAPPlaywrightServer } from "../server.js";
 import type { BAPServerOptions } from "../server.js";
+
+type TestPage = EventEmitter & {
+  url(): string;
+};
+
+type TestSocket = {
+  readyState: number;
+  send: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+};
+
+type TestState = {
+  clientId: string;
+  initialized: boolean;
+  browser: Browser | null;
+  isPersistent: boolean;
+  context: null;
+  contexts: Map<string, unknown>;
+  defaultContextId: string | null;
+  pages: Map<string, TestPage>;
+  pageToContext: Map<string, string>;
+  activePage: string | null;
+  eventSubscriptions: Set<string>;
+  tracing: boolean;
+  scopes: BAPScope[];
+  sessionStartTime: number;
+  lastActivityTime: number;
+  elementRegistries: Map<string, unknown>;
+  frameContexts: Map<string, unknown>;
+  activeStreams: Map<string, unknown>;
+  pendingApprovals: Map<string, unknown>;
+  sessionApprovals: Set<string>;
+  sessionId: string;
+};
+
+type TestDormantSession = {
+  sessionId: string;
+};
+
+type SessionHarness = {
+  clients: Map<WebSocket, TestState>;
+  dormantSessions: Map<string, TestDormantSession>;
+  setupPageListeners(page: TestPage, pageId: string): void;
+  parkSession(state: TestState): void;
+  restoreSession(dormant: TestDormantSession, state: TestState): boolean;
+};
 
 /**
  * Tests for server-side session persistence (dormant session store).
@@ -59,25 +106,28 @@ describe("BAPPlaywrightServer - session persistence", () => {
 
   it("routes restored page events to the reconnected client", () => {
     const server = new BAPPlaywrightServer();
+    const harness = server as unknown as SessionHarness;
     const page = Object.assign(new EventEmitter(), {
       url: () => "https://example.com",
-    });
+    }) as TestPage;
     const browser = {
       isConnected: () => true,
       close: vi.fn(),
     } as unknown as Browser;
-    const staleWs = {
+    const staleSocket: TestSocket = {
       readyState: 1,
       send: vi.fn(),
       close: vi.fn(),
-    } as unknown as WebSocket;
-    const restoredWs = {
+    };
+    const restoredSocket: TestSocket = {
       readyState: 1,
       send: vi.fn(),
       close: vi.fn(),
-    } as unknown as WebSocket;
+    };
+    const staleWs = staleSocket as unknown as WebSocket;
+    const restoredWs = restoredSocket as unknown as WebSocket;
 
-    const staleState = {
+    const staleState: TestState = {
       clientId: "stale",
       initialized: true,
       browser,
@@ -101,7 +151,7 @@ describe("BAPPlaywrightServer - session persistence", () => {
       sessionId: "cli-9222",
     };
 
-    const restoredState = {
+    const restoredState: TestState = {
       ...staleState,
       clientId: "restored",
       browser: null,
@@ -115,42 +165,49 @@ describe("BAPPlaywrightServer - session persistence", () => {
       sessionApprovals: new Set(),
     };
 
-    (server as any).clients.set(staleWs, staleState);
-    (server as any).setupPageListeners(page, "page-1");
-    (server as any).parkSession(staleState);
-    (server as any).clients.delete(staleWs);
+    harness.clients.set(staleWs, staleState);
+    harness.setupPageListeners(page, "page-1");
+    harness.parkSession(staleState);
+    harness.clients.delete(staleWs);
 
-    const dormant = (server as any).dormantSessions.get("cli-9222");
-    expect((server as any).restoreSession(dormant, restoredState)).toBe(true);
-    (server as any).clients.set(restoredWs, restoredState);
+    const dormant = harness.dormantSessions.get("cli-9222");
+    expect(dormant).toBeDefined();
+    if (!dormant) {
+      throw new Error("Expected dormant session to be present");
+    }
+    expect(harness.restoreSession(dormant, restoredState)).toBe(true);
+    harness.clients.set(restoredWs, restoredState);
 
     page.emit("load");
 
-    expect((restoredWs as any).send).toHaveBeenCalledOnce();
-    expect((staleWs as any).send).not.toHaveBeenCalled();
+    expect(restoredSocket.send).toHaveBeenCalledOnce();
+    expect(staleSocket.send).not.toHaveBeenCalled();
   });
 
   it("removes restored pages from the active session when a tab closes externally", () => {
     const server = new BAPPlaywrightServer();
+    const harness = server as unknown as SessionHarness;
     const page = Object.assign(new EventEmitter(), {
       url: () => "https://example.com",
-    });
+    }) as TestPage;
     const browser = {
       isConnected: () => true,
       close: vi.fn(),
     } as unknown as Browser;
-    const staleWs = {
+    const staleSocket: TestSocket = {
       readyState: 1,
       send: vi.fn(),
       close: vi.fn(),
-    } as unknown as WebSocket;
-    const restoredWs = {
+    };
+    const restoredSocket: TestSocket = {
       readyState: 1,
       send: vi.fn(),
       close: vi.fn(),
-    } as unknown as WebSocket;
+    };
+    const staleWs = staleSocket as unknown as WebSocket;
+    const restoredWs = restoredSocket as unknown as WebSocket;
 
-    const staleState = {
+    const staleState: TestState = {
       clientId: "stale",
       initialized: true,
       browser,
@@ -166,15 +223,15 @@ describe("BAPPlaywrightServer - session persistence", () => {
       scopes: [],
       sessionStartTime: Date.now(),
       lastActivityTime: Date.now(),
-      elementRegistries: new Map([["page-1", {} as never]]),
-      frameContexts: new Map([["page-1", {} as never]]),
+      elementRegistries: new Map([["page-1", {}]]),
+      frameContexts: new Map([["page-1", {}]]),
       activeStreams: new Map(),
       pendingApprovals: new Map(),
       sessionApprovals: new Set(),
       sessionId: "cli-9222",
     };
 
-    const restoredState = {
+    const restoredState: TestState = {
       ...staleState,
       clientId: "restored",
       browser: null,
@@ -188,14 +245,18 @@ describe("BAPPlaywrightServer - session persistence", () => {
       sessionApprovals: new Set(),
     };
 
-    (server as any).clients.set(staleWs, staleState);
-    (server as any).setupPageListeners(page, "page-1");
-    (server as any).parkSession(staleState);
-    (server as any).clients.delete(staleWs);
+    harness.clients.set(staleWs, staleState);
+    harness.setupPageListeners(page, "page-1");
+    harness.parkSession(staleState);
+    harness.clients.delete(staleWs);
 
-    const dormant = (server as any).dormantSessions.get("cli-9222");
-    expect((server as any).restoreSession(dormant, restoredState)).toBe(true);
-    (server as any).clients.set(restoredWs, restoredState);
+    const dormant = harness.dormantSessions.get("cli-9222");
+    expect(dormant).toBeDefined();
+    if (!dormant) {
+      throw new Error("Expected dormant session to be present");
+    }
+    expect(harness.restoreSession(dormant, restoredState)).toBe(true);
+    harness.clients.set(restoredWs, restoredState);
 
     page.emit("close");
 
@@ -204,6 +265,6 @@ describe("BAPPlaywrightServer - session persistence", () => {
     expect(restoredState.elementRegistries.has("page-1")).toBe(false);
     expect(restoredState.frameContexts.has("page-1")).toBe(false);
     expect(restoredState.activePage).toBeNull();
-    expect((restoredWs as any).send).toHaveBeenCalledOnce();
+    expect(restoredSocket.send).toHaveBeenCalledOnce();
   });
 });
