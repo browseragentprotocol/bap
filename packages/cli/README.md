@@ -93,6 +93,8 @@ bap select <selector> <val> # Select dropdown option
 bap check <selector>        # Check checkbox
 bap uncheck <selector>      # Uncheck checkbox
 bap hover <selector>        # Hover over element
+bap scroll [dir] [--pixels=N]  # Scroll page (up/down/left/right)
+bap scroll <selector>       # Scroll element into view
 ```
 
 ### Observation
@@ -166,17 +168,17 @@ bap skill init              # Install skill to current project
 
 ## Selectors
 
-| Selector | Example | When to use |
-|----------|---------|-------------|
-| `e<N>` | `e15` | From snapshot refs (playwright-cli compatible) |
-| `role:<role>:"<name>"` | `role:button:"Submit"` | By ARIA role and name |
-| `text:"<content>"` | `text:"Sign in"` | By visible text |
-| `label:"<text>"` | `label:"Email"` | Form fields by label |
-| `placeholder:"<text>"` | `placeholder:"Search..."` | By placeholder text |
-| `testid:"<id>"` | `testid:"submit-btn"` | By data-testid |
-| `css:<selector>` | `css:.btn-primary` | CSS selector |
-| `xpath:<path>` | `xpath://button` | XPath selector |
-| `coords:<x>,<y>` | `coords:100,200` | By coordinates |
+| Selector               | Example                   | When to use                                    |
+| ---------------------- | ------------------------- | ---------------------------------------------- |
+| `e<N>`                 | `e15`                     | From snapshot refs (playwright-cli compatible) |
+| `role:<role>:"<name>"` | `role:button:"Submit"`    | By ARIA role and name                          |
+| `text:"<content>"`     | `text:"Sign in"`          | By visible text                                |
+| `label:"<text>"`       | `label:"Email"`           | Form fields by label                           |
+| `placeholder:"<text>"` | `placeholder:"Search..."` | By placeholder text                            |
+| `testid:"<id>"`        | `testid:"submit-btn"`     | By data-testid                                 |
+| `css:<selector>`       | `css:.btn-primary`        | CSS selector                                   |
+| `xpath:<path>`         | `xpath://button`          | XPath selector                                 |
+| `coords:<x>,<y>`       | `coords:100,200`          | By coordinates                                 |
 
 ## Global Options
 
@@ -222,6 +224,7 @@ Commands produce concise, AI-agent-friendly output:
 ```
 
 Files are saved to `.bap/` in the current directory:
+
 - Snapshots: `.bap/snapshot-<timestamp>.yml`
 - Screenshots: `.bap/screenshot-<timestamp>.png`
 - Extractions: `.bap/extraction-<timestamp>.json`
@@ -241,13 +244,13 @@ Supports 13 AI coding agent platforms: Claude Code, Codex CLI, Gemini CLI, Curso
 
 BAP is a drop-in replacement for playwright-cli. All `e<N>` refs from snapshots work identically:
 
-| playwright-cli | bap |
-|----------------|-----|
-| `playwright-cli open [url]` | `bap open [url]` |
-| `playwright-cli click e15` | `bap click e15` |
+| playwright-cli                  | bap                  |
+| ------------------------------- | -------------------- |
+| `playwright-cli open [url]`     | `bap open [url]`     |
+| `playwright-cli click e15`      | `bap click e15`      |
 | `playwright-cli fill e5 "text"` | `bap fill e5 "text"` |
-| `playwright-cli snapshot` | `bap snapshot` |
-| `playwright-cli screenshot` | `bap screenshot` |
+| `playwright-cli snapshot`       | `bap snapshot`       |
+| `playwright-cli screenshot`     | `bap screenshot`     |
 
 BAP adds composite actions, semantic selectors, smart observation, and structured extraction on top.
 

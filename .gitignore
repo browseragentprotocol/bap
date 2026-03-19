@@ -32,10 +32,15 @@ coverage/
 
 # Claude Code instructions (local only)
 CLAUDE.md
+AGENTS.md
 docs/plans/
+.claude/
 
 # Internal roadmap (local only)
 ROADMAP.md
+
+# BAP runtime artifacts
+.bap/
 
 # Demo recording intermediates
 assets/demos/*-events.json
