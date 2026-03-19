@@ -86,16 +86,6 @@ bap extract --fields="title,content"
 - Use `--no-profile` if your Chrome profile is busy.
 - Use `bap close-all` to stop the daemon and all sessions.
 
-## Try the Demo
-
-```bash
-git clone https://github.com/browseragentprotocol/bap.git
-cd bap && npx pnpm install && npx pnpm build
-./examples/blog-reader/run-demo.sh
-```
-
-See [examples/blog-reader](./examples/blog-reader/README.md) for details.
-
 ## Against Other Tools
 
 - **vs Playwright CLI** — BAP is built for agent workflows, not human shell scripting.
