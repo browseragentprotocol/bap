@@ -16,6 +16,7 @@ import "./press.js";
 import "./select.js";
 import "./check.js";
 import "./hover.js";
+import "./scroll.js";
 import "./screenshot.js";
 import "./snapshot.js";
 import "./close.js";

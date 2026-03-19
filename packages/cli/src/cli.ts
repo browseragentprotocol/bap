@@ -38,6 +38,7 @@ ${pc.cyan("BASIC COMMANDS")} ${pc.dim("(playwright-cli compatible)")}
   bap check <ref|selector>          Check checkbox
   bap uncheck <ref|selector>        Uncheck checkbox
   bap hover <ref|selector>          Hover over element
+  bap scroll [dir] [--pixels=N]    Scroll page (up/down/left/right)
   bap screenshot [--file=F]         Take screenshot
   bap snapshot [--file=F]           Save accessibility snapshot (YAML)
   bap close                         Close browser
@@ -119,20 +120,18 @@ function printVersion(): void {
 // =============================================================================
 
 /** Commands that don't need a server connection at all */
-const NO_SERVER_COMMANDS = new Set([
-  "config", "install-skill", "skill", "--help", "-h",
-]);
+const NO_SERVER_COMMANDS = new Set(["config", "install-skill", "skill", "--help", "-h"]);
 
 /**
  * Commands that need a server connection but manage their own browser/page
  * lifecycle. These use ensureClient() (WebSocket only), not ensureReady().
  */
 const CLIENT_ONLY_COMMANDS = new Set([
-  "open",       // explicitly launches browser + creates page
-  "close",      // tears down browser — don't auto-create one
-  "close-all",  // tears down everything — don't auto-create
-  "sessions",   // informational — just lists contexts
-  "tabs",       // informational — just lists pages
+  "open", // explicitly launches browser + creates page
+  "close", // tears down browser — don't auto-create one
+  "close-all", // tears down everything — don't auto-create
+  "sessions", // informational — just lists contexts
+  "tabs", // informational — just lists pages
 ]);
 
 // =============================================================================

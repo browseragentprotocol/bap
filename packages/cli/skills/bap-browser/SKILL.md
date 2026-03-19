@@ -25,6 +25,7 @@ npx @browseragentprotocol/cli open https://example.com
 ```
 
 Important:
+
 - Inside the repo, prefer `pnpm exec bap` so you use the local workspace build.
 - Avoid `npx @browseragentprotocol/cli` for local development. It pulls the published npm version, which can lag behind the branch being tested.
 - If `bap` is not on `PATH`, do not assume it is globally installed.
@@ -100,15 +101,15 @@ bap act fill:label:"Email"="user@example.com" \
 
 BAP supports stable refs, positional refs, and semantic selectors:
 
-| Selector | Example | When to use |
-|----------|---------|-------------|
-| `@<ref>` | `@ep44e3j` | Exact stable ref returned by `bap observe` |
-| `e<N>` | `e15` | From snapshot refs (playwright-cli compatible) |
-| `role:<role>:"<name>"` | `role:button:"Submit"` | When you know the element's purpose |
-| `text:"<content>"` | `text:"Sign in"` | By visible text |
-| `label:"<text>"` | `label:"Email"` | Form fields by label |
-| `placeholder:"<text>"` | `placeholder:"Search..."` | By placeholder |
-| `testid:"<id>"` | `testid:"submit-btn"` | By data-testid |
+| Selector               | Example                   | When to use                                    |
+| ---------------------- | ------------------------- | ---------------------------------------------- |
+| `@<ref>`               | `@ep44e3j`                | Exact stable ref returned by `bap observe`     |
+| `e<N>`                 | `e15`                     | From snapshot refs (playwright-cli compatible) |
+| `role:<role>:"<name>"` | `role:button:"Submit"`    | When you know the element's purpose            |
+| `text:"<content>"`     | `text:"Sign in"`          | By visible text                                |
+| `label:"<text>"`       | `label:"Email"`           | Form fields by label                           |
+| `placeholder:"<text>"` | `placeholder:"Search..."` | By placeholder                                 |
+| `testid:"<id>"`        | `testid:"submit-btn"`     | By data-testid                                 |
 
 Prefer semantic selectors (`role:`, `label:`, `text:`) when they are clear — they survive page layout changes. When using `bap observe`, reuse the exact ref it prints, including the leading `@`.
 
@@ -148,6 +149,8 @@ bap select <selector> <val> # Select dropdown option
 bap check <selector>        # Check checkbox
 bap uncheck <selector>      # Uncheck checkbox
 bap hover <selector>        # Hover over element
+bap scroll [dir] [--pixels=N] # Scroll page (up/down/left/right, default: down 300px)
+bap scroll <selector>       # Scroll element into view
 ```
 
 ### Observation
@@ -191,11 +194,13 @@ bap recipe wait-for <selector> [--timeout=ms]
 ## Output Behavior
 
 All outputs saved to `.bap/` directory (never injected into LLM context):
+
 - Snapshots: `.bap/snapshot-<timestamp>.yml`
 - Screenshots: `.bap/screenshot-<timestamp>.png`
 - Extractions: `.bap/extraction-<timestamp>.json`
 
 After each command, BAP prints a concise summary:
+
 ```
 ### Page
 - URL: https://example.com/dashboard
@@ -206,28 +211,28 @@ Saved to .bap/snapshot-1739734242.yml
 
 ## Error Handling
 
-| Problem | Fix |
-|---------|-----|
-| `bap: command not found` | Inside this repo, use `pnpm exec bap`. Outside the repo, either install globally or use `npx @browseragentprotocol/cli` if you intentionally want the published package |
-| Element not found | Run `bap observe` to get fresh refs — the DOM changed after navigation |
-| Stable ref click does not work | Use the exact ref from `bap observe`, including the leading `@` |
-| Stale element ref | Re-run `bap observe` or `bap snapshot` after navigation or major DOM changes |
-| Browser launch fails | Try `--no-profile` for a fresh browser, or use a dedicated `--profile <dir>` if the default Chrome profile is busy |
-| Chrome says it is controlled by automated test software | Expected for Playwright-launched Chrome. Use `--no-profile` for clean automation, or attach to a user-started browser in future workflows if that UX matters |
-| Server not responding | Run `bap close-all` to kill the daemon, then retry your command |
-| Navigation timeout | Increase the timeout: `bap --timeout=120000 goto <url>` |
-| Click intercepted / overlay | An overlay may be blocking the element. Try `bap act click:text:"Accept" click:<target>` to dismiss it first |
-| Wrong tab active | Run `bap tabs` to list open tabs, then `bap tab-select <index>` |
+| Problem                                                 | Fix                                                                                                                                                                     |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bap: command not found`                                | Inside this repo, use `pnpm exec bap`. Outside the repo, either install globally or use `npx @browseragentprotocol/cli` if you intentionally want the published package |
+| Element not found                                       | Run `bap observe` to get fresh refs — the DOM changed after navigation                                                                                                  |
+| Stable ref click does not work                          | Use the exact ref from `bap observe`, including the leading `@`                                                                                                         |
+| Stale element ref                                       | Re-run `bap observe` or `bap snapshot` after navigation or major DOM changes                                                                                            |
+| Browser launch fails                                    | Try `--no-profile` for a fresh browser, or use a dedicated `--profile <dir>` if the default Chrome profile is busy                                                      |
+| Chrome says it is controlled by automated test software | Expected for Playwright-launched Chrome. Use `--no-profile` for clean automation, or attach to a user-started browser in future workflows if that UX matters            |
+| Server not responding                                   | Run `bap close-all` to kill the daemon, then retry your command                                                                                                         |
+| Navigation timeout                                      | Increase the timeout: `bap --timeout=120000 goto <url>`                                                                                                                 |
+| Click intercepted / overlay                             | An overlay may be blocking the element. Try `bap act click:text:"Accept" click:<target>` to dismiss it first                                                            |
+| Wrong tab active                                        | Run `bap tabs` to list open tabs, then `bap tab-select <index>`                                                                                                         |
 
 ## When to Use BAP vs playwright-cli
 
-| Scenario | Use |
-|----------|-----|
-| Single click or type action | Either works — BAP accepts `e15` refs |
-| Multi-step flow (login, form, checkout) | **BAP** — `bap act` batches steps in one command |
-| Extract structured data from page | **BAP** — `bap extract` with schema validation |
-| Need selectors resilient to layout changes | **BAP** — semantic selectors |
-| Quick page snapshot | Either works — same YAML format |
+| Scenario                                   | Use                                              |
+| ------------------------------------------ | ------------------------------------------------ |
+| Single click or type action                | Either works — BAP accepts `e15` refs            |
+| Multi-step flow (login, form, checkout)    | **BAP** — `bap act` batches steps in one command |
+| Extract structured data from page          | **BAP** — `bap extract` with schema validation   |
+| Need selectors resilient to layout changes | **BAP** — semantic selectors                     |
+| Quick page snapshot                        | Either works — same YAML format                  |
 
 ## Installation
 

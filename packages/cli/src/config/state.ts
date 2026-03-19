@@ -39,6 +39,8 @@ export interface GlobalFlags {
   observe?: boolean;
   diff?: boolean;
   tier?: string;
+  // scroll flags
+  pixels?: number;
   // output flags
   file?: string;
   // recipe flags
@@ -190,6 +192,12 @@ export function parseArgs(argv: string[]): GlobalFlags {
       flags.list = arg.slice(7);
     } else if (arg === "--list") {
       flags.list = argv[++i];
+    }
+    // scroll flags
+    else if (arg.startsWith("--pixels=")) {
+      flags.pixels = parseInt(arg.slice(9), 10);
+    } else if (arg === "--pixels") {
+      flags.pixels = parseInt(argv[++i] ?? "300", 10);
     }
     // install-skill flags
     else if (arg === "--project") {

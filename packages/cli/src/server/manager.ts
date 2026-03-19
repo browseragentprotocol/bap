@@ -62,7 +62,7 @@ async function waitForServer(
   port: number,
   host: string = "localhost",
   timeoutMs: number = 15000,
-  intervalMs: number = 150,
+  intervalMs: number = 150
 ): Promise<void> {
   const start = Date.now();
 
@@ -75,7 +75,7 @@ async function waitForServer(
 
   throw new Error(
     `BAP server did not start within ${timeoutMs / 1000}s on port ${port}. ` +
-    `Ensure Playwright browsers are installed: npx playwright install chromium`
+      `Ensure Playwright browsers are installed: npx playwright install chromium`
   );
 }
 
@@ -173,7 +173,12 @@ export function getDefaultChromeProfileDir(): string | undefined {
       profileDir = path.join(home, ".config", "google-chrome");
       break;
     case "win32":
-      profileDir = path.join(process.env.LOCALAPPDATA ?? path.join(home, "AppData", "Local"), "Google", "Chrome", "User Data");
+      profileDir = path.join(
+        process.env.LOCALAPPDATA ?? path.join(home, "AppData", "Local"),
+        "Google",
+        "Chrome",
+        "User Data"
+      );
       break;
     default:
       return undefined;
@@ -211,7 +216,8 @@ export function resolveProfile(profile: string, browser: string): string | undef
 // =============================================================================
 
 export class ServerManager {
-  private options: Required<Omit<ServerManagerOptions, "sessionId" | "profile">> & Pick<ServerManagerOptions, "sessionId" | "profile">;
+  private options: Required<Omit<ServerManagerOptions, "sessionId" | "profile">> &
+    Pick<ServerManagerOptions, "sessionId" | "profile">;
   private client: BAPClient | null = null;
 
   constructor(options: ServerManagerOptions) {
@@ -252,10 +258,13 @@ export class ServerManager {
     const { command, args } = resolveServerCommand();
     const serverArgs = [
       ...args,
-      "--port", port.toString(),
-      "--host", host,
+      "--port",
+      port.toString(),
+      "--host",
+      host,
       headless ? "--headless" : "--no-headless",
-      "--browser", BROWSER_MAP[browser] ?? "chromium",
+      "--browser",
+      BROWSER_MAP[browser] ?? "chromium",
     ];
 
     if (verbose) {
@@ -314,11 +323,13 @@ export class ServerManager {
     // Check if pages already exist (e.g., from session persistence)
     const { pages, activePage } = await client.listPages();
 
-    if (pages.length > 0) {
+    // Filter out about:blank pages — these are ghost pages from failed session
+    // restores and shouldn't count as usable restored state.
+    const usablePages = pages.filter((p) => p.url && p.url !== "about:blank");
+
+    if (usablePages.length > 0) {
       // Sync client's active page tracking with server state
-      const targetPage = activePage && activePage.length > 0
-        ? activePage
-        : pages[0]!.id;
+      const targetPage = activePage && activePage.length > 0 ? activePage : usablePages[0]!.id;
       await client.activatePage(targetPage);
       return client;
     }
