@@ -26,13 +26,14 @@ For most users, the best setup is `CLI + SKILL.md`.
 ```bash
 npm i -g @browseragentprotocol/cli
 bap install-skill
-bap goto https://news.ycombinator.com --observe --max=12
 ```
 
 Then ask your agent something like:
 
 ```text
-Use BAP to open Hacker News, list the top 3 posts, and open the first one.
+Use BAP to open https://piyushvyas.com, click on "Writing", find the
+"Introducing Browser Agent Protocol" blog post, read through it, and
+give me a summary of what BAP is.
 ```
 
 If you just installed the skill, start a fresh Claude/Codex session so it
@@ -52,28 +53,21 @@ reloads the BAP guidance.
   <img src="./assets/claude-code-demo.png" alt="BAP used from Claude Code to navigate Hacker News and list the top posts" width="960" />
 </p>
 
-## Quick Examples
-
-### Browse and observe
+## Quick Example — Read a Blog Post
 
 ```bash
-bap goto https://example.com --observe
-```
+# Open a website and observe the page
+bap goto https://piyushvyas.com --observe
 
-### Log in with one fused action
+# Navigate to the Writing section
+bap act click:text:"Writing" --observe
 
-```bash
-bap act \
-  fill:role:textbox:"Email"="user@example.com" \
-  fill:role:textbox:"Password"="secret" \
-  click:role:button:"Sign in" \
-  --observe
-```
+# Open the blog post about BAP
+bap act click:text:"Introducing Browser Agent Protocol" --observe
 
-### Extract structured data
-
-```bash
-bap extract --fields="title,price,rating"
+# Scroll through and extract the content
+bap scroll down --pixels=5000
+bap extract --fields="title,content"
 ```
 
 ## Smooth First Run
@@ -107,19 +101,18 @@ pip install browser-agent-protocol
 
 ## Try the Repo Demo
 
-- [Examples index](./examples/README.md)
-- [Hacker News CLI demo](./examples/hacker-news-cli/README.md)
+- [Blog reader demo](./examples/blog-reader/README.md)
 
 Quick run from the repo:
 
 ```bash
 npx pnpm install
 npx pnpm build
-./examples/hacker-news-cli/run-cli-demo.sh
+./examples/blog-reader/run-demo.sh
 ```
 
-This writes an observation, screenshot, and accessibility snapshot to
-`.bap/demo/hacker-news/`.
+This navigates to piyushvyas.com, finds the BAP blog post, reads through it,
+and saves screenshots and extracted content to `.bap/demo/blog-reader/`.
 
 ## Against Other Browser Tools
 

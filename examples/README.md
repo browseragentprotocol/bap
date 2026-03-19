@@ -4,12 +4,9 @@ Runnable BAP examples for learning, demos, and local sanity checks.
 
 ## Available examples
 
-- [`hacker-news-cli`](./hacker-news-cli/README.md): a fast CLI demo that opens
-  Hacker News, captures an AI-friendly observation, writes a screenshot, and
-  saves an accessibility snapshot.
-- [`launch-feedback-agent`](./launch-feedback-agent/README.md): a browser
-  research workflow where an AI coding agent reviews a discussion thread,
-  collects evidence, and writes a report.
+- [`blog-reader`](./blog-reader/README.md): navigate to piyushvyas.com, find a
+  blog post about the Browser Agent Protocol, read it, and extract a summary —
+  showcasing navigation, clicking, scrolling, and extraction in a real workflow.
 
 ## Running examples from the repo
 
