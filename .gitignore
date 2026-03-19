@@ -36,3 +36,7 @@ docs/plans/
 
 # Internal roadmap (local only)
 ROADMAP.md
+
+# Demo recording intermediates
+assets/demos/*-events.json
+assets/demos/*-raw.webm

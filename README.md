@@ -8,7 +8,7 @@ agents act with semantic selectors and fused operations instead of brittle CSS
 and endless roundtrips.
 
 <p align="center">
-  <img src="./assets/codex-cli-demo.png" alt="BAP used from Codex CLI to navigate Hacker News and extract the top stories" width="960" />
+  <img src="./assets/demos/blog-reader.gif" alt="BAP navigating piyushvyas.com, clicking through to a blog post, and scrolling through it" width="960" />
 </p>
 
 <p align="center">
@@ -50,7 +50,7 @@ reloads the BAP guidance.
 ## What It Looks Like
 
 <p align="center">
-  <img src="./assets/claude-code-demo.png" alt="BAP used from Claude Code to navigate Hacker News and list the top posts" width="960" />
+  <img src="./assets/demos/skill-scorer.gif" alt="BAP fetching a SKILL.md from GitHub, pasting it into skills.menu, and scoring it" width="960" />
 </p>
 
 ## Quick Example — Read a Blog Post
