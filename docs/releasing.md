@@ -70,3 +70,10 @@ npx pnpm check:artifacts
   `src/browseragentprotocol/__init__.py`
 - PyPI publish blocked because trusted publishing or project permissions are not
   configured
+
+## Recovery
+
+If npm publishes successfully but the Python SDK fails afterward, fix the issue
+on `main` and then run the `Publish Python SDK` workflow from the Actions tab.
+That workflow rebuilds, tests, publishes, and verifies the current
+`browser-agent-protocol` version on PyPI without forcing a new npm release.

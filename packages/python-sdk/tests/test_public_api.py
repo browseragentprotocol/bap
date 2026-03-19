@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from importlib.metadata import version
+
 from browseragentprotocol import (
     BAPClient,
     BAPClientSync,
@@ -14,7 +16,7 @@ from browseragentprotocol import (
 def test_core_exports_are_available() -> None:
     assert BAPClient.__name__ == "BAPClient"
     assert BAPClientSync.__name__ == "BAPClientSync"
-    assert __version__ == "0.3.0"
+    assert __version__ == version("browser-agent-protocol")
 
 
 def test_selector_factories_return_expected_shapes() -> None:
