@@ -1,0 +1,70 @@
+name: Publish Python SDK
+
+on:
+  workflow_dispatch:
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  publish-python:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Python build tools
+        working-directory: packages/python-sdk
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .[dev] build twine
+
+      - name: Build Python package
+        working-directory: packages/python-sdk
+        run: |
+          python -m pytest
+          python -m build
+          twine check dist/*
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/python-sdk/dist/
+
+      - name: Verify PyPI publication
+        working-directory: packages/python-sdk
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import urllib.request
+          from pathlib import Path
+
+          pyproject_toml = Path("pyproject.toml").read_text()
+          match = re.search(r'^version = "([^"]+)"$', pyproject_toml, re.MULTILINE)
+
+          if not match:
+              raise SystemExit("Could not determine the expected Python package version")
+
+          expected_version = match.group(1)
+
+          with urllib.request.urlopen("https://pypi.org/pypi/browser-agent-protocol/json", timeout=30) as response:
+              payload = json.load(response)
+
+          published_version = payload["info"]["version"]
+
+          if published_version != expected_version:
+              raise SystemExit(
+                  f"PyPI verification failed for browser-agent-protocol: expected {expected_version}, got {published_version}"
+              )
+
+          print(f"Verified PyPI package browser-agent-protocol=={expected_version}")
+          PY
