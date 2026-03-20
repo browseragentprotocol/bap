@@ -206,7 +206,7 @@ async function executeStepWithRetry(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       // On retry attempts, try self-healing the selector if the step has one
-      let params = step.params;
+      const params = step.params;
       if (attempt > 0 && step.params.selector) {
         try {
           const page = ctx.getPage(state, step.params.pageId as string | undefined);
