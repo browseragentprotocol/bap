@@ -91,6 +91,15 @@ ${pc.cyan("RECIPES")}
   bap recipe fill-form <url> --data=data.json
   bap recipe wait-for <selector> [--timeout=ms]
 
+${pc.cyan("TRACING")}
+  bap trace                         Show last 10 steps from most recent trace
+  bap trace --all                   Show all steps
+  bap trace --sessions              List all trace sessions
+  bap trace --session=<id>          Show trace for a specific session
+  bap trace --replay                Generate HTML timeline viewer
+  bap trace --export=<file>         Export trace as JSON
+  bap trace --limit=<N>             Show last N entries (default: 10)
+
 ${pc.cyan("CONFIGURATION")}
   bap config [key] [value]          View/set configuration
   bap install-skill                 Install skill to all detected agents
@@ -103,6 +112,7 @@ ${pc.cyan("GLOBAL OPTIONS")}
   --headless / --no-headless        Browser visibility (default: visible)
   --profile <path>                  Chrome profile dir (default: auto-detect)
   --no-profile                      Fresh browser, no user profile
+  --format <mode>                    Output: pretty (TTY), json (pipe), agent (default)
   -v, --verbose                     Verbose output
   -h, --help                        Show this help
   -V, --version                     Show version
@@ -112,7 +122,7 @@ ${pc.dim("Docs:")} ${pc.cyan("https://github.com/browseragentprotocol/bap")}
 }
 
 function printVersion(): void {
-  console.log("bap-cli 0.3.0");
+  console.log("bap-cli 0.6.0");
 }
 
 // =============================================================================
@@ -120,7 +130,7 @@ function printVersion(): void {
 // =============================================================================
 
 /** Commands that don't need a server connection at all */
-const NO_SERVER_COMMANDS = new Set(["config", "install-skill", "skill", "--help", "-h"]);
+const NO_SERVER_COMMANDS = new Set(["config", "install-skill", "skill", "trace", "--help", "-h"]);
 
 /**
  * Commands that need a server connection but manage their own browser/page
@@ -140,6 +150,15 @@ const CLIENT_ONLY_COMMANDS = new Set([
 
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
+
+  // Set output format: explicit flag > TTY detection > "agent"
+  const { setOutputFormat } = await import("./output/formatter.js");
+  if (flags.format) {
+    setOutputFormat(flags.format);
+  } else if (process.stdout.isTTY) {
+    setOutputFormat("pretty");
+  }
+
   let serverManager: ServerManager | null = null;
   let shuttingDown = false;
 

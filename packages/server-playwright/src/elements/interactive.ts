@@ -320,6 +320,30 @@ export async function getInteractiveElements(
       ref = `@e${i + 1}`;
     }
 
+    // Build alternative selectors ordered by reliability
+    const alts: BAPSelector[] = [];
+    if (el.testId) {
+      alts.push({ type: "testId", value: el.testId });
+    }
+    if (el.ariaLabel) {
+      alts.push({ type: "role", role: el.role as AriaRole, name: el.ariaLabel });
+    }
+    if (el.id) {
+      // Escape CSS special chars in id (dots, colons, brackets are valid in HTML id but not bare CSS)
+      const escapedId = el.id.replace(/([^\w-])/g, "\\$1");
+      alts.push({ type: "css", value: `#${escapedId}` });
+    }
+    if (el.name && el.name.length < 50) {
+      alts.push({ type: "text", value: el.name });
+    }
+    if (el.cssPath) {
+      alts.push({ type: "css", value: el.cssPath });
+    }
+    // Remove the primary selector from alternatives (avoid duplicate)
+    // Compare by serialized form to handle role selectors (which have role+name, not value)
+    const primaryKey = JSON.stringify(selector);
+    const altSelectors = alts.filter((a) => JSON.stringify(a) !== primaryKey);
+
     const element: InteractiveElement = {
       ref,
       selector,
@@ -331,6 +355,7 @@ export async function getInteractiveElements(
       tagName: el.tagName,
       focused: el.focused,
       disabled: el.disabled,
+      ...(altSelectors.length > 0 ? { alternativeSelectors: altSelectors } : {}),
     };
 
     if (useStableRefs) {

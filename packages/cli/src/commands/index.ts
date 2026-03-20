@@ -31,3 +31,4 @@ import "./eval.js";
 import "./config.js";
 import "./recipe.js";
 import "./install-skill.js";
+import "./trace.js";

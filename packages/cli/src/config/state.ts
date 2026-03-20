@@ -50,6 +50,8 @@ export interface GlobalFlags {
   timeout?: number;
   userField?: string;
   passField?: string;
+  // output format
+  format?: "pretty" | "json" | "agent";
 }
 
 export interface BAPConfig {
@@ -212,6 +214,22 @@ export function parseArgs(argv: string[]): GlobalFlags {
       flags.file = arg.slice(7);
     } else if (arg === "--file") {
       flags.file = argv[++i];
+    } else if (arg.startsWith("--format=")) {
+      const fmt = arg.slice(9);
+      if (fmt === "pretty" || fmt === "json" || fmt === "agent") {
+        flags.format = fmt;
+      } else {
+        console.error(`Unknown format: ${fmt}. Use: pretty, json, or agent`);
+        process.exit(1);
+      }
+    } else if (arg === "--format") {
+      const fmt = argv[++i] ?? "agent";
+      if (fmt === "pretty" || fmt === "json" || fmt === "agent") {
+        flags.format = fmt;
+      } else {
+        console.error(`Unknown format: ${fmt}. Use: pretty, json, or agent`);
+        process.exit(1);
+      }
     }
     // recipe flags
     else if (arg.startsWith("--user=")) {

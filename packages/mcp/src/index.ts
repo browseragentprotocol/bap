@@ -997,6 +997,9 @@ export class BAPMCPServer {
       }
     }
 
+    // Wire console/network events → MCP logging notifications
+    this.setupEventStreaming(this.client);
+
     this.log("BAP client connected and browser launched");
     return this.client;
   }
@@ -1021,6 +1024,53 @@ export class BAPMCPServer {
     }
     this.client = null;
     this.transport = null;
+  }
+
+  /**
+   * Wire BAP client events (console, network) to MCP logging notifications.
+   * Agents receive summarized event streams: "3 console errors in 5s",
+   * "POST /api/login → 401", etc.
+   */
+  private setupEventStreaming(client: BAPClient): void {
+    // Console events → MCP log notifications
+    client.on("console", (event: { level: string; text: string; url?: string }) => {
+      const level = event.level === "error" || event.level === "warn" ? event.level : "info";
+      try {
+        this.server.notification({
+          method: "notifications/message",
+          params: {
+            level,
+            logger: "browser-console",
+            data: `[${event.level}] ${event.text}${event.url ? ` (${event.url})` : ""}`,
+          },
+        });
+      } catch {
+        // MCP transport may not be ready — ignore
+      }
+    });
+
+    // Network events → MCP log notifications (responses only, to avoid noise)
+    client.on(
+      "network",
+      (event: { type: string; url?: string; method?: string; status?: number }) => {
+        if (event.type !== "response") return;
+        // Only forward errors (4xx/5xx) to avoid flooding
+        if (event.status && event.status >= 400) {
+          try {
+            this.server.notification({
+              method: "notifications/message",
+              params: {
+                level: event.status >= 500 ? "error" : "warning",
+                logger: "browser-network",
+                data: `${event.method ?? "GET"} ${event.url} → ${event.status}`,
+              },
+            });
+          } catch {
+            // MCP transport may not be ready — ignore
+          }
+        }
+      }
+    );
   }
 
   /**

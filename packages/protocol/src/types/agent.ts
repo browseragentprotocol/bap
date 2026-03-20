@@ -243,9 +243,9 @@ export type ElementIdentity = z.infer<typeof ElementIdentitySchema>;
  * Stability indicator for element references
  */
 export const RefStabilitySchema = z.enum([
-  "stable",  // Same element, same ref
-  "new",     // Newly discovered element
-  "moved",   // Element found but ref changed (rare)
+  "stable", // Same element, same ref
+  "new", // Newly discovered element
+  "moved", // Element found but ref changed (rare)
 ]);
 export type RefStability = z.infer<typeof RefStabilitySchema>;
 
@@ -288,6 +288,9 @@ export const InteractiveElementSchema = z.object({
 
   /** Ref stability indicator */
   stability: RefStabilitySchema.optional(),
+
+  /** Alternative selectors ordered by reliability (most reliable first) */
+  alternativeSelectors: z.array(BAPSelectorSchema).optional(),
 });
 export type InteractiveElement = z.infer<typeof InteractiveElementSchema>;
 
@@ -342,9 +345,9 @@ export type AnnotationStyle = z.infer<typeof AnnotationStyleSchema>;
  * Label format for annotations
  */
 export const AnnotationLabelFormatSchema = z.enum([
-  "number",  // [1], [2], [3]
-  "ref",     // @e1, @submit
-  "both",    // [1] @submit
+  "number", // [1], [2], [3]
+  "ref", // @e1, @submit
+  "both", // [1] @submit
 ]);
 export type AnnotationLabelFormat = z.infer<typeof AnnotationLabelFormatSchema>;
 
@@ -434,10 +437,7 @@ export const AgentObserveParamsSchema = z.object({
 
   // Screenshot Annotation options
   /** Annotate screenshot with element markers (Set-of-Marks style) */
-  annotateScreenshot: z.union([
-    z.boolean(),
-    AnnotationOptionsSchema,
-  ]).optional(),
+  annotateScreenshot: z.union([z.boolean(), AnnotationOptionsSchema]).optional(),
 
   // Fusion options
   /** Response compression tier (default: "full") */
@@ -574,12 +574,19 @@ const BaseSchemaPropertySchema = z.object({
  */
 export const ExtractionSchemaSchema: z.ZodType<{
   type: "object" | "array" | "string" | "number" | "boolean";
-  properties?: Record<string, {
-    type: "object" | "array" | "string" | "number" | "boolean";
-    description?: string;
-    properties?: Record<string, { type: string; description?: string }>;
-    items?: { type: string; description?: string; properties?: Record<string, { type: string; description?: string }> };
-  }>;
+  properties?: Record<
+    string,
+    {
+      type: "object" | "array" | "string" | "number" | "boolean";
+      description?: string;
+      properties?: Record<string, { type: string; description?: string }>;
+      items?: {
+        type: string;
+        description?: string;
+        properties?: Record<string, { type: string; description?: string }>;
+      };
+    }
+  >;
   required?: string[];
   items?: {
     type: "object" | "array" | "string" | "number" | "boolean";
@@ -591,24 +598,32 @@ export const ExtractionSchemaSchema: z.ZodType<{
   /** Type of the root value */
   type: z.enum(["object", "array", "string", "number", "boolean"]),
   /** Properties for object type (one level of nesting) */
-  properties: z.record(z.object({
-    type: z.enum(["object", "array", "string", "number", "boolean"]),
-    description: z.string().optional(),
-    properties: z.record(BaseSchemaPropertySchema).optional(),
-    items: z.object({
-      type: z.enum(["object", "array", "string", "number", "boolean"]),
-      description: z.string().optional(),
-      properties: z.record(BaseSchemaPropertySchema).optional(),
-    }).optional(),
-  })).optional(),
+  properties: z
+    .record(
+      z.object({
+        type: z.enum(["object", "array", "string", "number", "boolean"]),
+        description: z.string().optional(),
+        properties: z.record(BaseSchemaPropertySchema).optional(),
+        items: z
+          .object({
+            type: z.enum(["object", "array", "string", "number", "boolean"]),
+            description: z.string().optional(),
+            properties: z.record(BaseSchemaPropertySchema).optional(),
+          })
+          .optional(),
+      })
+    )
+    .optional(),
   /** Required properties for object type */
   required: z.array(z.string()).optional(),
   /** Items schema for array type */
-  items: z.object({
-    type: z.enum(["object", "array", "string", "number", "boolean"]),
-    description: z.string().optional(),
-    properties: z.record(BaseSchemaPropertySchema).optional(),
-  }).optional(),
+  items: z
+    .object({
+      type: z.enum(["object", "array", "string", "number", "boolean"]),
+      description: z.string().optional(),
+      properties: z.record(BaseSchemaPropertySchema).optional(),
+    })
+    .optional(),
   /** Description of what to extract (helps AI understand the intent) */
   description: z.string().optional(),
 });
