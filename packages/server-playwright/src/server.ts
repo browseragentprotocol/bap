@@ -1,610 +1,323 @@
 /**
- * @fileoverview BAP Playwright Server
+ * @fileoverview BAP Playwright Server — thin shell
  * @module @browseragentprotocol/server-playwright
- * @version 0.2.0
+ * @version 0.6.0
  *
- * Reference implementation of a BAP server using Playwright.
- * Translates BAP protocol messages to Playwright API calls.
- *
- * SECURITY: This server implements secure-by-default configuration.
- * All credential protection options are enabled by default.
- *
- * AUTHORIZATION: Supports scope-based authorization for fine-grained access control.
- * See BAPScope type for available scopes.
+ * Decomposed from a 5400-line monolith into ~15 modules.
+ * This file is the orchestration shell: constructor, start/stop,
+ * connection handling, request dispatch, and HandlerContext wiring.
  */
 
 import { randomUUID, timingSafeEqual } from "node:crypto";
-import fs from "node:fs";
 import { EventEmitter } from "events";
 import * as http from "http";
-import * as path from "path";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   chromium,
   firefox,
   webkit,
-  Browser,
-  BrowserContext,
-  Page as PlaywrightPage,
-  Locator,
-  BrowserType,
-  ConsoleMessage,
-  Dialog,
-  Download,
-  Request,
-  Response,
+  type Page as PlaywrightPage,
+  type BrowserContext,
+  type BrowserType,
 } from "playwright";
 import {
   BAP_VERSION,
-  JSONRPCRequest,
-  JSONRPCResponse,
-  JSONRPCErrorResponse,
-  ErrorCodes,
-  ErrorCode,
-  BAPSelector,
-  BAPMethod,
-  Page,
-  StorageState,
-  AccessibilityNode,
-  Cookie,
-  AriaRole,
-  // Parameter types
-  InitializeParams,
-  InitializeResult,
-  BrowserLaunchParams,
-  BrowserLaunchResult,
-  PageCreateOptions,
-  PageNavigateResult,
-  WaitUntilState,
-  ClickOptions,
-  TypeOptions,
-  ScrollOptions,
-  ActionOptions,
-  ScreenshotOptions,
-  AccessibilityTreeOptions,
-  ObserveScreenshotResult,
-  ObserveAccessibilityResult,
-  ObserveDOMResult,
-  ObserveElementResult,
-  ObservePDFResult,
-  ObserveContentResult,
-  ElementProperty,
-  ContentFormat,
-  FileUpload,
-  ServerCapabilities,
-  // Agent types (composite actions, observations, and data extraction)
-  AgentActParams,
-  AgentActResult,
-  AgentObserveParams,
-  AgentObserveResult,
-  AgentExtractParams,
-  AgentExtractResult,
-  ExecutionStep,
-  StepResult,
-  StepCondition,
-  InteractiveElement,
-  ActionHint,
-  ALLOWED_ACT_ACTIONS,
-  // Element identity and annotation types
-  ElementIdentity,
-  RefStability,
-  AnnotationOptions,
-  AnnotationMapping,
-  // Context types (Multi-Context Support)
-  ContextCreateParams,
-  ContextCreateResult,
-  ContextInfo,
-  ContextListResult,
-  ContextDestroyParams,
-  ContextDestroyResult,
-  ContextOptions,
-  // Frame types (Frame & Shadow DOM Support)
-  FrameInfo,
-  FrameListParams,
-  FrameListResult,
-  FrameSwitchParams,
-  FrameSwitchResult,
-  FrameMainParams,
-  FrameMainResult,
-  // Streaming types
-  StreamCancelParams,
-  StreamCancelResult,
-  // Approval types (Human-in-the-Loop)
-  ApprovalRespondParams,
-  ApprovalRespondResult,
-  // Discovery types (WebMCP)
-  DiscoveryDiscoverParams,
-  DiscoveryDiscoverResult,
-  WebMCPTool,
-  // Authorization
+  type JSONRPCRequest,
+  type JSONRPCResponse,
+  type JSONRPCErrorResponse,
+  type BAPMethod,
   type BAPScope,
-  ScopeProfiles,
+  type WaitUntilState,
+  type AccessibilityNode,
+  type InitializeParams,
+  type BrowserLaunchParams,
+  type PageCreateOptions,
+  type AgentActParams,
+  type AgentObserveParams,
+  type AgentExtractParams,
+  type ContextCreateParams,
+  type ContextDestroyParams,
+  type FrameListParams,
+  type FrameSwitchParams,
+  type FrameMainParams,
+  type StreamCancelParams,
+  type ApprovalRespondParams,
+  type DiscoveryDiscoverParams,
+  ErrorCodes,
+  type ErrorCode,
   MethodScopes,
   hasScope,
   parseScopes,
   createAuthorizationError,
-  // Helpers
   createSuccessResponse,
   createErrorResponse,
-  createNotification,
   isRequest,
 } from "@browseragentprotocol/protocol";
+
+// Internal modules
+import { type BAPServerOptions, type ResolvedOptions, resolveOptions } from "./config.js";
+import type {
+  ClientState,
+  DormantSession,
+  HandlerContext,
+  PageOwner,
+  PlaywrightAccessibilityNode,
+} from "./types.js";
+import { BAPServerError } from "./errors.js";
+import { Logger } from "@browseragentprotocol/logger";
+
+// Security
+import { validateUrl as _validateUrl } from "./security/url-validator.js";
+import { sanitizeBrowserArgs as _sanitizeBrowserArgs } from "./security/arg-sanitizer.js";
+import { redactSensitiveContent } from "./security/credential-redactor.js";
+
+// Selectors & Elements
 import {
-  generateStableRef,
-  compareIdentities,
-  createElementRegistry,
-  cleanupStaleEntries,
-  type PageElementRegistry,
-} from "@browseragentprotocol/protocol";
+  resolveSelector as _resolveSelector,
+  resolveSelectorWithHealing as _resolveSelectorWithHealing,
+  type SelectorResolverDeps,
+} from "./selectors/resolver.js";
 
-/** Action confirmation event for agent feedback */
-interface ActionConfirmationEvent {
-  pageId: string;
-  action: string;
-  selector?: { type: string; value?: string; role?: string; name?: string };
-  status: 'success' | 'failed' | 'partial';
-  changes?: {
-    urlChanged?: boolean;
-    newUrl?: string;
-    elementState?: { visible?: boolean; checked?: boolean; value?: string };
-  };
-  error?: string;
-  timestamp: number;
-}
+// Session
+import {
+  setupSessionTimeouts,
+  resetIdleTimeout,
+  clearSessionTimeouts,
+} from "./session/timeouts.js";
+import {
+  parkSession as _parkSession,
+  restoreSession as _restoreSession,
+} from "./session/dormant-store.js";
 
-// =============================================================================
-// Server Configuration
-// =============================================================================
+// Recording
+import { TraceRecorder } from "./recording/trace-recorder.js";
 
-/**
- * Security configuration for the BAP server
- */
-export interface BAPSecurityOptions {
-  /**
-   * Protocols to block (default: ['file', 'javascript', 'data', 'vbscript'])
-   * Set to empty array to allow all protocols (not recommended)
-   */
-  blockedProtocols?: string[];
-  /**
-   * Hostnames to block (default includes cloud metadata endpoints)
-   * Set to empty array to allow all hosts
-   */
-  blockedHosts?: string[];
-  /**
-   * If set, only these protocols are allowed (overrides blockedProtocols)
-   */
-  allowedProtocols?: string[];
-  /**
-   * If set, only navigation to these hosts is allowed
-   */
-  allowedHosts?: string[];
-  /**
-   * CREDENTIAL PROTECTION OPTIONS
-   */
-  /**
-   * Redact sensitive content from DOM/HTML responses (default: true)
-   * Removes password field values, JWT tokens, etc.
-   */
-  redactSensitiveContent?: boolean;
-  /**
-   * Block direct value extraction from password fields (default: true)
-   */
-  blockPasswordValueExtraction?: boolean;
-  /**
-   * Hide password fields in screenshots by overlaying them (default: false)
-   * Note: This adds latency to screenshot operations
-   */
-  redactPasswordsInScreenshots?: boolean;
-  /**
-   * Block storage state extraction entirely (default: false)
-   * Use for high-security environments
-   */
-  blockStorageStateExtraction?: boolean;
-}
+// Cache
+import { ActionCache } from "./cache/action-cache.js";
 
-/**
- * Rate limiting configuration
- */
-export interface BAPLimitsOptions {
-  /** Maximum pages per client (default: 10) */
-  maxPagesPerClient?: number;
-  /** Maximum requests per second per client (default: 50) */
-  maxRequestsPerSecond?: number;
-  /** Maximum screenshots per minute per client (default: 30) */
-  maxScreenshotsPerMinute?: number;
-}
+// Events
+import { sendEvent, setupPageListeners as _setupPageListeners } from "./events/forwarder.js";
 
-/**
- * Authorization configuration
- */
-export interface BAPAuthorizationOptions {
-  /**
-   * Default scopes for authenticated clients (default: ScopeProfiles.standard)
-   * Can be overridden per-token using JWT claims or BAP_SCOPES env var
-   */
-  defaultScopes?: BAPScope[];
-  /**
-   * Environment variable name for scopes (default: BAP_SCOPES)
-   * Value should be comma-separated list of scopes
-   */
-  scopesEnvVar?: string;
-}
-
-/**
- * Session management configuration
- */
-export interface BAPSessionOptions {
-  /**
-   * Maximum session duration in seconds (default: 3600 = 1 hour)
-   * Sessions are terminated after this duration regardless of activity
-   */
-  maxDuration?: number;
-  /**
-   * Idle timeout in seconds (default: 600 = 10 minutes)
-   * Sessions are terminated after this period of inactivity
-   */
-  idleTimeout?: number;
-  /**
-   * TTL for dormant sessions in seconds (default: 300 = 5 minutes)
-   * When a client with a sessionId disconnects, its browser/pages are parked
-   * in a dormant store. If no client reconnects with the same sessionId within
-   * this TTL, the dormant session is destroyed.
-   */
-  dormantSessionTtl?: number;
-}
-
-/**
- * TLS/Security enforcement options
- */
-export interface BAPTLSOptions {
-  /**
-   * Require TLS (WSS) for connections (default: false in dev, true in production)
-   * Production mode is detected via NODE_ENV=production
-   */
-  requireTLS?: boolean;
-  /**
-   * Warn about non-TLS connections in logs (default: true)
-   */
-  warnInsecure?: boolean;
-}
-
-/**
- * BAP Server configuration options
- */
-export interface BAPServerOptions {
-  /** Port to listen on */
-  port?: number;
-  /** Host to bind to */
-  host?: string;
-  /** Default browser type */
-  defaultBrowser?: "chromium" | "firefox" | "webkit";
-  /** Default Playwright channel (e.g. "chrome", "msedge") */
-  defaultChannel?: string;
-  /** Default headless mode */
-  headless?: boolean;
-  /** Enable debug logging */
-  debug?: boolean;
-  /** Default timeout for operations */
-  timeout?: number;
-  /**
-   * Authentication token for WebSocket connections.
-   * If set, clients must provide this token via query param (?token=xxx)
-   * or header (X-BAP-Token: xxx) to connect.
-   */
-  authToken?: string;
-  /**
-   * Environment variable name to read auth token from (default: BAP_AUTH_TOKEN)
-   * Only used if authToken is not directly provided.
-   */
-  authTokenEnvVar?: string;
-  /** Security configuration */
-  security?: BAPSecurityOptions;
-  /** Rate limiting configuration */
-  limits?: BAPLimitsOptions;
-  /** Authorization configuration (v0.2.0) */
-  authorization?: BAPAuthorizationOptions;
-  /** Session management configuration (v0.2.0) */
-  session?: BAPSessionOptions;
-  /** TLS enforcement configuration (v0.2.0) */
-  tls?: BAPTLSOptions;
-}
-
-/**
- * Default blocked protocols for URL validation
- */
-const DEFAULT_BLOCKED_PROTOCOLS = ['file', 'javascript', 'data', 'vbscript'];
-
-/**
- * Default blocked hosts (cloud metadata endpoints)
- */
-const DEFAULT_BLOCKED_HOSTS = [
-  '169.254.169.254',           // AWS EC2 metadata
-  'metadata.google.internal',   // GCP metadata
-  'metadata.goog',              // GCP metadata alternative
-  '100.100.100.200',           // Alibaba Cloud metadata
-  'fd00:ec2::254',             // AWS EC2 IPv6 metadata
-];
-
-/**
- * Allowed browser launch arguments (allowlist)
- */
-const ALLOWED_BROWSER_ARGS: (string | RegExp)[] = [
-  '--no-sandbox',
-  '--disable-gpu',
-  '--disable-dev-shm-usage',
-  '--disable-software-rasterizer',
-  /^--window-size=\d+,\d+$/,
-  /^--window-position=\d+,\d+$/,
-  '--start-maximized',
-  '--start-fullscreen',
-  '--kiosk',
-  '--incognito',
-  /^--proxy-server=.+$/,
-  /^--lang=[a-z]{2}(-[A-Z]{2})?$/,
-];
-
-/**
- * Blocked browser launch arguments (blocklist)
- */
-const BLOCKED_BROWSER_ARGS = [
-  '--disable-web-security',
-  '--disable-site-isolation-trials',
-  '--remote-debugging-port',
-  '--remote-debugging-address',
-  '--user-data-dir',
-  '--load-extension',
-  '--disable-extensions-except',
-  '--allow-running-insecure-content',
-  '--reduce-security-for-testing',
-];
-
-/**
- * SECURE-BY-DEFAULT: All security options enabled by default
- */
-const DEFAULT_OPTIONS: Required<Omit<BAPServerOptions, 'authToken' | 'authTokenEnvVar' | 'defaultChannel' | 'security' | 'limits' | 'authorization' | 'session' | 'tls'>> & {
-  authToken: string | undefined;
-  authTokenEnvVar: string;
-  defaultChannel: string | undefined;
-  security: Required<BAPSecurityOptions>;
-  limits: Required<BAPLimitsOptions>;
-  authorization: Required<BAPAuthorizationOptions>;
-  session: Required<BAPSessionOptions>;
-  tls: Required<BAPTLSOptions>;
-} = {
-  port: 9222,
-  host: "localhost",
-  defaultBrowser: "chromium",
-  defaultChannel: undefined,
-  headless: true,
-  debug: false,
-  timeout: 30000,
-  authToken: undefined,
-  authTokenEnvVar: 'BAP_AUTH_TOKEN',
-  // SECURE-BY-DEFAULT: All credential protection enabled
-  security: {
-    blockedProtocols: DEFAULT_BLOCKED_PROTOCOLS,
-    blockedHosts: DEFAULT_BLOCKED_HOSTS,
-    allowedProtocols: undefined as unknown as string[],
-    allowedHosts: undefined as unknown as string[],
-    // SECURE-BY-DEFAULT: All credential protection options enabled
-    redactSensitiveContent: true,
-    blockPasswordValueExtraction: true,
-    redactPasswordsInScreenshots: false, // Disabled due to latency impact
-    blockStorageStateExtraction: false,  // Enable for high-security environments
-  },
-  limits: {
-    maxPagesPerClient: 10,
-    maxRequestsPerSecond: 50,
-    maxScreenshotsPerMinute: 30,
-  },
-  // Authorization defaults (v0.2.0)
-  authorization: {
-    defaultScopes: ScopeProfiles.standard,
-    scopesEnvVar: 'BAP_SCOPES',
-  },
-  // Session management defaults (v0.2.0)
-  session: {
-    maxDuration: 3600,    // 1 hour max session
-    idleTimeout: 600,     // 10 minutes idle timeout
-    dormantSessionTtl: 300, // 5 minutes dormant TTL
-  },
-  // TLS enforcement (v0.2.0)
-  tls: {
-    requireTLS: process.env.NODE_ENV === 'production',
-    warnInsecure: true,
-  },
-};
+// Handlers
+import { handleInitialize, handleShutdown } from "./handlers/lifecycle.js";
+import { handleBrowserLaunch, handleBrowserClose } from "./handlers/browser.js";
+import {
+  handlePageCreate,
+  handlePageNavigate,
+  handlePageReload,
+  handlePageGoBack,
+  handlePageGoForward,
+  handlePageClose,
+  handlePageList,
+  handlePageActivate,
+} from "./handlers/page.js";
+import {
+  handleActionClick,
+  handleActionDblclick,
+  handleActionType,
+  handleActionFill,
+  handleActionClear,
+  handleActionPress,
+  handleActionHover,
+  handleActionScroll,
+  handleActionSelect,
+  handleActionCheck,
+  handleActionUncheck,
+  handleActionUpload,
+  handleActionDrag,
+} from "./handlers/actions.js";
+import {
+  handleObserveScreenshot,
+  handleObserveAccessibility,
+  handleObserveDOM,
+  handleObserveElement,
+  handleObservePDF,
+  handleObserveContent,
+  handleObserveAriaSnapshot,
+} from "./handlers/observe.js";
+import {
+  handleStorageGetState,
+  handleStorageSetState,
+  handleStorageGetCookies,
+  handleStorageSetCookies,
+  handleStorageClearCookies,
+} from "./handlers/storage.js";
+import {
+  handleEmulateSetViewport,
+  handleEmulateSetUserAgent,
+  handleEmulateSetGeolocation,
+  handleEmulateSetOffline,
+} from "./handlers/emulation.js";
+import {
+  handleDialogHandle,
+  handleTraceStart,
+  handleTraceStop,
+  handleEventsSubscribe,
+} from "./handlers/misc.js";
+import {
+  handleContextCreate,
+  handleContextList,
+  handleContextDestroy,
+  handleFrameList,
+  handleFrameSwitch,
+  handleFrameMain,
+  handleStreamCancel,
+  handleApprovalRespond,
+} from "./handlers/context.js";
+import { handleDiscoveryDiscover } from "./handlers/discovery.js";
+import { handleAgentAct, handleAgentObserve, handleAgentExtract } from "./handlers/agent.js";
 
 // =============================================================================
-// Client State Types
+// Re-exports for public API
 // =============================================================================
 
-/** PERF: Sliding window counter for O(1) rate limiting */
-interface SlidingWindow {
-  count: number;
-  windowStart: number;
-}
-
-/** Context info stored in client state */
-interface ContextState {
-  context: BrowserContext;
-  created: number;
-  options?: ContextOptions;
-}
-
-/** Active stream info */
-interface ActiveStream {
-  streamId: string;
-  buffer: Buffer;
-  sent: number;
-  cancelled: boolean;
-  contentType: string;
-  chunkSize: number;
-}
-
-/** Pending approval request */
-interface PendingApproval {
-  requestId: string;
-  originalRequest: JSONRPCRequest;
-  rule: string;
-  resolve: (result: unknown) => void;
-  reject: (error: Error) => void;
-  timeoutHandle: NodeJS.Timeout;
-}
-
-/** Frame context for frame switching */
-interface FrameContext {
-  pageId: string;
-  frameId: string | null; // null means main frame
-}
-
-/** Client state for a connected WebSocket client */
-interface ClientState {
-  /** Unique identifier for this client connection (for log correlation) */
-  clientId: string;
-  initialized: boolean;
-  browser: Browser | null;
-  /** Whether launched via launchPersistentContext (no Browser object) */
-  isPersistent: boolean;
-  /** Default context (backwards compatible) */
-  context: BrowserContext | null;
-  /** Multi-context support: named contexts */
-  contexts: Map<string, ContextState>;
-  /** Default context ID */
-  defaultContextId: string | null;
-  pages: Map<string, PlaywrightPage>;
-  /** Map from pageId to contextId */
-  pageToContext: Map<string, string>;
-  activePage: string | null;
-  eventSubscriptions: Set<string>;
-  tracing: boolean;
-  /** PERF: Sliding window for request rate limiting - O(1) instead of O(n) */
-  requestWindow?: SlidingWindow;
-  /** PERF: Sliding window for screenshot rate limiting - O(1) instead of O(n) */
-  screenshotWindow?: SlidingWindow;
-
-  // Authorization (v0.2.0)
-  /** Granted scopes for this client */
-  scopes: BAPScope[];
-
-  // Session management (v0.2.0)
-  /** Session start time (Unix timestamp ms) */
-  sessionStartTime: number;
-  /** Last activity time (Unix timestamp ms) */
-  lastActivityTime: number;
-  /** Session timeout handle */
-  sessionTimeoutHandle?: NodeJS.Timeout;
-  /** Idle timeout handle */
-  idleTimeoutHandle?: NodeJS.Timeout;
-
-  // Element Reference System (stable refs)
-  /** Element registries per page for stable ref tracking */
-  elementRegistries: Map<string, PageElementRegistry>;
-
-  // Frame context (Frame & Shadow DOM Support)
-  /** Current frame context per page */
-  frameContexts: Map<string, FrameContext>;
-
-  // Streaming (Streaming Responses)
-  /** Active streams */
-  activeStreams: Map<string, ActiveStream>;
-
-  // Approval (Human-in-the-Loop)
-  /** Pending approval requests */
-  pendingApprovals: Map<string, PendingApproval>;
-  /** Session-level approvals (for approve-session) */
-  sessionApprovals: Set<string>;
-
-  // Fusion: Speculative prefetch
-  /** Cached speculative observation (fire-and-forget after navigation/click) */
-  speculativeObservation?: {
-    pageUrl: string;
-    result: AgentObserveResult;
-    timestamp: number;
-  };
-  /** Timer handle for pending speculative prefetch (for cancellation on cleanup/disconnect) */
-  speculativePrefetchTimer?: NodeJS.Timeout;
-
-  // Session persistence (v0.3.0)
-  /** Session ID for cross-connection persistence (set during initialize) */
-  sessionId?: string;
-}
-
-/** Dormant session: parked browser state awaiting reconnection */
-interface DormantSession {
-  sessionId: string;
-  browser: Browser | null;
-  isPersistent: boolean;
-  context: BrowserContext | null;
-  contexts: Map<string, ContextState>;
-  defaultContextId: string | null;
-  pages: Map<string, PlaywrightPage>;
-  pageToContext: Map<string, string>;
-  activePage: string | null;
-  elementRegistries: Map<string, PageElementRegistry>;
-  frameContexts: Map<string, FrameContext>;
-  sessionApprovals: Set<string>;
-  ttlHandle: NodeJS.Timeout;
-  parkedAt: number;
-}
-
-type PageOwner = {
-  ws: WebSocket | null;
-  state: ClientState | DormantSession;
-};
-
-interface PlaywrightAccessibilityNode {
-  role?: string;
-  name?: string;
-  value?: string;
-  description?: string;
-  checked?: AccessibilityNode["checked"];
-  disabled?: boolean;
-  expanded?: boolean;
-  focused?: boolean;
-  selected?: boolean;
-  required?: boolean;
-  level?: number;
-  children?: PlaywrightAccessibilityNode[];
-}
-
-// =============================================================================
-// BAP Server
-// =============================================================================
-
+export type {
+  BAPServerOptions,
+  BAPSecurityOptions,
+  BAPLimitsOptions,
+  BAPAuthorizationOptions,
+  BAPSessionOptions,
+  BAPTLSOptions,
+} from "./config.js";
+export type { ClientState, DormantSession, HandlerContext } from "./types.js";
 /**
- * BAP Server - Playwright implementation
- *
- * @example
- * ```typescript
- * const server = new BAPPlaywrightServer({ port: 9222 });
- * await server.start();
- * console.log("BAP server running on ws://localhost:9222");
- * ```
+ * @internal Exported for handler testability only — not part of the public semver contract.
+ * External consumers should use protocol-level BAPError instead.
  */
+export { BAPServerError } from "./errors.js";
+
+// =============================================================================
+// BAPPlaywrightServer
+// =============================================================================
+
 export class BAPPlaywrightServer extends EventEmitter {
-  private readonly options: typeof DEFAULT_OPTIONS;
+  private readonly options: ResolvedOptions;
   private httpServer: http.Server | null = null;
   private wss: WebSocketServer | null = null;
   private clients = new Map<WebSocket, ClientState>();
   private dormantSessions = new Map<string, DormantSession>();
 
+  // Cached dependency objects — created once, reused across all requests
+  private _handlerContext: HandlerContext | null = null;
+  private _selectorDeps: SelectorResolverDeps | null = null;
+  private _eventDeps: ReturnType<BAPPlaywrightServer["createEventForwarderDeps"]> | null = null;
+  private _dormantDeps: ReturnType<BAPPlaywrightServer["createDormantStoreDeps"]> | null = null;
+
+  private readonly logger: Logger;
+  private readonly traceRecorder: TraceRecorder;
+  readonly actionCache: ActionCache;
+
   constructor(options: BAPServerOptions = {}) {
     super();
-    this.options = {
-      ...DEFAULT_OPTIONS,
-      ...options,
-      security: { ...DEFAULT_OPTIONS.security, ...options.security },
-      limits: { ...DEFAULT_OPTIONS.limits, ...options.limits },
-      authorization: { ...DEFAULT_OPTIONS.authorization, ...options.authorization },
-      session: { ...DEFAULT_OPTIONS.session, ...options.session },
-      tls: { ...DEFAULT_OPTIONS.tls, ...options.tls },
+    this.options = resolveOptions(options);
+    this.logger = new Logger({
+      prefix: "BAP Server",
+      level: this.options.debug ? "debug" : "info",
+      enabled: this.options.debug,
+      format: "json",
+      stderr: true,
+    });
+    this.traceRecorder = new TraceRecorder();
+    this.actionCache = new ActionCache();
+  }
+
+  // ===========================================================================
+  // HandlerContext — the shared interface passed to all handler modules
+  // Cached after first creation; .bind() calls happen once, not per request.
+  // ===========================================================================
+
+  private getHandlerContext(): HandlerContext {
+    if (!this._handlerContext) {
+      this._handlerContext = {
+        options: this.options,
+        clients: this.clients,
+        dormantSessions: this.dormantSessions,
+        log: this.log.bind(this),
+        logSecurity: this.logSecurity.bind(this),
+        getPage: this.getPage.bind(this),
+        resolveSelector: (page, selector) =>
+          _resolveSelector(page, selector, this.getSelectorResolverDeps()),
+        resolveSelectorWithHealing: (page, selector) =>
+          _resolveSelectorWithHealing(page, selector, this.getSelectorResolverDeps()),
+        checkAuthorization: this.checkAuthorization.bind(this),
+        checkRateLimit: this.checkRateLimit.bind(this),
+        checkPageLimit: this.checkPageLimit.bind(this),
+        ensureBrowser: this.ensureBrowser.bind(this),
+        validateUrl: (url) => _validateUrl(url, this.options, this.log.bind(this)),
+        sanitizeBrowserArgs: (args) => _sanitizeBrowserArgs(args, this.log.bind(this)),
+        getBrowserType: this.getBrowserType.bind(this),
+        mapWaitUntil: this.mapWaitUntil.bind(this),
+        sendEvent,
+        setupPageListeners: (page, pageId) =>
+          _setupPageListeners(page, pageId, this.getEventForwarderDeps()),
+        getPageId: this.getPageId.bind(this),
+        findPageOwner: this.findPageOwner.bind(this),
+        removePageFromOwner: this.removePageFromOwner.bind(this),
+        isContextAlive: this.isContextAlive.bind(this),
+        getClientScopes: this.getClientScopes.bind(this),
+        redactSensitiveContent,
+        convertAccessibilityNode: this.convertAccessibilityNode.bind(this),
+        htmlToMarkdown: this.htmlToMarkdown.bind(this),
+        parkSession: (state) => _parkSession(state, this.getDormantStoreDeps()),
+        restoreSession: (dormant, state) =>
+          _restoreSession(dormant, state, this.getDormantStoreDeps()),
+        clearConnectionScopedState: this.clearConnectionScopedState.bind(this),
+        clearSessionTimeouts: (state) => clearSessionTimeouts(state),
+        cleanupClient: this.cleanupClient.bind(this),
+        dispatch: this.dispatch.bind(this),
+      };
+    }
+    return this._handlerContext;
+  }
+
+  private getSelectorResolverDeps(): SelectorResolverDeps {
+    if (!this._selectorDeps) {
+      this._selectorDeps = {
+        logSecurity: this.logSecurity.bind(this),
+        getPageId: this.getPageId.bind(this),
+        findPageOwner: this.findPageOwner.bind(this),
+      };
+    }
+    return this._selectorDeps;
+  }
+
+  private getEventForwarderDeps() {
+    if (!this._eventDeps) {
+      this._eventDeps = this.createEventForwarderDeps();
+    }
+    return this._eventDeps;
+  }
+
+  private createEventForwarderDeps() {
+    return {
+      findConnectedClientForPage: this.findConnectedClientForPage.bind(this),
+      findPageOwner: this.findPageOwner.bind(this),
+      removePageFromOwner: this.removePageFromOwner.bind(this),
+      log: this.log.bind(this),
     };
   }
 
-  /**
-   * Get client scopes from environment or defaults
-   */
+  private getDormantStoreDeps() {
+    if (!this._dormantDeps) {
+      this._dormantDeps = this.createDormantStoreDeps();
+    }
+    return this._dormantDeps;
+  }
+
+  private createDormantStoreDeps() {
+    return {
+      dormantSessions: this.dormantSessions,
+      options: this.options,
+      log: this.log.bind(this),
+      isContextAlive: this.isContextAlive.bind(this),
+      clearConnectionScopedState: this.clearConnectionScopedState.bind(this),
+    };
+  }
+
+  // ===========================================================================
+  // Auth & Scopes
+  // ===========================================================================
+
   private getClientScopes(): BAPScope[] {
     const envScopes = process.env[this.options.authorization.scopesEnvVar];
     if (envScopes) {
@@ -613,111 +326,22 @@ export class BAPPlaywrightServer extends EventEmitter {
     return this.options.authorization.defaultScopes;
   }
 
-  /**
-   * Get the effective auth token (from options or environment)
-   */
   private getAuthToken(): string | undefined {
     return this.options.authToken || process.env[this.options.authTokenEnvVar];
   }
 
-  /**
-   * SECURITY: Timing-safe token comparison to prevent timing attacks
-   */
   private secureTokenCompare(provided: string, expected: string): boolean {
     if (provided.length !== expected.length) {
-      // Still do a comparison to maintain constant time
       timingSafeEqual(Buffer.from(provided), Buffer.from(provided));
       return false;
     }
     return timingSafeEqual(Buffer.from(provided), Buffer.from(expected));
   }
 
-  /**
-   * SECURITY: Audit logging for security events
-   */
-  private logSecurity(event: string, details: Record<string, unknown>): void {
-    const timestamp = new Date().toISOString();
-    const logEntry = { timestamp, event, ...details };
-    // Always log security events to stderr for audit trail
-    console.error(`[BAP-SECURITY] ${JSON.stringify(logEntry)}`);
-  }
-
-  // ===========================================================================
-  // Session Management (v0.2.0)
-  // ===========================================================================
-
-  /**
-   * Set up session timeouts for a client connection
-   */
-  private setupSessionTimeouts(ws: WebSocket, state: ClientState): void {
-    const { maxDuration, idleTimeout } = this.options.session;
-
-    // Maximum session duration timeout
-    state.sessionTimeoutHandle = setTimeout(() => {
-      this.logSecurity('SESSION_EXPIRED', {
-        reason: 'max_duration',
-        duration: maxDuration,
-      });
-      ws.close(1008, 'Session expired: maximum duration exceeded');
-    }, maxDuration * 1000);
-
-    // Idle timeout (reset on each request)
-    state.idleTimeoutHandle = setTimeout(() => {
-      this.logSecurity('SESSION_EXPIRED', {
-        reason: 'idle_timeout',
-        timeout: idleTimeout,
-      });
-      ws.close(1008, 'Session expired: idle timeout');
-    }, idleTimeout * 1000);
-  }
-
-  /**
-   * Reset idle timeout on activity
-   */
-  private resetIdleTimeout(ws: WebSocket, state: ClientState): void {
-    state.lastActivityTime = Date.now();
-
-    // Clear existing idle timeout
-    if (state.idleTimeoutHandle) {
-      clearTimeout(state.idleTimeoutHandle);
-    }
-
-    // Set new idle timeout
-    state.idleTimeoutHandle = setTimeout(() => {
-      this.logSecurity('SESSION_EXPIRED', {
-        reason: 'idle_timeout',
-        timeout: this.options.session.idleTimeout,
-      });
-      ws.close(1008, 'Session expired: idle timeout');
-    }, this.options.session.idleTimeout * 1000);
-  }
-
-  /**
-   * Clear all session timeouts
-   */
-  private clearSessionTimeouts(state: ClientState): void {
-    if (state.sessionTimeoutHandle) {
-      clearTimeout(state.sessionTimeoutHandle);
-      state.sessionTimeoutHandle = undefined;
-    }
-    if (state.idleTimeoutHandle) {
-      clearTimeout(state.idleTimeoutHandle);
-      state.idleTimeoutHandle = undefined;
-    }
-  }
-
-  // ===========================================================================
-  // Authorization (v0.2.0)
-  // ===========================================================================
-
-  /**
-   * Check if client has permission to call a method
-   * @throws BAPServerError if unauthorized
-   */
   private checkAuthorization(state: ClientState, method: string): void {
     if (!hasScope(state.scopes, method)) {
-      const requiredScopes = MethodScopes[method] || ['*'];
-      this.logSecurity('AUTHORIZATION_DENIED', {
+      const requiredScopes = MethodScopes[method] || ["*"];
+      this.logSecurity("AUTHORIZATION_DENIED", {
         method,
         clientScopes: state.scopes,
         requiredScopes,
@@ -728,87 +352,63 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   // ===========================================================================
-  // Action Confirmation Events (v0.2.0)
+  // Server Start / Stop
   // ===========================================================================
 
-  /**
-   * Send action confirmation event to client
-   * @internal Reserved for future use in action handlers
-   */
-  // @ts-expect-error Reserved for v0.2.0+ action handlers
-  private sendActionConfirmation(
-    ws: WebSocket,
-    state: ClientState,
-    event: ActionConfirmationEvent
-  ): void {
-    if (state.eventSubscriptions.has('action')) {
-      this.sendEvent(ws, 'events/action', event as unknown as Record<string, unknown>);
-    }
-  }
-
-  /**
-   * Start the server
-   */
   async start(): Promise<void> {
     return new Promise((resolve) => {
-      // Track connections per IP for rate limiting
       const connectionsPerIP = new Map<string, number>();
-      const MAX_CONNECTIONS_PER_IP = parseInt(process.env.BAP_MAX_CONNECTIONS_PER_IP || '10', 10);
-      const MAX_MESSAGE_SIZE = parseInt(process.env.BAP_MAX_MESSAGE_SIZE || '10485760', 10); // 10MB default
+      const MAX_CONNECTIONS_PER_IP = parseInt(process.env.BAP_MAX_CONNECTIONS_PER_IP || "10", 10);
+      const MAX_MESSAGE_SIZE = parseInt(process.env.BAP_MAX_MESSAGE_SIZE || "10485760", 10);
 
       this.httpServer = http.createServer((req, res) => {
-        // SECURITY: Add security headers to all HTTP responses
-        res.setHeader('X-Content-Type-Options', 'nosniff');
-        res.setHeader('X-Frame-Options', 'DENY');
-        res.setHeader('X-XSS-Protection', '1; mode=block');
-        res.setHeader('Cache-Control', 'no-store');
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("X-Frame-Options", "DENY");
+        res.setHeader("X-XSS-Protection", "1; mode=block");
+        res.setHeader("Cache-Control", "no-store");
 
-        // Health check endpoint
-        if (req.url === '/health') {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ status: 'ok', version: BAP_VERSION }));
+        if (req.url === "/health") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ status: "ok", version: BAP_VERSION }));
           return;
         }
 
-        res.writeHead(426, { 'Content-Type': 'text/plain' });
-        res.end('WebSocket connection required');
+        res.writeHead(426, { "Content-Type": "text/plain" });
+        res.end("WebSocket connection required");
       });
 
-      // SECURITY FIX (CRIT-1): Add WebSocket origin validation to prevent CSWSH attacks
-      const allowedOrigins = process.env.BAP_ALLOWED_ORIGINS?.split(',').filter(Boolean) || [];
+      const allowedOrigins = process.env.BAP_ALLOWED_ORIGINS?.split(",").filter(Boolean) || [];
       this.wss = new WebSocketServer({
         server: this.httpServer,
-        maxPayload: MAX_MESSAGE_SIZE, // SECURITY: Limit message size to prevent DoS
+        maxPayload: MAX_MESSAGE_SIZE,
         verifyClient: (info, callback) => {
           const origin = info.req.headers.origin;
-          const clientIP = info.req.socket.remoteAddress || 'unknown';
+          const clientIP = info.req.socket.remoteAddress || "unknown";
 
-          // SECURITY: Connection limit per IP
           const currentConnections = connectionsPerIP.get(clientIP) || 0;
           if (currentConnections >= MAX_CONNECTIONS_PER_IP) {
-            this.logSecurity('CONNECTION_LIMIT', { ip: clientIP, current: currentConnections, max: MAX_CONNECTIONS_PER_IP });
-            callback(false, 429, 'Too many connections from this IP');
+            this.logSecurity("CONNECTION_LIMIT", {
+              ip: clientIP,
+              current: currentConnections,
+              max: MAX_CONNECTIONS_PER_IP,
+            });
+            callback(false, 429, "Too many connections from this IP");
             return;
           }
 
-          // SECURITY: Origin validation
-          // Allow connections without origin (non-browser clients like CLI tools)
-          // Or if no allowed origins configured (development mode)
-          // Or if origin is in the allowlist
           if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
             connectionsPerIP.set(clientIP, currentConnections + 1);
             callback(true);
           } else {
-            this.logSecurity('ORIGIN_REJECTED', { origin, ip: clientIP });
-            callback(false, 403, 'Origin not allowed');
+            this.logSecurity("ORIGIN_REJECTED", { origin, ip: clientIP });
+            callback(false, 403, "Origin not allowed");
           }
-        }
+        },
       });
 
       this.wss.on("connection", (ws, req) => {
-        const clientIP = req.socket.remoteAddress || 'unknown';
-        ws.on('close', () => {
-          // Decrement connection count on close
+        const clientIP = req.socket.remoteAddress || "unknown";
+        ws.on("close", () => {
           const current = connectionsPerIP.get(clientIP) || 1;
           if (current <= 1) {
             connectionsPerIP.delete(clientIP);
@@ -822,29 +422,28 @@ export class BAPPlaywrightServer extends EventEmitter {
       this.httpServer.listen(this.options.port, this.options.host, () => {
         this.log(`BAP server listening on ws://${this.options.host}:${this.options.port}`);
         if (this.getAuthToken()) {
-          this.log('Authentication enabled - clients must provide valid token');
+          this.log("Authentication enabled - clients must provide valid token");
         }
         resolve();
       });
     });
   }
 
-  /**
-   * Stop the server
-   */
   async stop(): Promise<void> {
-    // Close all client connections
+    this.traceRecorder.close();
+
     for (const [ws, state] of this.clients) {
       await this.cleanupClient(state);
       ws.close();
     }
     this.clients.clear();
 
-    // Close all dormant sessions
     for (const [sessionId, dormant] of this.dormantSessions) {
       clearTimeout(dormant.ttlHandle);
       try {
-        if (dormant.isPersistent) {
+        if (dormant.browserOwnership === "borrowed") {
+          // CDP attach: drop reference only, never close the external browser
+        } else if (dormant.isPersistent) {
           await dormant.context?.close();
         } else {
           await dormant.browser?.close();
@@ -855,13 +454,11 @@ export class BAPPlaywrightServer extends EventEmitter {
       this.dormantSessions.delete(sessionId);
     }
 
-    // Close WebSocket server
     if (this.wss) {
       this.wss.close();
       this.wss = null;
     }
 
-    // Close HTTP server
     if (this.httpServer) {
       await new Promise<void>((resolve) => {
         this.httpServer!.close(() => resolve());
@@ -870,55 +467,51 @@ export class BAPPlaywrightServer extends EventEmitter {
     }
   }
 
-  /**
-   * Handle new WebSocket connection
-   */
-  private handleConnection(ws: WebSocket, req: http.IncomingMessage): void {
-    const clientIP = req.socket.remoteAddress || 'unknown';
+  // ===========================================================================
+  // Connection Handling
+  // ===========================================================================
 
-    // TLS ENFORCEMENT (v0.2.0): Check for secure connection
+  private handleConnection(ws: WebSocket, req: http.IncomingMessage): void {
+    const clientIP = req.socket.remoteAddress || "unknown";
+
     const socket = req.socket as typeof req.socket & { encrypted?: boolean };
-    const isSecure = socket.encrypted === true || req.headers['x-forwarded-proto'] === 'https';
+    const isSecure = socket.encrypted === true || req.headers["x-forwarded-proto"] === "https";
     if (this.options.tls.requireTLS && !isSecure) {
-      this.logSecurity('TLS_REQUIRED', { ip: clientIP });
-      ws.close(1008, 'TLS required: use wss:// instead of ws://');
+      this.logSecurity("TLS_REQUIRED", { ip: clientIP });
+      ws.close(1008, "TLS required: use wss:// instead of ws://");
       return;
     }
     if (this.options.tls.warnInsecure && !isSecure) {
       this.log(`WARNING: Insecure connection from ${clientIP}. Use WSS in production.`);
     }
 
-    // Authenticate the connection if auth is configured
     const authToken = this.getAuthToken();
     if (authToken) {
-      // Extract token from query string or header
-      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-      const queryToken = url.searchParams.get('token');
-      const headerToken = req.headers['x-bap-token'] as string | undefined;
+      const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+      const queryToken = url.searchParams.get("token");
+      const headerToken = req.headers["x-bap-token"] as string | undefined;
       const providedToken = queryToken ?? headerToken;
 
-      // SECURITY: Use timing-safe comparison to prevent timing attacks
       if (!providedToken || !this.secureTokenCompare(providedToken, authToken)) {
-        this.logSecurity('AUTH_FAILED', {
+        this.logSecurity("AUTH_FAILED", {
           ip: clientIP,
           hasToken: !!providedToken,
-          method: queryToken ? 'query' : headerToken ? 'header' : 'none'
+          method: queryToken ? "query" : headerToken ? "header" : "none",
         });
-        ws.close(1008, 'Unauthorized: invalid or missing token');
+        ws.close(1008, "Unauthorized: invalid or missing token");
         return;
       }
-      this.logSecurity('AUTH_SUCCESS', { ip: clientIP });
+      this.logSecurity("AUTH_SUCCESS", { ip: clientIP });
     }
 
-    // Initialize client state with authorization and session tracking (v0.2.0)
     const now = Date.now();
     const state: ClientState = {
       clientId: randomUUID().slice(0, 8),
       initialized: false,
       browser: null,
       isPersistent: false,
+      browserOwnership: "owned",
       context: null,
-      // Multi-context support
       contexts: new Map(),
       defaultContextId: null,
       pages: new Map(),
@@ -926,28 +519,20 @@ export class BAPPlaywrightServer extends EventEmitter {
       activePage: null,
       eventSubscriptions: new Set(),
       tracing: false,
-      // Authorization (v0.2.0)
       scopes: this.getClientScopes(),
-      // Session management (v0.2.0)
       sessionStartTime: now,
       lastActivityTime: now,
-      // Element Reference System (stable refs)
       elementRegistries: new Map(),
-      // Frame context (Frame & Shadow DOM Support)
       frameContexts: new Map(),
-      // Streaming (Streaming Responses)
       activeStreams: new Map(),
-      // Approval (Human-in-the-Loop)
       pendingApprovals: new Map(),
       sessionApprovals: new Set(),
-      // PERF: Sliding windows initialized lazily in checkRateLimit()
     };
 
-    // Set up session timeouts (v0.2.0)
-    this.setupSessionTimeouts(ws, state);
+    setupSessionTimeouts(ws, state, this.options, { logSecurity: this.logSecurity.bind(this) });
 
     this.clients.set(ws, state);
-    this.log(`Client connected`, { clientId: state.clientId, scopes: state.scopes });
+    this.log("Client connected", { clientId: state.clientId, scopes: state.scopes });
 
     ws.on("message", async (data) => {
       try {
@@ -957,12 +542,8 @@ export class BAPPlaywrightServer extends EventEmitter {
           ws.send(JSON.stringify(response));
         }
       } catch (error) {
-        // SECURITY FIX (HIGH-3): Sanitize error messages to prevent information leakage
-        // Log full error internally for debugging, return sanitized message to client
         const fullMessage = error instanceof Error ? error.message : "Parse error";
         this.log(`Parse error (internal): ${fullMessage}`);
-
-        // Return generic message to client - don't leak internal details
         const errorResponse = createErrorResponse(
           0,
           ErrorCodes.ParseError,
@@ -973,14 +554,16 @@ export class BAPPlaywrightServer extends EventEmitter {
     });
 
     ws.on("close", async () => {
-      this.log("Client disconnected", { clientId: state.clientId, sessionId: state.sessionId ?? "none" });
+      this.log("Client disconnected", {
+        clientId: state.clientId,
+        sessionId: state.sessionId ?? "none",
+      });
 
-      // Session persistence: park instead of destroy when sessionId is set
       const isAlive = state.isPersistent
         ? this.isContextAlive(state.context)
         : Boolean(state.browser?.isConnected());
       if (state.sessionId && isAlive) {
-        this.parkSession(state);
+        await _parkSession(state, this.getDormantStoreDeps());
       } else {
         await this.cleanupClient(state);
       }
@@ -993,9 +576,10 @@ export class BAPPlaywrightServer extends EventEmitter {
     });
   }
 
-  /**
-   * Handle incoming request
-   */
+  // ===========================================================================
+  // Request Handling & Dispatch
+  // ===========================================================================
+
   private async handleRequest(
     ws: WebSocket,
     state: ClientState,
@@ -1008,191 +592,219 @@ export class BAPPlaywrightServer extends EventEmitter {
     this.log(`→ ${method}`, { clientId: state.clientId, reqId: requestId, rpcId: id });
 
     try {
-      // Reset idle timeout on activity (v0.2.0)
-      this.resetIdleTimeout(ws, state);
+      resetIdleTimeout(ws, state, this.options, { logSecurity: this.logSecurity.bind(this) });
 
-      // Check initialization for non-init methods
       if (method !== "initialize" && !state.initialized) {
         return createErrorResponse(id, ErrorCodes.NotInitialized, "Server not initialized");
       }
 
-      // AUTHORIZATION (v0.2.0): Check if client has permission for this method
       this.checkAuthorization(state, method);
 
-      // Apply rate limiting (skip for notifications/initialized which have no response)
       if (method !== "notifications/initialized") {
-        this.checkRateLimit(state, 'request');
+        this.checkRateLimit(state, "request");
       }
 
       const result = await this.dispatch(ws, state, method as BAPMethod, params ?? {});
       const duration = Math.round(performance.now() - startTime);
-      this.log(`✓ ${method}`, { clientId: state.clientId, reqId: requestId, duration: `${duration}ms` });
+      this.log(`✓ ${method}`, {
+        clientId: state.clientId,
+        reqId: requestId,
+        duration: `${duration}ms`,
+      });
+
+      // Trace recording
+      this.traceRecorder.record({
+        ts: new Date().toISOString(),
+        sessionId: state.sessionId,
+        clientId: state.clientId,
+        method,
+        duration,
+        status: "ok",
+        resultSummary: TraceRecorder.summarizeResult(method, result),
+      });
+
       return createSuccessResponse(id, result);
     } catch (error) {
       const duration = Math.round(performance.now() - startTime);
       const errMsg = error instanceof Error ? error.message : "Unknown error";
-      this.log(`✗ ${method}`, { clientId: state.clientId, reqId: requestId, duration: `${duration}ms`, error: errMsg });
+      this.log(`✗ ${method}`, {
+        clientId: state.clientId,
+        reqId: requestId,
+        duration: `${duration}ms`,
+        error: errMsg,
+      });
+
+      // Trace recording
+      this.traceRecorder.record({
+        ts: new Date().toISOString(),
+        sessionId: state.sessionId,
+        clientId: state.clientId,
+        method,
+        duration,
+        status: "error",
+        error: errMsg,
+      });
+
       return this.handleError(id, error);
     }
   }
 
-  /**
-   * Dispatch method to handler
-   */
   private async dispatch(
-    ws: WebSocket,
+    ws: WebSocket | null,
     state: ClientState,
     method: BAPMethod | string,
     params: Record<string, unknown>
   ): Promise<unknown> {
+    const ctx = this.getHandlerContext();
+
     switch (method) {
       // Lifecycle
       case "initialize":
-        return this.handleInitialize(state, params as unknown as InitializeParams);
+        return handleInitialize(state, params as unknown as InitializeParams, ctx);
       case "notifications/initialized":
         return undefined;
       case "shutdown":
-        return this.handleShutdown(state);
+        return handleShutdown(state, ctx);
 
       // Browser
       case "browser/launch":
-        return this.handleBrowserLaunch(state, params as BrowserLaunchParams);
+        return handleBrowserLaunch(state, params as BrowserLaunchParams, ctx);
       case "browser/close":
-        return this.handleBrowserClose(state);
+        return handleBrowserClose(state, ctx);
 
       // Page
       case "page/create":
-        return this.handlePageCreate(ws, state, params as PageCreateOptions);
+        return handlePageCreate(ws, state, params as PageCreateOptions, ctx);
       case "page/navigate":
-        return this.handlePageNavigate(state, params);
+        return handlePageNavigate(state, params, ctx);
       case "page/reload":
-        return this.handlePageReload(state, params);
+        return handlePageReload(state, params, ctx);
       case "page/goBack":
-        return this.handlePageGoBack(state, params);
+        return handlePageGoBack(state, params, ctx);
       case "page/goForward":
-        return this.handlePageGoForward(state, params);
+        return handlePageGoForward(state, params, ctx);
       case "page/close":
-        return this.handlePageClose(state, params);
+        return handlePageClose(state, params);
       case "page/list":
-        return this.handlePageList(state);
+        return handlePageList(state);
       case "page/activate":
-        return this.handlePageActivate(state, params);
+        return handlePageActivate(state, params);
 
       // Actions
       case "action/click":
-        return this.handleActionClick(state, params);
+        return handleActionClick(state, params, ctx);
       case "action/dblclick":
-        return this.handleActionDblclick(state, params);
+        return handleActionDblclick(state, params, ctx);
       case "action/type":
-        return this.handleActionType(state, params);
+        return handleActionType(state, params, ctx);
       case "action/fill":
-        return this.handleActionFill(state, params);
+        return handleActionFill(state, params, ctx);
       case "action/clear":
-        return this.handleActionClear(state, params);
+        return handleActionClear(state, params, ctx);
       case "action/press":
-        return this.handleActionPress(state, params);
+        return handleActionPress(state, params, ctx);
       case "action/hover":
-        return this.handleActionHover(state, params);
+        return handleActionHover(state, params, ctx);
       case "action/scroll":
-        return this.handleActionScroll(state, params);
+        return handleActionScroll(state, params, ctx);
       case "action/select":
-        return this.handleActionSelect(state, params);
+        return handleActionSelect(state, params, ctx);
       case "action/check":
-        return this.handleActionCheck(state, params);
+        return handleActionCheck(state, params, ctx);
       case "action/uncheck":
-        return this.handleActionUncheck(state, params);
+        return handleActionUncheck(state, params, ctx);
       case "action/upload":
-        return this.handleActionUpload(state, params);
+        return handleActionUpload(state, params, ctx);
       case "action/drag":
-        return this.handleActionDrag(state, params);
+        return handleActionDrag(state, params, ctx);
 
       // Observations
       case "observe/screenshot":
-        return this.handleObserveScreenshot(state, params);
+        return handleObserveScreenshot(state, params, ctx);
       case "observe/accessibility":
-        return this.handleObserveAccessibility(state, params);
+        return handleObserveAccessibility(state, params, ctx);
       case "observe/dom":
-        return this.handleObserveDOM(state, params);
+        return handleObserveDOM(state, params, ctx);
       case "observe/element":
-        return this.handleObserveElement(state, params);
+        return handleObserveElement(state, params, ctx);
       case "observe/pdf":
-        return this.handleObservePDF(state, params);
+        return handleObservePDF(state, params, ctx);
       case "observe/content":
-        return this.handleObserveContent(state, params);
+        return handleObserveContent(state, params, ctx);
       case "observe/ariaSnapshot":
-        return this.handleObserveAriaSnapshot(state, params);
+        return handleObserveAriaSnapshot(state, params, ctx);
 
       // Storage
       case "storage/getState":
-        return this.handleStorageGetState(state);
+        return handleStorageGetState(state, ctx);
       case "storage/setState":
-        return this.handleStorageSetState(state, params);
+        return handleStorageSetState(state, params, ctx);
       case "storage/getCookies":
-        return this.handleStorageGetCookies(state, params);
+        return handleStorageGetCookies(state, params, ctx);
       case "storage/setCookies":
-        return this.handleStorageSetCookies(state, params);
+        return handleStorageSetCookies(state, params, ctx);
       case "storage/clearCookies":
-        return this.handleStorageClearCookies(state, params);
+        return handleStorageClearCookies(state, params, ctx);
 
       // Emulation
       case "emulate/setViewport":
-        return this.handleEmulateSetViewport(state, params);
+        return handleEmulateSetViewport(state, params, ctx);
       case "emulate/setUserAgent":
-        return this.handleEmulateSetUserAgent(state, params);
+        return handleEmulateSetUserAgent(state, params, ctx);
       case "emulate/setGeolocation":
-        return this.handleEmulateSetGeolocation(state, params);
+        return handleEmulateSetGeolocation(state, params, ctx);
       case "emulate/setOffline":
-        return this.handleEmulateSetOffline(state, params);
+        return handleEmulateSetOffline(state, params, ctx);
 
       // Dialog
       case "dialog/handle":
-        return this.handleDialogHandle(state, params);
+        return handleDialogHandle(state, params, ctx);
 
       // Tracing
       case "trace/start":
-        return this.handleTraceStart(state, params);
+        return handleTraceStart(state, params, ctx);
       case "trace/stop":
-        return this.handleTraceStop(state);
+        return handleTraceStop(state, ctx);
 
       // Events
       case "events/subscribe":
-        return this.handleEventsSubscribe(state, params);
+        return handleEventsSubscribe(state, params);
 
-      // Context (Multi-Context Support)
+      // Context
       case "context/create":
-        return this.handleContextCreate(state, params as unknown as ContextCreateParams);
+        return handleContextCreate(state, params as unknown as ContextCreateParams, ctx);
       case "context/list":
-        return this.handleContextList(state);
+        return handleContextList(state);
       case "context/destroy":
-        return this.handleContextDestroy(state, params as unknown as ContextDestroyParams);
+        return handleContextDestroy(state, params as unknown as ContextDestroyParams);
 
-      // Frame (Frame & Shadow DOM Support)
+      // Frame
       case "frame/list":
-        return this.handleFrameList(state, params as unknown as FrameListParams);
+        return handleFrameList(state, params as unknown as FrameListParams, ctx);
       case "frame/switch":
-        return this.handleFrameSwitch(state, params as unknown as FrameSwitchParams);
+        return handleFrameSwitch(state, params as unknown as FrameSwitchParams, ctx);
       case "frame/main":
-        return this.handleFrameMain(state, params as unknown as FrameMainParams);
+        return handleFrameMain(state, params as unknown as FrameMainParams, ctx);
 
-      // Stream (Streaming Responses)
+      // Stream
       case "stream/cancel":
-        return this.handleStreamCancel(state, params as unknown as StreamCancelParams);
+        return handleStreamCancel(state, params as unknown as StreamCancelParams);
 
-      // Approval (Human-in-the-Loop)
+      // Approval
       case "approval/respond":
-        return this.handleApprovalRespond(state, params as unknown as ApprovalRespondParams);
+        return handleApprovalRespond(state, params as unknown as ApprovalRespondParams);
 
-      // Discovery (WebMCP tool discovery)
+      // Discovery
       case "discovery/discover":
-        return this.handleDiscoveryDiscover(state, params as unknown as DiscoveryDiscoverParams);
+        return handleDiscoveryDiscover(state, params as unknown as DiscoveryDiscoverParams, ctx);
 
-      // Agent (composite actions, observations, and data extraction)
+      // Agent
       case "agent/act":
-        return this.handleAgentAct(ws, state, params as unknown as AgentActParams);
+        return handleAgentAct(ws, state, params as unknown as AgentActParams, ctx);
       case "agent/observe":
-        return this.handleAgentObserve(state, params as unknown as AgentObserveParams);
+        return handleAgentObserve(state, params as unknown as AgentObserveParams, ctx);
       case "agent/extract":
-        return this.handleAgentExtract(state, params as unknown as AgentExtractParams);
+        return handleAgentExtract(state, params as unknown as AgentExtractParams, ctx);
 
       default:
         throw new BAPServerError(ErrorCodes.MethodNotFound, `Unknown method: ${method}`);
@@ -1200,3104 +812,30 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   // ===========================================================================
-  // Lifecycle Handlers
+  // Utility Methods (kept on class for HandlerContext binding)
   // ===========================================================================
 
-  private async handleInitialize(
-    state: ClientState,
-    params: InitializeParams
-  ): Promise<InitializeResult> {
-    if (state.initialized) {
-      throw new BAPServerError(ErrorCodes.AlreadyInitialized, "Already initialized");
+  private getPage(state: ClientState, pageId?: string): PlaywrightPage {
+    const id = pageId ?? state.activePage;
+    if (!id) {
+      throw new BAPServerError(ErrorCodes.PageNotFound, "No active page");
     }
-
-    const sessionId = params.sessionId;
-
-    // Session persistence: check for conflicts and restore dormant sessions
-    if (sessionId) {
-      // If another client still holds this sessionId (its close event hasn't
-      // been processed yet — race between WebSocket close and new connect),
-      // force-park its state so we can restore it immediately.
-      for (const [existingWs, existingState] of this.clients) {
-        if (existingState !== state && existingState.sessionId === sessionId && existingState.initialized) {
-          this.log("Force-parking stale session from previous connection", { sessionId });
-          const isAlive = existingState.isPersistent
-            ? this.isContextAlive(existingState.context)
-            : Boolean(existingState.browser?.isConnected());
-          if (isAlive) {
-            this.parkSession(existingState);
-          }
-          if (existingWs.readyState === WebSocket.OPEN || existingWs.readyState === WebSocket.CONNECTING) {
-            existingWs.close(4001, "Session replaced by newer connection");
-          }
-          // Remove stale client — its close handler will be a no-op
-          // (browser/pages already nullified by parkSession)
-          this.clients.delete(existingWs);
-          break;
-        }
-      }
-
-      state.sessionId = sessionId;
-
-      // Try to restore a dormant session
-      const dormant = this.dormantSessions.get(sessionId);
-      if (dormant) {
-        const restored = this.restoreSession(dormant, state);
-        if (restored) {
-          this.log("Restored dormant session", { sessionId, clientId: state.clientId });
-        }
-      }
-    }
-
-    state.initialized = true;
-
-    const capabilities: ServerCapabilities = {
-      browsers: ["chromium", "firefox", "webkit"],
-      events: ["page", "network", "console", "dialog", "download"],
-      observations: ["screenshot", "accessibility", "dom", "element", "pdf", "content"],
-      actions: [
-        "click", "dblclick", "type", "fill", "clear", "press",
-        "hover", "scroll", "select", "check", "uncheck", "upload", "drag"
-      ],
-      features: {
-        autoWait: true,
-        tracing: true,
-        storageState: true,
-        networkInterception: true,
-        semanticSelectors: false, // Requires AI integration
-        multiPage: true,
-      },
-      limits: {
-        maxPages: 100,
-        maxTimeout: 300000,
-        maxScreenshotSize: 50 * 1024 * 1024, // 50MB
-      },
-    };
-
-    return {
-      protocolVersion: BAP_VERSION,
-      serverInfo: {
-        name: "bap-playwright",
-        version: "0.2.0",
-      },
-      capabilities,
-      sessionId,
-    };
-  }
-
-  private async handleShutdown(state: ClientState): Promise<void> {
-    await this.cleanupClient(state);
-  }
-
-  // ===========================================================================
-  // Browser Handlers
-  // ===========================================================================
-
-  // NOTE: Scope-based authorization is implemented via checkAuthorization() and hasScope().
-  // Clients receive scopes on connection (via BAP_SCOPES env var or defaultScopes config).
-  // Each method call is validated against granted scopes before execution.
-  // Scope format: "category:action" (e.g., "browser:launch", "action:click", "observe:screenshot")
-  // Wildcards supported: "*" (all), "browser:*" (all browser operations)
-
-  private async handleBrowserLaunch(
-    state: ClientState,
-    params: BrowserLaunchParams
-  ): Promise<BrowserLaunchResult> {
-    if (state.context || state.browser) {
-      await this.handleBrowserClose(state);
-    }
-
-    const browserType = params.browser ?? this.options.defaultBrowser;
-    const launcher = this.getBrowserType(browserType);
-
-    // Sanitize browser args to prevent security issues
-    const sanitizedArgs = this.sanitizeBrowserArgs(params.args);
-
-    // SECURITY FIX (CRIT-4): Validate downloads path to prevent path traversal attacks
-    let validatedDownloadsPath: string | undefined = undefined;
-    if (params.downloadsPath) {
-      const allowedDownloadDirs = process.env.BAP_ALLOWED_DOWNLOAD_DIRS?.split(',').filter(Boolean) || [];
-
-      // Resolve the path first
-      let normalizedPath = path.resolve(params.downloadsPath);
-
-      // SECURITY: Check for symlink attacks by resolving the real path
-      try {
-        if (fs.existsSync(normalizedPath)) {
-          normalizedPath = fs.realpathSync(normalizedPath);
-        }
-      } catch {
-        // If we can't resolve, that's suspicious - reject it
-        this.logSecurity('PATH_RESOLUTION_FAILED', { path: params.downloadsPath });
-        throw new BAPServerError(ErrorCodes.InvalidParams, `Invalid downloads path: ${params.downloadsPath}`);
-      }
-
-      // SECURITY: Check for path traversal patterns in the original input
-      if (params.downloadsPath.includes('..') || params.downloadsPath.includes('//')) {
-        this.logSecurity('PATH_TRAVERSAL_ATTEMPT', { path: params.downloadsPath });
-        throw new BAPServerError(ErrorCodes.InvalidParams, `Invalid downloads path: path traversal detected`);
-      }
-
-      // If allowlist is configured, validate the path
-      if (allowedDownloadDirs.length > 0) {
-        const isAllowed = allowedDownloadDirs.some(dir => {
-          const normalizedDir = path.resolve(dir);
-          return normalizedPath === normalizedDir || normalizedPath.startsWith(normalizedDir + path.sep);
-        });
-        if (!isAllowed) {
-          this.logSecurity('PATH_NOT_ALLOWED', { path: normalizedPath, allowed: allowedDownloadDirs });
-          throw new BAPServerError(
-            ErrorCodes.InvalidParams,
-            `Downloads path not allowed: ${params.downloadsPath}. Allowed directories: ${allowedDownloadDirs.join(', ')}`
-          );
-        }
-      }
-
-      // Block obvious sensitive paths regardless
-      const blockedPaths = ['/etc', '/usr', '/bin', '/sbin', '/var', '/root', '/home', '/tmp', '/sys', '/proc', '/dev',
-        'C:\\Windows', 'C:\\Program Files', 'C:\\Program Files (x86)', 'C:\\Users'];
-      const isBlocked = blockedPaths.some(blocked =>
-        normalizedPath.toLowerCase().startsWith(blocked.toLowerCase())
-      );
-      if (isBlocked) {
-        this.logSecurity('PATH_BLOCKED', { path: normalizedPath });
-        throw new BAPServerError(ErrorCodes.InvalidParams, `Downloads path not allowed: ${params.downloadsPath}`);
-      }
-
-      validatedDownloadsPath = normalizedPath;
-    }
-
-    const channel = params.channel ?? this.options.defaultChannel;
-    const headless = params.headless ?? this.options.headless;
-
-    // Use crypto.randomUUID for unique IDs
-    const contextId = `ctx-${randomUUID().slice(0, 8)}`;
-
-    let defaultContext: BrowserContext;
-    let version: string;
-
-    if (params.userDataDir) {
-      // Persistent context mode: launchPersistentContext returns a BrowserContext directly
-      // (no Browser object). Cannot create additional contexts.
-      try {
-        defaultContext = await launcher.launchPersistentContext(params.userDataDir, {
-          headless,
-          channel,
-          args: sanitizedArgs.length > 0 ? sanitizedArgs : undefined,
-          // Force deviceScaleFactor: 1 for consistent screenshot sizes across platforms
-          deviceScaleFactor: 1,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        if (message.includes("SingletonLock") || message.includes("lock") || message.includes("already running")) {
-          throw new BAPServerError(
-            ErrorCodes.ActionFailed,
-            "Chrome is already using that profile. Close Chrome, choose a dedicated `--profile <dir>`, or use `--no-profile` for a fresh browser."
-          );
-        }
-        throw error;
-      }
-
-      state.browser = null;
-      state.isPersistent = true;
-      version = "";
-    } else {
-      // Normal mode: launch browser, create fresh context
-      state.browser = await launcher.launch({
-        headless,
-        channel,
-        args: sanitizedArgs.length > 0 ? sanitizedArgs : undefined,
-        proxy: params.proxy,
-        downloadsPath: validatedDownloadsPath,
-      });
-
-      // Force deviceScaleFactor: 1 for consistent screenshot sizes across platforms
-      // (retina Macs default to 2x, which doubles pixel count and inflates payloads)
-      defaultContext = await state.browser.newContext({
-        deviceScaleFactor: 1,
-      });
-      version = state.browser.version();
-      state.isPersistent = false;
-    }
-
-    // Set up default context (backwards compatible)
-    state.context = defaultContext;
-    state.defaultContextId = contextId;
-
-    // Add to contexts map (Multi-Context Support)
-    state.contexts.set(contextId, {
-      context: defaultContext,
-      created: Date.now(),
-    });
-
-    // Auto-cleanup on context close
-    defaultContext.on("close", () => {
-      state.contexts.delete(contextId);
-      if (state.defaultContextId === contextId) {
-        state.defaultContextId = null;
-        state.context = null;
-      }
-    });
-
-    return {
-      browserId: `browser-${randomUUID()}`,
-      version,
-      defaultContext: contextId,
-    };
-  }
-
-  private async handleBrowserClose(state: ClientState): Promise<void> {
-    if (state.isPersistent && state.context) {
-      // Persistent mode: close the context (which closes the browser process)
-      await state.context.close();
-    } else if (state.browser) {
-      await state.browser.close();
-    }
-
-    state.browser = null;
-    state.isPersistent = false;
-    state.context = null;
-    // Clean up multi-context state
-    state.contexts.clear();
-    state.defaultContextId = null;
-    state.pages.clear();
-    state.pageToContext.clear();
-    state.activePage = null;
-    state.elementRegistries.clear();
-    state.frameContexts.clear();
-    // Clean up streams
-    for (const stream of state.activeStreams.values()) {
-      stream.cancelled = true;
-    }
-    state.activeStreams.clear();
-    // Clean up pending approvals
-    for (const pending of state.pendingApprovals.values()) {
-      clearTimeout(pending.timeoutHandle);
-      pending.reject(new BAPServerError(ErrorCodes.TargetClosed, "Browser closed"));
-    }
-    state.pendingApprovals.clear();
-    state.sessionApprovals.clear();
-  }
-
-  // ===========================================================================
-  // Page Handlers
-  // ===========================================================================
-
-  private async handlePageCreate(
-    _ws: WebSocket,
-    state: ClientState,
-    params: PageCreateOptions & { contextId?: string }
-  ): Promise<Page> {
-    this.ensureBrowser(state);
-
-    // Check page limit before creating a new page
-    this.checkPageLimit(state);
-
-    // Get the target context (Multi-Context Support)
-    let context: BrowserContext;
-    let contextId: string;
-
-    if (params.contextId) {
-      const ctxState = state.contexts.get(params.contextId);
-      if (!ctxState) {
-        throw new BAPServerError(
-          ErrorCodes.ContextNotFound,
-          `Context not found: ${params.contextId}`
-        );
-      }
-      context = ctxState.context;
-      contextId = params.contextId;
-    } else if (state.defaultContextId && state.contexts.has(state.defaultContextId)) {
-      context = state.contexts.get(state.defaultContextId)!.context;
-      contextId = state.defaultContextId;
-    } else if (state.context) {
-      context = state.context;
-      contextId = state.defaultContextId ?? "default";
-    } else {
-      throw new BAPServerError(
-        ErrorCodes.BrowserNotLaunched,
-        "No context available. Create a context first."
-      );
-    }
-
-    const page = await context.newPage();
-    // Use crypto.randomUUID for guaranteed unique IDs
-    const pageId = `page-${randomUUID()}`;
-
-    // Track which context owns this page
-    state.pageToContext.set(pageId, contextId);
-
-    // Set up event listeners
-    this.setupPageListeners(page, pageId);
-
-    // Apply options
-    if (params.viewport) {
-      await page.setViewportSize(params.viewport);
-    }
-
-    if (params.userAgent) {
-      // Use JSON.stringify for safe escaping to prevent code injection
-      const safeUserAgent = JSON.stringify(params.userAgent);
-      await page.context().addInitScript(`
-        Object.defineProperty(navigator, 'userAgent', { get: () => ${safeUserAgent} });
-      `);
-    }
-
-    if (params.geolocation) {
-      await context.grantPermissions(["geolocation"]);
-      await context.setGeolocation(params.geolocation);
-    }
-
-    // Note: Timezone is set at context creation, not via emulateMedia
-    // The timezone should be passed when creating the browser context
-
-    // Navigate if URL provided
-    if (params.url) {
-      // Validate URL for security
-      this.validateUrl(params.url);
-      await page.goto(params.url);
-    }
-
-    state.pages.set(pageId, page);
-    state.activePage = pageId;
-
-    const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
-
-    return {
-      id: pageId,
-      url: page.url(),
-      title: await page.title(),
-      viewport,
-      status: "ready",
-    };
-  }
-
-  private async handlePageNavigate(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<PageNavigateResult> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const url = params.url as string;
-
-    // Validate URL for security
-    this.validateUrl(url);
-
-    const waitUntil = this.mapWaitUntil(params.waitUntil as WaitUntilState | undefined);
-    const timeout = (params.timeout as number) ?? this.options.timeout;
-
-    const response = await page.goto(url, {
-      waitUntil,
-      timeout,
-      referer: params.referer as string | undefined,
-    });
-
-    const result: PageNavigateResult = {
-      url: page.url(),
-      status: response?.status() ?? 0,
-      headers: response?.headers() ?? {},
-    };
-
-    // Fusion 2: navigate-observe kernel — fused observation after navigation
-    const observeParams = (params as Record<string, unknown>).observe as AgentObserveParams | undefined;
-    if (observeParams) {
-      try {
-        const pageId = params.pageId as string | undefined;
-        (result as Record<string, unknown>).observation = await this.handleAgentObserve(
-          state,
-          { ...observeParams, pageId }
-        );
-      } catch {
-        // Non-fatal: observation failure doesn't block navigate result
-      }
-    }
-
-    return result;
-  }
-
-  private async handlePageReload(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    await page.reload({
-      waitUntil: this.mapWaitUntil(params.waitUntil as WaitUntilState | undefined),
-      timeout: (params.timeout as number) ?? this.options.timeout,
-    });
-  }
-
-  private async handlePageGoBack(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    await page.goBack({
-      waitUntil: this.mapWaitUntil(params.waitUntil as WaitUntilState | undefined),
-      timeout: (params.timeout as number) ?? this.options.timeout,
-    });
-  }
-
-  private async handlePageGoForward(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    await page.goForward({
-      waitUntil: this.mapWaitUntil(params.waitUntil as WaitUntilState | undefined),
-      timeout: (params.timeout as number) ?? this.options.timeout,
-    });
-  }
-
-  private async handlePageClose(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const pageId = params.pageId as string;
-    const page = state.pages.get(pageId);
-
+    const page = state.pages.get(id);
     if (!page) {
-      throw new BAPServerError(ErrorCodes.PageNotFound, `Page not found: ${pageId}`);
+      throw new BAPServerError(ErrorCodes.PageNotFound, `Page not found: ${id}`);
     }
+    return page;
+  }
 
-    await page.close({ runBeforeUnload: params.runBeforeUnload as boolean | undefined });
-    state.pages.delete(pageId);
-
-    if (state.activePage === pageId) {
-      state.activePage = state.pages.keys().next().value ?? null;
+  private ensureBrowser(state: ClientState): void {
+    if (!state.context) {
+      throw new BAPServerError(ErrorCodes.BrowserNotLaunched, "Browser not launched");
+    }
+    if (!state.isPersistent && !state.browser) {
+      throw new BAPServerError(ErrorCodes.BrowserNotLaunched, "Browser not launched");
     }
   }
 
-  private async handlePageList(state: ClientState): Promise<{ pages: Page[]; activePage: string }> {
-    const pages: Page[] = [];
-
-    for (const [id, page] of state.pages) {
-      const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
-      pages.push({
-        id,
-        url: page.url(),
-        title: await page.title(),
-        viewport,
-        status: "ready",
-      });
-    }
-
-    return {
-      pages,
-      activePage: state.activePage ?? "",
-    };
-  }
-
-  private async handlePageActivate(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const pageId = params.pageId as string;
-    if (!state.pages.has(pageId)) {
-      throw new BAPServerError(ErrorCodes.PageNotFound, `Page not found: ${pageId}`);
-    }
-    state.activePage = pageId;
-    await state.pages.get(pageId)!.bringToFront();
-  }
-
-  // ===========================================================================
-  // Action Handlers
-  // ===========================================================================
-
-  private async handleActionClick(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const selector = params.selector as BAPSelector;
-    const options = params.options as ClickOptions | undefined;
-
-    // Handle coordinates selector specially - click directly at the coordinates
-    if (selector.type === 'coordinates') {
-      await page.mouse.click(selector.x, selector.y, {
-        button: options?.button as 'left' | 'right' | 'middle' | undefined,
-        clickCount: options?.clickCount,
-      });
-      return;
-    }
-
-    const locator = this.resolveSelector(page, selector);
-    await locator.click({
-      button: options?.button,
-      clickCount: options?.clickCount,
-      modifiers: options?.modifiers as ("Alt" | "Control" | "Meta" | "Shift")[] | undefined,
-      position: options?.position,
-      force: options?.force,
-      noWaitAfter: options?.noWaitAfter,
-      timeout: options?.timeout ?? this.options.timeout,
-      trial: options?.trial,
-    });
-  }
-
-  private async handleActionDblclick(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const selector = params.selector as BAPSelector;
-    const options = params.options as ClickOptions | undefined;
-
-    // Handle coordinates selector specially - double-click at coordinates
-    if (selector.type === 'coordinates') {
-      await page.mouse.dblclick(selector.x, selector.y, {
-        button: options?.button as 'left' | 'right' | 'middle' | undefined,
-      });
-      return;
-    }
-
-    const locator = this.resolveSelector(page, selector);
-    await locator.dblclick({
-      button: options?.button,
-      modifiers: options?.modifiers as ("Alt" | "Control" | "Meta" | "Shift")[] | undefined,
-      position: options?.position,
-      force: options?.force,
-      noWaitAfter: options?.noWaitAfter,
-      timeout: options?.timeout ?? this.options.timeout,
-      trial: options?.trial,
-    });
-  }
-
-  private async handleActionType(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const locator = this.resolveSelector(page, params.selector as BAPSelector);
-    const text = params.text as string;
-    const options = params.options as TypeOptions | undefined;
-
-    if (options?.clear) {
-      await locator.clear({ timeout: options?.timeout ?? this.options.timeout });
-    }
-
-    await locator.pressSequentially(text, {
-      delay: options?.delay,
-      timeout: options?.timeout ?? this.options.timeout,
-    });
-  }
-
-  private async handleActionFill(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const locator = this.resolveSelector(page, params.selector as BAPSelector);
-    const value = params.value as string;
-    const options = params.options as ActionOptions | undefined;
-
-    await locator.fill(value, {
-      force: options?.force,
-      noWaitAfter: options?.noWaitAfter,
-      timeout: options?.timeout ?? this.options.timeout,
-    });
-  }
-
-  private async handleActionClear(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const locator = this.resolveSelector(page, params.selector as BAPSelector);
-    const options = params.options as ActionOptions | undefined;
-
-    await locator.clear({
-      force: options?.force,
-      noWaitAfter: options?.noWaitAfter,
-      timeout: options?.timeout ?? this.options.timeout,
-    });
-  }
-
-  private async handleActionPress(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const key = params.key as string;
-    const selector = params.selector as BAPSelector | undefined;
-    const options = params.options as ActionOptions | undefined;
-
-    if (selector) {
-      const locator = this.resolveSelector(page, selector);
-      await locator.press(key, {
-        timeout: options?.timeout ?? this.options.timeout,
-        noWaitAfter: options?.noWaitAfter,
-      });
-    } else {
-      await page.keyboard.press(key);
-    }
-  }
-
-  private async handleActionHover(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const selector = params.selector as BAPSelector;
-    const options = params.options as (ActionOptions & { position?: { x: number; y: number } }) | undefined;
-
-    // Handle coordinates selector specially - hover at coordinates
-    if (selector.type === 'coordinates') {
-      await page.mouse.move(selector.x, selector.y);
-      return;
-    }
-
-    const locator = this.resolveSelector(page, selector);
-    await locator.hover({
-      position: options?.position,
-      force: options?.force,
-      timeout: options?.timeout ?? this.options.timeout,
-      trial: options?.trial,
-    });
-  }
-
-  private async handleActionScroll(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const selector = params.selector as BAPSelector | undefined;
-    const options = params.options as ScrollOptions | undefined;
-
-    if (selector) {
-      const locator = this.resolveSelector(page, selector);
-      await locator.scrollIntoViewIfNeeded({
-        timeout: options?.timeout ?? this.options.timeout,
-      });
-    } else {
-      const direction = options?.direction ?? "down";
-      const amount = options?.amount ?? 300;
-
-      let deltaX = 0;
-      let deltaY = 0;
-
-      if (typeof amount === "number") {
-        switch (direction) {
-          case "up": deltaY = -amount; break;
-          case "down": deltaY = amount; break;
-          case "left": deltaX = -amount; break;
-          case "right": deltaX = amount; break;
-        }
-      } else if (amount === "page") {
-        const viewport = page.viewportSize();
-        switch (direction) {
-          case "up": deltaY = -(viewport?.height ?? 600); break;
-          case "down": deltaY = viewport?.height ?? 600; break;
-          case "left": deltaX = -(viewport?.width ?? 800); break;
-          case "right": deltaX = viewport?.width ?? 800; break;
-        }
-      }
-
-      await page.mouse.wheel(deltaX, deltaY);
-    }
-  }
-
-  private async handleActionSelect(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const locator = this.resolveSelector(page, params.selector as BAPSelector);
-    const values = params.values as string | string[];
-    const options = params.options as ActionOptions | undefined;
-
-    const valuesArray = Array.isArray(values) ? values : [values];
-    await locator.selectOption(valuesArray, {
-      force: options?.force,
-      noWaitAfter: options?.noWaitAfter,
-      timeout: options?.timeout ?? this.options.timeout,
-    });
-  }
-
-  private async handleActionCheck(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const locator = this.resolveSelector(page, params.selector as BAPSelector);
-    const options = params.options as ActionOptions | undefined;
-
-    await locator.check({
-      force: options?.force,
-      noWaitAfter: options?.noWaitAfter,
-      timeout: options?.timeout ?? this.options.timeout,
-      trial: options?.trial,
-    });
-  }
-
-  private async handleActionUncheck(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const locator = this.resolveSelector(page, params.selector as BAPSelector);
-    const options = params.options as ActionOptions | undefined;
-
-    await locator.uncheck({
-      force: options?.force,
-      noWaitAfter: options?.noWaitAfter,
-      timeout: options?.timeout ?? this.options.timeout,
-      trial: options?.trial,
-    });
-  }
-
-  private async handleActionUpload(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const locator = this.resolveSelector(page, params.selector as BAPSelector);
-    const files = params.files as FileUpload[];
-    const options = params.options as ActionOptions | undefined;
-
-    const buffers = files.map((f) => ({
-      name: f.name,
-      mimeType: f.mimeType,
-      buffer: Buffer.from(f.buffer, "base64"),
-    }));
-
-    await locator.setInputFiles(buffers, {
-      noWaitAfter: options?.noWaitAfter,
-      timeout: options?.timeout ?? this.options.timeout,
-    });
-  }
-
-  private async handleActionDrag(state: ClientState, params: Record<string, unknown>): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const source = this.resolveSelector(page, params.source as BAPSelector);
-    const target = params.target as BAPSelector | { x: number; y: number };
-    const options = params.options as ActionOptions | undefined;
-
-    if ("type" in target) {
-      const targetLocator = this.resolveSelector(page, target);
-      await source.dragTo(targetLocator, {
-        force: options?.force,
-        noWaitAfter: options?.noWaitAfter,
-        timeout: options?.timeout ?? this.options.timeout,
-        trial: options?.trial,
-      });
-    } else {
-      // Drag to coordinates
-      const sourceBox = await source.boundingBox();
-      if (!sourceBox) {
-        throw new BAPServerError(ErrorCodes.ElementNotFound, "Source element not found");
-      }
-
-      await page.mouse.move(
-        sourceBox.x + sourceBox.width / 2,
-        sourceBox.y + sourceBox.height / 2
-      );
-      await page.mouse.down();
-      await page.mouse.move(target.x, target.y);
-      await page.mouse.up();
-    }
-  }
-
-  // ===========================================================================
-  // Observation Handlers
-  // ===========================================================================
-
-  private async handleObserveScreenshot(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<ObserveScreenshotResult> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const options = params.options as ScreenshotOptions | undefined;
-
-    // Apply screenshot-specific rate limiting
-    this.checkRateLimit(state, 'screenshot');
-
-    // Playwright only supports "png" and "jpeg" for screenshots
-    // Default to JPEG — ~60% smaller payloads, reducing LLM token cost
-    const screenshotType = (options?.format === "jpeg" || options?.format === "png")
-      ? options.format
-      : "jpeg";
-
-    const buffer = await page.screenshot({
-      fullPage: options?.fullPage,
-      clip: options?.clip,
-      type: screenshotType,
-      quality: options?.quality ?? (screenshotType === "jpeg" ? 80 : undefined),
-      // Default to CSS scale to ensure consistent 1x screenshots regardless
-      // of device pixel ratio (prevents 2x images on retina displays)
-      scale: options?.scale ?? "css",
-    });
-
-    // Parse image dimensions from the buffer
-    // PNG format: signature (8) + IHDR chunk length (4) + IHDR type (4) + width (4) + height (4)
-    // JPEG format: Read dimensions from JPEG header markers
-    let width: number;
-    let height: number;
-
-    const format = screenshotType;
-
-    if (format === "png" && buffer[0] === 0x89 && buffer[1] === 0x50) {
-      // PNG: Read dimensions from IHDR chunk (offset 16 for width, 20 for height)
-      width = buffer.readUInt32BE(16);
-      height = buffer.readUInt32BE(20);
-    } else if (format === "jpeg" && buffer.length > 0) {
-      // For JPEG, fall back to viewport dimensions or clip
-      // (Parsing JPEG headers is complex, use viewport as approximation)
-      const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
-      if (options?.clip) {
-        width = options.clip.width;
-        height = options.clip.height;
-      } else if (options?.fullPage) {
-        // For full page, we'd need to measure scrollable area
-        // This is approximate - consider using page.evaluate for accuracy
-        width = viewport.width;
-        const scrollHeight = await page.evaluate("document.documentElement.scrollHeight");
-        height = (scrollHeight as number) || viewport.height;
-      } else {
-        width = viewport.width;
-        height = viewport.height;
-      }
-    } else {
-      // Fallback
-      const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
-      width = options?.clip?.width ?? viewport.width;
-      height = options?.clip?.height ?? viewport.height;
-    }
-
-    return {
-      data: buffer.toString("base64"),
-      format,
-      width,
-      height,
-    };
-  }
-
-  private async handleObserveAccessibility(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<ObserveAccessibilityResult> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const options = params.options as AccessibilityTreeOptions | undefined;
-
-    let root: Locator | undefined;
-    if (options?.root) {
-      root = this.resolveSelector(page, options.root);
-    }
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const snapshot = await (page as any).accessibility.snapshot({
-      root: root ? await root.elementHandle() : undefined,
-      interestingOnly: options?.interestingOnly ?? true,
-    });
-
-    const tree = this.convertAccessibilityNode(snapshot);
-    return { tree };
-  }
-
-  // SECURITY FIX (HIGH-6): Content filtering to prevent extraction of sensitive data
-  private async handleObserveDOM(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<ObserveDOMResult> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-
-    let html = await page.content();
-    const text = await page.innerText("body").catch(() => "");
-    const title = await page.title();
-    const url = page.url();
-
-    // SECURITY: Redact sensitive input values from HTML
-    html = this.redactSensitiveContent(html);
-
-    return { html, text, title, url };
-  }
-
-  // PERF: Pre-compiled regex patterns for credential redaction (avoids recompilation on each call)
-  private static readonly REDACT_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
-    // Password input values (type before value)
-    { pattern: /(<input[^>]*type\s*=\s*["']password["'][^>]*value\s*=\s*["'])([^"']*)(['"])/gi, replacement: '$1[REDACTED]$3' },
-    // Password input values (value before type)
-    { pattern: /(<input[^>]*value\s*=\s*["'])([^"']*)(['"][^>]*type\s*=\s*["']password["'])/gi, replacement: '$1[REDACTED]$3' },
-    // Inputs with data-sensitive attribute
-    { pattern: /(<input[^>]*data-sensitive[^>]*value\s*=\s*["'])([^"']*)(['"])/gi, replacement: '$1[REDACTED]$3' },
-    // Sensitive data attributes
-    { pattern: /(data-(?:password|secret|token|api-key|credential|auth)\s*=\s*["'])([^"']*)(['"])/gi, replacement: '$1[REDACTED]$3' },
-    // JWT Bearer tokens
-    { pattern: /(["'])Bearer\s+[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+(['"])/gi, replacement: '$1[REDACTED_JWT]$2' },
-  ];
-
-  /**
-   * SECURITY: Redact sensitive content from HTML to prevent credential theft
-   * PERF: Uses pre-compiled regex patterns
-   */
-  private redactSensitiveContent(html: string): string {
-    // Early return for small strings (unlikely to contain sensitive data worth scanning)
-    if (html.length < 100) return html;
-
-    // Apply all patterns - regex patterns are pre-compiled as static constants
-    for (const { pattern, replacement } of BAPPlaywrightServer.REDACT_PATTERNS) {
-      // Reset lastIndex for global regexes (they're stateful)
-      pattern.lastIndex = 0;
-      html = html.replace(pattern, replacement);
-    }
-    return html;
-  }
-
-  private async handleObserveElement(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<ObserveElementResult> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const selector = params.selector as BAPSelector;
-    const properties = params.properties as ElementProperty[];
-
-    const locator = this.resolveSelector(page, selector);
-    const count = await locator.count();
-
-    if (count === 0) {
-      return { found: false };
-    }
-
-    // Build result object with mutable properties first, then cast to readonly
-    const result: {
-      found: boolean;
-      visible?: boolean;
-      enabled?: boolean;
-      checked?: boolean;
-      text?: string;
-      value?: string;
-      boundingBox?: { x: number; y: number; width: number; height: number };
-      attributes?: Record<string, string>;
-      computedStyle?: Record<string, string>;
-    } = { found: true };
-
-    for (const prop of properties) {
-      switch (prop) {
-        case "visible":
-          result.visible = await locator.isVisible();
-          break;
-        case "enabled":
-          result.enabled = await locator.isEnabled();
-          break;
-        case "checked":
-          result.checked = await locator.isChecked().catch(() => undefined);
-          break;
-        case "text":
-          result.text = await locator.innerText().catch(() => "");
-          break;
-        case "value": {
-          // SECURITY: Check if this is a password field and redact
-          const inputType = await locator.getAttribute('type').catch(() => '');
-          const isSensitive = await locator.getAttribute('data-sensitive').catch(() => null);
-          if (inputType?.toLowerCase() === 'password' || isSensitive !== null) {
-            result.value = '[REDACTED]';
-            this.logSecurity('VALUE_REDACTED', { selector: JSON.stringify(selector), reason: 'password_field' });
-          } else {
-            result.value = await locator.inputValue().catch(() => undefined);
-          }
-          break;
-        }
-        case "boundingBox":
-          result.boundingBox = await locator.boundingBox() ?? undefined;
-          break;
-        case "attributes":
-          result.attributes = await locator.evaluate((el) => {
-            const attrs: Record<string, string> = {};
-            for (const attr of el.attributes) {
-              attrs[attr.name] = attr.value;
-            }
-            return attrs;
-          });
-          break;
-        case "computedStyle":
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          result.computedStyle = await locator.evaluate((el: any) => {
-            const style = el.ownerDocument.defaultView.getComputedStyle(el);
-            const obj: Record<string, string> = {};
-            for (let i = 0; i < style.length; i++) {
-              const prop = style[i];
-              obj[prop] = style.getPropertyValue(prop);
-            }
-            return obj;
-          });
-          break;
-      }
-    }
-
-    return result;
-  }
-
-  private async handleObservePDF(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<ObservePDFResult> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const options = params.options as Record<string, unknown> | undefined;
-
-    const buffer = await page.pdf({
-      format: (options?.format as "Letter" | "A4" | undefined) ?? "A4",
-      landscape: options?.landscape as boolean | undefined,
-      scale: options?.scale as number | undefined,
-      margin: options?.margin as Record<string, string> | undefined,
-      printBackground: options?.printBackground as boolean | undefined,
-    });
-
-    return { data: buffer.toString("base64") };
-  }
-
-  private async handleObserveContent(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<ObserveContentResult> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const format = params.format as ContentFormat;
-
-    let content: string;
-
-    switch (format) {
-      case "html":
-        content = await page.content();
-        break;
-      case "text":
-        content = await page.innerText("body");
-        break;
-      case "markdown": {
-        // Simple HTML to markdown conversion
-        const html = await page.content();
-        content = this.htmlToMarkdown(html);
-        break;
-      }
-      default:
-        content = await page.innerText("body");
-    }
-
-    return {
-      content,
-      url: page.url(),
-      title: await page.title(),
-    };
-  }
-
-  /**
-   * Get ARIA snapshot of the page in YAML format
-   * This is a token-efficient representation ideal for LLMs (Playwright 1.49+)
-   */
-  private async handleObserveAriaSnapshot(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<{ snapshot: string; url: string; title: string }> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const selector = params.selector as BAPSelector | undefined;
-    const options = params.options as { timeout?: number } | undefined;
-
-    let snapshot: string;
-
-    if (selector) {
-      // Get ARIA snapshot for a specific element
-      const locator = this.resolveSelector(page, selector);
-      snapshot = await locator.ariaSnapshot({
-        timeout: options?.timeout ?? this.options.timeout,
-      });
-    } else {
-      // Get ARIA snapshot for the whole page body
-      snapshot = await page.locator('body').ariaSnapshot({
-        timeout: options?.timeout ?? this.options.timeout,
-      });
-    }
-
-    return {
-      snapshot,
-      url: page.url(),
-      title: await page.title(),
-    };
-  }
-
-  // ===========================================================================
-  // Storage Handlers
-  // ===========================================================================
-
-  private async handleStorageGetState(state: ClientState): Promise<StorageState> {
-    // SECURITY: Check if storage state extraction is blocked
-    if (this.options.security?.blockStorageStateExtraction) {
-      this.logSecurity('STORAGE_STATE_BLOCKED', { reason: 'security_policy' });
-      throw new BAPServerError(
-        ErrorCodes.InvalidRequest,
-        'Storage state extraction is disabled by security policy'
-      );
-    }
-
-    this.ensureBrowser(state);
-    this.logSecurity('STORAGE_STATE_EXTRACTED', {
-      warning: 'Contains session tokens - handle securely'
-    });
-    return await state.context!.storageState() as StorageState;
-  }
-
-  private async handleStorageSetState(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    this.ensureBrowser(state);
-    const storageState = params.state as StorageState;
-
-    // Set cookies
-    if (storageState.cookies?.length) {
-      await state.context!.addCookies(storageState.cookies as Cookie[]);
-    }
-
-    // Set storage for each origin
-    for (const origin of storageState.origins ?? []) {
-      // Create a page for this origin to set storage
-      const page = await state.context!.newPage();
-      await page.goto(origin.origin);
-
-      // Set localStorage
-      for (const item of origin.localStorage) {
-        await page.evaluate(
-          ([key, value]) => localStorage.setItem(key, value),
-          [item.name, item.value]
-        );
-      }
-
-      // Set sessionStorage
-      for (const item of origin.sessionStorage ?? []) {
-        await page.evaluate(
-          ([key, value]) => sessionStorage.setItem(key, value),
-          [item.name, item.value]
-        );
-      }
-
-      await page.close();
-    }
-  }
-
-  private async handleStorageGetCookies(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<{ cookies: Cookie[] }> {
-    this.ensureBrowser(state);
-    const urls = params.urls as string[] | undefined;
-    const cookies = await state.context!.cookies(urls);
-    return { cookies: cookies as Cookie[] };
-  }
-
-  private async handleStorageSetCookies(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    this.ensureBrowser(state);
-    const cookies = params.cookies as Cookie[];
-    await state.context!.addCookies(cookies);
-  }
-
-  private async handleStorageClearCookies(
-    state: ClientState,
-    _params: Record<string, unknown>
-  ): Promise<void> {
-    this.ensureBrowser(state);
-    await state.context!.clearCookies();
-  }
-
-  // ===========================================================================
-  // Emulation Handlers
-  // ===========================================================================
-
-  private async handleEmulateSetViewport(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    await page.setViewportSize({
-      width: params.width as number,
-      height: params.height as number,
-    });
-  }
-
-  private async handleEmulateSetUserAgent(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const userAgent = params.userAgent as string;
-
-    // Use JSON.stringify for safe escaping to prevent code injection
-    const safeUserAgent = JSON.stringify(userAgent);
-    await page.context().addInitScript(`
-      Object.defineProperty(navigator, 'userAgent', { get: () => ${safeUserAgent} });
-    `);
-  }
-
-  private async handleEmulateSetGeolocation(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    this.ensureBrowser(state);
-    await state.context!.setGeolocation({
-      latitude: params.latitude as number,
-      longitude: params.longitude as number,
-      accuracy: params.accuracy as number | undefined,
-    });
-  }
-
-  private async handleEmulateSetOffline(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    this.ensureBrowser(state);
-    await state.context!.setOffline(params.offline as boolean);
-  }
-
-  // ===========================================================================
-  // Dialog Handler
-  // ===========================================================================
-
-  private async handleDialogHandle(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    const page = this.getPage(state, params.pageId as string | undefined);
-    const action = params.action as "accept" | "dismiss";
-    const promptText = params.promptText as string | undefined;
-
-    // Set up dialog handler for next dialog
-    page.once("dialog", async (dialog) => {
-      if (action === "accept") {
-        await dialog.accept(promptText);
-      } else {
-        await dialog.dismiss();
-      }
-    });
-  }
-
-  // ===========================================================================
-  // Tracing Handlers
-  // ===========================================================================
-
-  private async handleTraceStart(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    this.ensureBrowser(state);
-
-    await state.context!.tracing.start({
-      name: params.name as string | undefined,
-      screenshots: params.screenshots as boolean | undefined,
-      snapshots: params.snapshots as boolean | undefined,
-      sources: params.sources as boolean | undefined,
-    });
-
-    state.tracing = true;
-  }
-
-  private async handleTraceStop(state: ClientState): Promise<{ data?: string }> {
-    this.ensureBrowser(state);
-
-    if (!state.tracing) {
-      return {};
-    }
-
-    // tracing.stop() may return void or a buffer depending on options
-    const result = await state.context!.tracing.stop();
-    state.tracing = false;
-
-    // Handle both cases: result may be Buffer or void
-    const buffer = result as Buffer | undefined;
-    return {
-      data: buffer?.toString("base64"),
-    };
-  }
-
-  // ===========================================================================
-  // Event Subscription
-  // ===========================================================================
-
-  private async handleEventsSubscribe(
-    state: ClientState,
-    params: Record<string, unknown>
-  ): Promise<void> {
-    const events = params.events as string[];
-    for (const event of events) {
-      state.eventSubscriptions.add(event);
-    }
-  }
-
-  // ===========================================================================
-  // Discovery Handlers (WebMCP Tool Discovery)
-  // ===========================================================================
-
-  /**
-   * Discover WebMCP tools exposed by the current page via progressive feature detection.
-   *
-   * 1. Declarative: `<form toolname="...">` with tooldescription, toolparamdescription attrs
-   * 2. Imperative: `navigator.modelContext` API (when available)
-   *
-   * Returns empty array on pages without WebMCP — always graceful.
-   */
-  private async discoverWebMCPTools(
-    page: PlaywrightPage,
-    options?: { maxTools?: number; includeInputSchemas?: boolean }
-  ): Promise<{ tools: WebMCPTool[]; totalDiscovered: number; apiVersion?: string }> {
-    const maxTools = options?.maxTools ?? 50;
-    const includeInputSchemas = options?.includeInputSchemas !== false;
-
-    // This function runs in browser context where DOM types exist
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const browserFn = (opts: { maxTools: number; includeInputSchemas: boolean }): any => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const doc = (globalThis as any).document;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const nav = (globalThis as any).navigator;
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tools: any[] = [];
-      let apiVersion: string | undefined;
-
-      // 1. Declarative: forms with toolname attribute
-      try {
-        const forms = doc.querySelectorAll("form[toolname]");
-        for (const form of forms) {
-          if (tools.length >= opts.maxTools) break;
-
-          const name = form.getAttribute("toolname");
-          if (!name) continue;
-
-          const description = form.getAttribute("tooldescription") || undefined;
-
-          // Build input schema from form inputs
-          let inputSchema: Record<string, unknown> | undefined;
-          if (opts.includeInputSchemas) {
-            const properties: Record<string, { type: string; description?: string }> = {};
-            const required: string[] = [];
-            const inputs = form.querySelectorAll("input[name], textarea[name], select[name]");
-
-            for (const input of inputs) {
-              const inputName = input.getAttribute("name");
-              if (!inputName) continue;
-
-              const paramDesc = input.getAttribute("toolparamdescription") || undefined;
-              const inputType = input.getAttribute("type") || "text";
-              const schemaType = inputType === "number" ? "number" : inputType === "checkbox" ? "boolean" : "string";
-
-              properties[inputName] = { type: schemaType, ...(paramDesc ? { description: paramDesc } : {}) };
-
-              if (input.hasAttribute("required")) {
-                required.push(inputName);
-              }
-            }
-
-            if (Object.keys(properties).length > 0) {
-              inputSchema = {
-                type: "object",
-                properties,
-                ...(required.length > 0 ? { required } : {}),
-              };
-            }
-          }
-
-          // Build a CSS selector for this form
-          const id = form.getAttribute("id");
-          const formSelector = id ? `#${id}` : `form[toolname="${name}"]`;
-
-          tools.push({ name, description, inputSchema, source: "webmcp-declarative", formSelector });
-        }
-      } catch {
-        // Ignore declarative detection errors
-      }
-
-      // 2. Imperative: navigator.modelContext API
-      try {
-        if (typeof nav?.modelContext !== "undefined" && nav.modelContext !== null) {
-          const mc = nav.modelContext;
-
-          // Detect API version if available
-          if (typeof mc.version === "string") {
-            apiVersion = mc.version;
-          }
-
-          // Try to get tools via the imperative API
-          if (typeof mc.getTools === "function") {
-            const imperativeTools = mc.getTools();
-
-            if (Array.isArray(imperativeTools)) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              for (const tool of imperativeTools as any[]) {
-                if (tools.length >= opts.maxTools) break;
-                if (tool && typeof tool.name === "string") {
-                  tools.push({
-                    name: tool.name,
-                    description: typeof tool.description === "string" ? tool.description : undefined,
-                    inputSchema: opts.includeInputSchemas && tool.inputSchema ? tool.inputSchema : undefined,
-                    source: "webmcp-imperative",
-                  });
-                }
-              }
-            }
-          }
-        }
-      } catch {
-        // Ignore imperative detection errors
-      }
-
-      return { tools, totalDiscovered: tools.length, apiVersion };
-    };
-
-    try {
-      const result = await page.evaluate(browserFn, { maxTools, includeInputSchemas });
-      return result;
-    } catch {
-      // Page may have navigated, be in an error state, etc. — always graceful
-      return { tools: [], totalDiscovered: 0 };
-    }
-  }
-
-  /**
-   * Handle discovery/discover — discover WebMCP tools on the current page
-   */
-  private async handleDiscoveryDiscover(
-    state: ClientState,
-    params: DiscoveryDiscoverParams
-  ): Promise<DiscoveryDiscoverResult> {
-    const page = this.getPage(state, params.pageId);
-    return this.discoverWebMCPTools(page, params.options);
-  }
-
-  // ===========================================================================
-  // Agent Handlers (Composite Actions, Observations, and Data Extraction)
-  // ===========================================================================
-
-  /**
-   * Execute a sequence of actions atomically
-   */
-  private async handleAgentAct(
-    ws: WebSocket,
-    state: ClientState,
-    params: AgentActParams
-  ): Promise<AgentActResult> {
-    const startTime = Date.now();
-    const page = this.getPage(state, params.pageId);
-
-    const results: StepResult[] = [];
-    let completed = 0;
-    let failedAt: number | undefined;
-
-    const stopOnFirstError = params.stopOnFirstError ?? true;
-    const globalTimeout = params.timeout ?? this.options.timeout ?? 30000;
-
-    // Validate all steps before execution
-    for (const step of params.steps) {
-      // Check that the action is in the allowed list
-      if (!ALLOWED_ACT_ACTIONS.includes(step.action as typeof ALLOWED_ACT_ACTIONS[number])) {
-        throw new BAPServerError(
-          ErrorCodes.InvalidParams,
-          `Action not allowed in agent/act: ${step.action}. Allowed actions: ${ALLOWED_ACT_ACTIONS.join(", ")}`
-        );
-      }
-
-      // Check authorization for each action
-      this.checkAuthorization(state, step.action);
-    }
-
-    try {
-      for (let i = 0; i < params.steps.length; i++) {
-        const step = params.steps[i];
-        const stepStart = Date.now();
-
-        // Check if we've exceeded global timeout
-        if (Date.now() - startTime >= globalTimeout) {
-          throw new BAPServerError(ErrorCodes.Timeout, "Sequence timeout exceeded");
-        }
-
-        let stepResult: StepResult;
-
-        try {
-          // Check pre-condition if specified
-          if (step.condition) {
-            const conditionMet = await this.checkStepCondition(page, step.condition);
-            if (!conditionMet) {
-              if (params.continueOnConditionFail) {
-                stepResult = {
-                  step: i,
-                  label: step.label,
-                  success: false,
-                  error: {
-                    code: ErrorCodes.InvalidParams,
-                    message: `Condition not met: ${step.condition.state} for selector`,
-                  },
-                  duration: Date.now() - stepStart,
-                };
-                results.push(stepResult);
-                continue;
-              }
-              throw new BAPServerError(ErrorCodes.InvalidParams, "Step condition not met");
-            }
-          }
-
-          // Execute the action with retry support
-          const actionResult = await this.executeStepWithRetry(ws, state, step, page);
-
-          stepResult = {
-            step: i,
-            label: step.label,
-            success: true,
-            result: actionResult.result,
-            duration: Date.now() - stepStart,
-            retries: actionResult.retries,
-          };
-
-          completed++;
-        } catch (error) {
-          const errorInfo = this.extractErrorInfo(error);
-
-          stepResult = {
-            step: i,
-            label: step.label,
-            success: false,
-            error: errorInfo,
-            duration: Date.now() - stepStart,
-          };
-
-          if (step.onError === "skip") {
-            // Continue to next step
-          } else if (stopOnFirstError) {
-            failedAt = i;
-            results.push(stepResult);
-            break;
-          }
-        }
-
-        results.push(stepResult);
-      }
-    } catch {
-      // Global timeout or other fatal error
-      if (results.length < params.steps.length && failedAt === undefined) {
-        failedAt = results.length;
-      }
-    }
-
-    // Build base result
-    const actResult: AgentActResult = {
-      completed,
-      total: params.steps.length,
-      success: completed === params.steps.length,
-      results,
-      duration: Date.now() - startTime,
-      failedAt,
-    };
-
-    // Fusion 1: observe-act-observe kernel — pre-observation
-    const preObserve = (params as Record<string, unknown>).preObserve as AgentObserveParams | undefined;
-    if (preObserve) {
-      try {
-        (actResult as Record<string, unknown>).preObservation = await this.handleAgentObserve(
-          state,
-          { ...preObserve, pageId: params.pageId }
-        );
-      } catch {
-        // Non-fatal: pre-observation failure doesn't block act result
-      }
-    }
-
-    // Fusion 1: observe-act-observe kernel — post-observation
-    const postObserve = (params as Record<string, unknown>).postObserve as AgentObserveParams | undefined;
-    if (postObserve) {
-      try {
-        (actResult as Record<string, unknown>).postObservation = await this.handleAgentObserve(
-          state,
-          { ...postObserve, pageId: params.pageId }
-        );
-      } catch {
-        // Non-fatal: post-observation failure doesn't block act result
-      }
-    }
-
-    // Fusion 6: speculative prefetch — after act that ends with navigate/click
-    if (!postObserve && results.length > 0) {
-      const lastStep = params.steps[results.length - 1];
-      if (lastStep && (lastStep.action === "page/navigate" || lastStep.action === "action/click")) {
-        this.speculativeObserve(state, params.pageId);
-      }
-    }
-
-    return actResult;
-  }
-
-  /**
-   * Execute a single step with retry support
-   */
-  private async executeStepWithRetry(
-    ws: WebSocket,
-    state: ClientState,
-    step: ExecutionStep,
-    _page: PlaywrightPage
-  ): Promise<{ result: unknown; retries: number }> {
-    const maxRetries = step.onError === "retry" ? (step.maxRetries ?? 3) : 1;
-    const retryDelay = step.retryDelay ?? 500;
-
-    let lastError: Error | null = null;
-    let retries = 0;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        // Dispatch to the actual handler
-        const result = await this.dispatch(ws, state, step.action, step.params);
-        return { result, retries };
-      } catch (error) {
-        lastError = error as Error;
-        retries = attempt + 1;
-
-        if (attempt < maxRetries - 1 && step.onError === "retry") {
-          await this.sleep(retryDelay * Math.pow(2, attempt)); // Exponential backoff
-        }
-      }
-    }
-
-    throw lastError;
-  }
-
-  /**
-   * Check a step pre-condition
-   */
-  private async checkStepCondition(
-    page: PlaywrightPage,
-    condition: StepCondition
-  ): Promise<boolean> {
-    const timeout = condition.timeout ?? 5000;
-    const locator = this.resolveSelector(page, condition.selector);
-
-    try {
-      switch (condition.state) {
-        case "visible":
-          await locator.waitFor({ state: "visible", timeout });
-          return true;
-        case "hidden":
-          await locator.waitFor({ state: "hidden", timeout });
-          return true;
-        case "enabled":
-          await locator.waitFor({ state: "visible", timeout });
-          return await locator.isEnabled();
-        case "disabled":
-          await locator.waitFor({ state: "visible", timeout });
-          return await locator.isDisabled();
-        case "exists":
-          await locator.waitFor({ state: "attached", timeout });
-          return true;
-        default:
-          return false;
-      }
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Extract error info for step result
-   */
-  private extractErrorInfo(error: unknown): { code: number; message: string; data?: { retryable: boolean; retryAfterMs?: number; details?: Record<string, unknown> } } {
-    if (error instanceof BAPServerError) {
-      return {
-        code: error.code,
-        message: error.message,
-        data: {
-          retryable: error.retryable,
-          retryAfterMs: error.retryAfterMs,
-          details: error.details,
-        },
-      };
-    }
-
-    if (error instanceof Error) {
-      // Map common error patterns
-      const message = error.message;
-      if (message.includes("Timeout")) {
-        return { code: ErrorCodes.Timeout, message, data: { retryable: true } };
-      }
-      if (message.includes("not visible") || message.includes("not enabled")) {
-        return { code: ErrorCodes.ElementNotFound, message, data: { retryable: true } };
-      }
-      return { code: ErrorCodes.InternalError, message, data: { retryable: false } };
-    }
-
-    return { code: ErrorCodes.InternalError, message: "Unknown error", data: { retryable: false } };
-  }
-
-  /**
-   * Sleep helper for retry delays
-   */
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  /**
-   * Fusion 6: Speculative prefetch — fire-and-forget observation after act
-   * Builds an "interactive" tier observation that can be served from cache
-   * if the next call is a matching agent/observe.
-   *
-   * Guards:
-   * - Timer tracked on state for cancellation on cleanup/disconnect
-   * - Checks page still exists and URL hasn't changed before caching
-   * - Aborts if client state is no longer initialized (disconnected)
-   */
-  private speculativeObserve(state: ClientState, pageId?: string): void {
-    // Cancel any pending speculative prefetch
-    if (state.speculativePrefetchTimer) {
-      clearTimeout(state.speculativePrefetchTimer);
-      state.speculativePrefetchTimer = undefined;
-    }
-
-    // Snapshot the URL at call time to detect navigation during delay
-    let urlAtCallTime: string | undefined;
-    try {
-      const p = this.getPage(state, pageId);
-      urlAtCallTime = p.url();
-    } catch {
-      return; // Page doesn't exist, skip
-    }
-
-    // Fire after 200ms delay to let page settle
-    state.speculativePrefetchTimer = setTimeout(async () => {
-      state.speculativePrefetchTimer = undefined;
-      try {
-        // Guard: client may have disconnected during delay
-        if (!state.initialized) return;
-
-        // Guard: page may have been closed during delay
-        const page = this.getPage(state, pageId);
-        // Guard: page may have navigated during delay
-        if (page.url() !== urlAtCallTime) return;
-
-        const result = await this.handleAgentObserve(state, {
-          pageId,
-          includeMetadata: true,
-          includeInteractiveElements: true,
-          includeScreenshot: false,
-          includeAccessibility: false,
-          maxElements: 50,
-          responseTier: "interactive",
-        });
-
-        // Guard: check URL hasn't changed during observation
-        if (page.url() !== urlAtCallTime) return;
-
-        state.speculativeObservation = {
-          pageUrl: page.url(),
-          result,
-          timestamp: Date.now(),
-        };
-      } catch {
-        // Speculative prefetch is fire-and-forget — silently ignore errors
-      }
-    }, 200);
-  }
-
-  /**
-   * Get an AI-optimized observation of the page
-   * Supports stable element refs and screenshot annotation (Set-of-Marks)
-   */
-  private async handleAgentObserve(
-    state: ClientState,
-    params: AgentObserveParams
-  ): Promise<AgentObserveResult> {
-    const page = this.getPage(state, params.pageId);
-    const pageId = params.pageId ?? state.activePage ?? "";
-    const pageUrl = page.url();
-
-    // Fusion 6: speculative cache — check for a valid pre-built observation
-    // Use if: URL matches, age < 5s, not requesting tree or screenshot (those are expensive/specific)
-    if (state.speculativeObservation) {
-      const spec = state.speculativeObservation;
-      const age = Date.now() - spec.timestamp;
-      const canUse = spec.pageUrl === pageUrl
-        && age < 5000
-        && !params.includeAccessibility
-        && !params.includeScreenshot
-        && !params.annotateScreenshot;
-      // Always clear the cache (one-shot)
-      state.speculativeObservation = undefined;
-      if (canUse) {
-        return spec.result;
-      }
-    }
-
-    const result: AgentObserveResult = {};
-
-    // Fusion 5: response tiers — override include flags based on tier
-    const responseTier = params.responseTier ?? "full";
-    if (responseTier === "interactive" || responseTier === "minimal") {
-      // Force interactive-only: skip tree and screenshot
-      params = {
-        ...params,
-        includeAccessibility: false,
-        includeScreenshot: false,
-        includeInteractiveElements: true,
-        includeMetadata: true,
-      };
-    }
-
-    // Get or create element registry for this page
-    let registry = state.elementRegistries.get(pageId);
-
-    // Snapshot previous refs BEFORE registry update (needed for incremental diff)
-    const previousRefs = params.incremental && registry
-      ? new Map(Array.from(registry.elements.entries()).map(([ref, entry]) => [ref, {
-          name: entry.identity.name,
-          value: undefined as string | undefined, // registry doesn't track value, diff from element list
-          disabled: false,
-        }]))
-      : null;
-
-    // Create new registry if needed or if URL changed (navigation)
-    if (!registry || registry.pageUrl !== pageUrl || params.refreshRefs) {
-      registry = createElementRegistry(pageUrl);
-      state.elementRegistries.set(pageId, registry);
-    }
-
-    // Clean up stale entries periodically
-    cleanupStaleEntries(registry);
-
-    // Metadata (default: included)
-    if (params.includeMetadata !== false) {
-      const viewport = page.viewportSize();
-      result.metadata = {
-        url: page.url(),
-        title: await page.title(),
-        viewport: viewport ?? { width: 0, height: 0 },
-      };
-    }
-
-    // Accessibility tree
-    if (params.includeAccessibility) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const snapshot = await (page as any).accessibility.snapshot();
-      result.accessibility = {
-        tree: snapshot ? [this.convertAccessibilityNode(snapshot)] : [],
-      };
-    }
-
-    // Interactive elements (needed for annotation too)
-    let interactiveElements: InteractiveElement[] | undefined;
-    const needElements = params.includeInteractiveElements || params.annotateScreenshot;
-
-    if (needElements) {
-      // Always include bounds if annotation is requested
-      const includeBounds = params.includeBounds ?? !!params.annotateScreenshot;
-
-      const elements = await this.getInteractiveElements(page, {
-        maxElements: params.maxElements ?? 100,
-        filterRoles: params.filterRoles,
-        includeBounds,
-        // Stable ref options
-        registry,
-        stableRefs: params.stableRefs !== false,
-        refreshRefs: params.refreshRefs,
-        includeRefHistory: params.includeRefHistory,
-      });
-      interactiveElements = elements.elements;
-
-      if (params.includeInteractiveElements) {
-        // Fusion 5: minimal tier — strip elements to essential fields only
-        if (responseTier === "minimal") {
-          result.interactiveElements = elements.elements.map(el => ({
-            ref: el.ref,
-            selector: el.selector,
-            role: el.role,
-            name: el.name,
-            tagName: el.tagName,
-            actionHints: [],
-          }));
-        } else {
-          result.interactiveElements = elements.elements;
-        }
-        result.totalInteractiveElements = elements.total;
-      }
-
-      // Fusion 3: incremental observe — compute diff against previous observation
-      if (params.incremental && previousRefs) {
-        const currentRefs = new Set(elements.elements.map(el => el.ref));
-        const added: InteractiveElement[] = [];
-        const updated: InteractiveElement[] = [];
-        const removed: string[] = [];
-
-        for (const el of elements.elements) {
-          if (!previousRefs.has(el.ref)) {
-            added.push(el);
-          } else {
-            const prev = previousRefs.get(el.ref)!;
-            if (prev.name !== el.name || el.disabled || el.value !== undefined) {
-              // Heuristic: if name changed or element has notable state, include as updated
-              if (prev.name !== el.name) {
-                updated.push(el);
-              }
-            }
-          }
-        }
-
-        for (const [prevRef] of previousRefs) {
-          if (!currentRefs.has(prevRef)) {
-            removed.push(prevRef);
-          }
-        }
-
-        result.changes = { added, updated, removed };
-      }
-    }
-
-    // Screenshot (with optional annotation)
-    if (params.includeScreenshot || params.annotateScreenshot) {
-      const viewport = page.viewportSize();
-      // Use JPEG by default for ~60% smaller payloads (less LLM token cost)
-      // Annotations require PNG for sharp badge rendering
-      const useAnnotation = params.annotateScreenshot && interactiveElements && interactiveElements.length > 0;
-      const obsFormat = useAnnotation ? "png" as const : "jpeg" as const;
-      let buffer = await page.screenshot({
-        type: obsFormat,
-        quality: obsFormat === "jpeg" ? 80 : undefined,
-      });
-      let annotated = false;
-      let annotationMap: AnnotationMapping[] | undefined;
-
-      // Apply annotation if requested
-      if (useAnnotation && interactiveElements) {
-        const annotationOpts: AnnotationOptions = typeof params.annotateScreenshot === 'object'
-          ? params.annotateScreenshot
-          : { enabled: true };
-
-        if (annotationOpts.enabled) {
-          const annotationResult = await this.annotateScreenshot(
-            page,
-            buffer,
-            interactiveElements,
-            annotationOpts
-          );
-          buffer = annotationResult.buffer;
-          annotated = true;
-          annotationMap = annotationResult.map;
-        }
-      }
-
-      result.screenshot = {
-        data: buffer.toString("base64"),
-        format: obsFormat,
-        width: viewport?.width ?? 0,
-        height: viewport?.height ?? 0,
-        annotated,
-      };
-
-      if (annotationMap) {
-        result.annotationMap = annotationMap;
-      }
-    }
-
-    // WebMCP tool discovery (opt-in)
-    if (params.includeWebMCPTools) {
-      const discovery = await this.discoverWebMCPTools(page);
-      if (discovery.tools.length > 0) {
-        result.webmcpTools = discovery.tools;
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Annotate a screenshot with element markers (Set-of-Marks style)
-   */
-  private async annotateScreenshot(
-    page: PlaywrightPage,
-    screenshotBuffer: Buffer,
-    elements: InteractiveElement[],
-    options: AnnotationOptions
-  ): Promise<{ buffer: Buffer; map: AnnotationMapping[] }> {
-    const maxLabels = options.maxLabels ?? 50;
-    const labelFormat = options.labelFormat ?? 'number';
-    const style = options.style ?? {};
-
-    // Default colors
-    const badgeColor = style.badge?.color ?? '#FF0000';
-    const badgeTextColor = style.badge?.textColor ?? '#FFFFFF';
-    const badgeSize = style.badge?.size ?? 20;
-    const badgeFont = style.badge?.font ?? 'bold 12px sans-serif';
-    const showBox = style.showBoundingBox !== false;
-    const boxColor = style.box?.color ?? '#FF0000';
-    const boxWidth = style.box?.width ?? 2;
-    const boxStyle = style.box?.style ?? 'solid';
-    const opacity = style.opacity ?? 0.8;
-
-    // Filter elements with bounds and limit to maxLabels
-    const elementsWithBounds = elements
-      .filter(el => el.bounds)
-      .slice(0, maxLabels);
-
-    // Build annotation mapping
-    const annotationMap: AnnotationMapping[] = elementsWithBounds.map((el, i) => {
-      let label: string;
-      if (labelFormat === 'ref') {
-        label = el.ref;
-      } else if (labelFormat === 'both') {
-        label = `${i + 1}:${el.ref}`;
-      } else {
-        label = String(i + 1);
-      }
-
-      return {
-        label,
-        ref: el.ref,
-        position: {
-          x: el.bounds!.x,
-          y: el.bounds!.y - badgeSize - 2,
-        },
-      };
-    });
-
-    // Render annotations using browser canvas
-    const annotatedBase64 = await page.evaluate(
-      (args: {
-        imageData: string;
-        elements: { label: string; bounds: { x: number; y: number; width: number; height: number } }[];
-        badgeColor: string;
-        badgeTextColor: string;
-        badgeSize: number;
-        badgeFont: string;
-        showBox: boolean;
-        boxColor: string;
-        boxWidth: number;
-        boxStyle: string;
-        opacity: number;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      }): any => {
-        // This function runs in browser context - use any to bypass DOM type checking
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return new Promise<string>((resolve: any) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const doc = (globalThis as any).document;
-          const canvas = doc.createElement('canvas');
-          const ctx = canvas.getContext('2d')!;
-
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const img = new (globalThis as any).Image();
-          img.onload = () => {
-            canvas.width = img.width;
-            canvas.height = img.height;
-
-            // Draw original screenshot
-            ctx.drawImage(img, 0, 0);
-
-            // Set opacity for annotations
-            ctx.globalAlpha = args.opacity;
-
-            // Draw annotations for each element
-            for (const el of args.elements) {
-              const { label, bounds } = el;
-
-              // Draw bounding box
-              if (args.showBox) {
-                ctx.strokeStyle = args.boxColor;
-                ctx.lineWidth = args.boxWidth;
-                if (args.boxStyle === 'dashed') {
-                  ctx.setLineDash([5, 5]);
-                } else {
-                  ctx.setLineDash([]);
-                }
-                ctx.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
-              }
-
-              // Draw badge background
-              const textMetrics = ctx.measureText(label);
-              const badgeWidth = Math.max(args.badgeSize, textMetrics.width + 8);
-              const badgeX = bounds.x - 2;
-              const badgeY = Math.max(0, bounds.y - args.badgeSize - 2);
-
-              ctx.fillStyle = args.badgeColor;
-              ctx.fillRect(badgeX, badgeY, badgeWidth, args.badgeSize);
-
-              // Draw badge text
-              ctx.fillStyle = args.badgeTextColor;
-              ctx.font = args.badgeFont;
-              ctx.textBaseline = 'middle';
-              ctx.fillText(label, badgeX + 4, badgeY + args.badgeSize / 2);
-            }
-
-            // Reset alpha
-            ctx.globalAlpha = 1.0;
-
-            resolve(canvas.toDataURL('image/png').split(',')[1]);
-          };
-          img.src = `data:image/png;base64,${args.imageData}`;
-        });
-      },
-      {
-        imageData: screenshotBuffer.toString('base64'),
-        elements: elementsWithBounds.map((el, i) => ({
-          label: annotationMap[i].label,
-          bounds: el.bounds!,
-        })),
-        badgeColor,
-        badgeTextColor,
-        badgeSize,
-        badgeFont,
-        showBox,
-        boxColor,
-        boxWidth,
-        boxStyle,
-        opacity,
-      }
-    );
-
-    return {
-      buffer: Buffer.from(annotatedBase64, 'base64'),
-      map: annotationMap,
-    };
-  }
-
-  /**
-   * Extract structured data from the page
-   */
-  private async handleAgentExtract(
-    state: ClientState,
-    params: AgentExtractParams
-  ): Promise<AgentExtractResult> {
-    const page = this.getPage(state, params.pageId);
-    const timeout = params.timeout ?? this.options.timeout ?? 30000;
-
-    try {
-      // Get the content to extract from
-      let content: string;
-      if (params.selector) {
-        const locator = this.resolveSelector(page, params.selector);
-        await locator.waitFor({ state: "visible", timeout });
-        content = await locator.textContent() ?? "";
-      } else {
-        content = await page.textContent("body") ?? "";
-      }
-
-      // For now, we use a simple extraction based on the instruction and content
-      // In a full implementation, this would use an LLM for intelligent extraction
-      // This is a basic implementation that extracts based on patterns
-
-      const extractedData = await this.extractDataFromContent(
-        page,
-        content,
-        params.instruction,
-        params.schema,
-        params.mode ?? "single",
-        params.includeSourceRefs ?? false
-      );
-
-      return {
-        success: true,
-        data: extractedData.data,
-        sources: extractedData.sources,
-        confidence: extractedData.confidence,
-      };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Extraction failed";
-      return {
-        success: false,
-        data: null,
-        error: message,
-      };
-    }
-  }
-
-  /**
-   * Extract data from content based on instruction and schema.
-   *
-   * Strategy:
-   *  1. Scope to the main content area (skip nav/header/footer).
-   *  2. For lists: find repeating item containers, then use schema
-   *     property names to locate child elements within each item.
-   *  3. For objects: search for labeled values.
-   *  4. Coerce types based on schema (string, number, boolean).
-   */
-  private async extractDataFromContent(
-    page: PlaywrightPage,
-    _content: string,
-    _instruction: string,
-    schema: { type: string; properties?: Record<string, unknown>; items?: unknown },
-    mode: string,
-    includeSourceRefs: boolean
-  ): Promise<{ data: unknown; sources?: { ref: string; selector: BAPSelector; text?: string }[]; confidence: number }> {
-    const sources: { ref: string; selector: BAPSelector; text?: string }[] = [];
-
-    // ── Step 1: Scope to main content area ──────────────────────────
-    // Try semantic landmarks first, fall back to body
-    const contentRoot = await this.findContentRoot(page);
-
-    if (schema.type === "array" || mode === "list") {
-      const items = await this.extractList(
-        page, contentRoot, schema, includeSourceRefs, sources
-      );
-      return {
-        data: items,
-        sources: includeSourceRefs ? sources : undefined,
-        confidence: items.length > 0 ? 0.8 : 0.3,
-      };
-    }
-
-    if (mode === "table") {
-      const rows = await this.extractTable(
-        page, contentRoot, schema, includeSourceRefs, sources
-      );
-      return {
-        data: rows,
-        sources: includeSourceRefs ? sources : undefined,
-        confidence: rows.length > 0 ? 0.8 : 0.3,
-      };
-    }
-
-    if (schema.type === "object" && schema.properties) {
-      const result = await this.extractObject(
-        page, contentRoot, schema, includeSourceRefs, sources
-      );
-      return {
-        data: result.data,
-        sources: includeSourceRefs ? sources : undefined,
-        confidence: result.confidence,
-      };
-    }
-
-    // Default: return scoped text content
-    const text = await contentRoot.textContent() ?? "";
-    return {
-      data: text.trim().slice(0, 5000),
-      sources: includeSourceRefs ? sources : undefined,
-      confidence: 0.5,
-    };
-  }
-
-  /**
-   * Find the main content area of the page, skipping nav/header/footer.
-   * Returns a Locator scoped to the best content root.
-   */
-  private async findContentRoot(page: PlaywrightPage) {
-    // Try semantic landmarks in priority order
-    const candidates = ['main', '[role="main"]', '#content', '.content', '#main', '.page', '.container', '[role="document"]'];
-    for (const sel of candidates) {
-      try {
-        const loc = page.locator(sel).first();
-        if (await loc.count() > 0) {
-          // Verify it has substantial content (not just a wrapper with nav inside)
-          const text = await loc.textContent() ?? "";
-          if (text.trim().length > 100) return loc;
-        }
-      } catch { /* continue */ }
-    }
-    // Fallback: body
-    return page.locator('body');
-  }
-
-  /**
-   * Extract a list of items from repeating elements.
-   * Uses schema property names to locate child values within each item container.
-   */
-  private async extractList(
-    _page: PlaywrightPage,
-    root: ReturnType<PlaywrightPage['locator']>,
-    schema: { items?: unknown },
-    includeSourceRefs: boolean,
-    sources: { ref: string; selector: BAPSelector; text?: string }[]
-  ): Promise<unknown[]> {
-    const itemSchema = schema.items as { type?: string; properties?: Record<string, { type?: string }> } | undefined;
-    const isObjectItems = itemSchema?.type === 'object' && itemSchema.properties;
-
-    // ── Find the best repeating container ────────────────────────────
-    // Selectors are ordered by semantic priority: article > role > class-name > generic.
-    // Use the FIRST selector with 2+ matches rather than the one with the most,
-    // because generic selectors (ul li) often match sidebar/nav noise.
-    const containerSelectors = [
-      'article', '[role="listitem"]',
-      '.product', '.card', '.item', '.listing', '.result', '.entry', '.post',
-      '[class*="product"]', '[class*="card"]', '[class*="item"]',
-      'table tbody tr',
-      'ol li', 'ul li',
-    ];
-
-    let bestSelector = '';
-    let bestCount = 0;
-
-    for (const sel of containerSelectors) {
-      try {
-        const count = await root.locator(sel).count();
-        if (count >= 2) {
-          bestSelector = sel;
-          bestCount = count;
-          break; // First semantic match wins
-        }
-      } catch { /* continue */ }
-    }
-
-    if (!bestSelector || bestCount === 0) return [];
-
-    const elements = await root.locator(bestSelector).all();
-    const items: unknown[] = [];
-    const limit = Math.min(elements.length, 100);
-
-    for (let i = 0; i < limit; i++) {
-      const el = elements[i]!;
-
-      // Skip elements that are likely not visible or too small
-      try {
-        const box = await el.boundingBox();
-        if (box && (box.width < 10 || box.height < 10)) continue;
-      } catch { /* proceed anyway */ }
-
-      if (isObjectItems && itemSchema?.properties) {
-        // ── Schema-aware extraction: match property names to child elements ──
-        const obj = await this.extractPropertiesFromElement(el, itemSchema.properties);
-        // Only include if at least one property has a non-empty value
-        const hasValue = Object.values(obj).some(v => v !== null && v !== undefined && v !== '');
-        if (hasValue) {
-          items.push(obj);
-          if (includeSourceRefs) {
-            sources.push({
-              ref: `@s${items.length}`,
-              selector: { type: 'css', value: `${bestSelector}:nth-child(${i + 1})` },
-              text: Object.values(obj).filter(Boolean).join(' | ').slice(0, 100),
-            });
-          }
-        }
-      } else {
-        // Simple string items
-        const text = await el.textContent();
-        if (text?.trim()) {
-          items.push(text.trim());
-          if (includeSourceRefs) {
-            sources.push({
-              ref: `@s${items.length}`,
-              selector: { type: 'css', value: `${bestSelector}:nth-child(${i + 1})` },
-              text: text.trim().slice(0, 100),
-            });
-          }
-        }
-      }
-    }
-
-    // ── Fallback: if schema-aware extraction produced 0 items from matched ──
-    // elements, retry with text-based extraction (extract each property by
-    // splitting each container's inner text). This handles cases where CSS
-    // class names don't align with schema property names.
-    if (items.length === 0 && isObjectItems && itemSchema?.properties && elements.length > 0) {
-      const propNames = Object.keys(itemSchema.properties);
-      for (let i = 0; i < limit; i++) {
-        const el = elements[i]!;
-        try {
-          const box = await el.boundingBox();
-          if (box && (box.width < 10 || box.height < 10)) continue;
-        } catch { /* proceed */ }
-
-        const fullText = await el.textContent() ?? '';
-        if (!fullText.trim()) continue;
-
-        const obj: Record<string, unknown> = {};
-        // Try to extract known patterns from the full text
-        for (const key of propNames) {
-          const kl = key.toLowerCase();
-          if (kl === 'title' || kl === 'name') {
-            // First link's title attribute, or first heading text
-            try {
-              const heading = el.locator('h1, h2, h3, h4, h5, h6').first();
-              if (await heading.count() > 0) {
-                const link = heading.locator('a').first();
-                if (await link.count() > 0) {
-                  obj[key] = await link.getAttribute('title') ?? await link.textContent() ?? null;
-                } else {
-                  obj[key] = await heading.textContent() ?? null;
-                }
-              }
-            } catch { /* skip */ }
-          } else if (kl === 'price' || kl === 'cost' || kl === 'amount') {
-            const priceMatch = fullText.match(/[$€£¥]\s*[\d,.]+|[\d,.]+\s*[$€£¥]/);
-            if (priceMatch) obj[key] = priceMatch[0].trim();
-          } else if (kl === 'url' || kl === 'link' || kl === 'href') {
-            try {
-              const link = el.locator('a').first();
-              if (await link.count() > 0) obj[key] = await link.getAttribute('href');
-            } catch { /* skip */ }
-          } else if (kl === 'rating') {
-            // Try star-rating class pattern (e.g., "star-rating Three")
-            try {
-              const ratingEl = el.locator('[class*="rating"], [class*="star"]').first();
-              if (await ratingEl.count() > 0) {
-                const cls = await ratingEl.getAttribute('class') ?? '';
-                const parts = cls.split(/\s+/).filter(c => !c.toLowerCase().includes('rating') && !c.toLowerCase().includes('star') && c.length > 0);
-                if (parts.length > 0) obj[key] = parts[parts.length - 1];
-              }
-            } catch { /* skip */ }
-          } else if (kl === 'availability' || kl === 'stock' || kl === 'status') {
-            try {
-              const stockEl = el.locator('[class*="avail"], [class*="stock"], .availability, .stock').first();
-              if (await stockEl.count() > 0) {
-                obj[key] = (await stockEl.textContent())?.trim() ?? null;
-              }
-            } catch { /* skip */ }
-          }
-        }
-
-        const hasValue = Object.values(obj).some(v => v !== null && v !== undefined && v !== '');
-        if (hasValue) {
-          items.push(obj);
-          if (includeSourceRefs) {
-            sources.push({
-              ref: `@s${items.length}`,
-              selector: { type: 'css', value: `${bestSelector}:nth-child(${i + 1})` },
-              text: Object.values(obj).filter(Boolean).join(' | ').slice(0, 100),
-            });
-          }
-        }
-      }
-    }
-
-    return items;
-  }
-
-  /**
-   * Extract property values from a single element container.
-   * For each schema property, tries class-name matching, then attribute
-   * matching, then falls back to positional heuristics.
-   */
-  private async extractPropertiesFromElement(
-    el: ReturnType<PlaywrightPage['locator']>,
-    properties: Record<string, { type?: string }>
-  ): Promise<Record<string, unknown>> {
-    const result: Record<string, unknown> = {};
-
-    for (const [key, propSchema] of Object.entries(properties)) {
-      const keyLower = key.toLowerCase();
-      let value: string | null = null;
-
-      // Strategy 1: Find child element whose class or tag contains the property name
-      const classSelectors = [
-        `[class*="${keyLower}"]`,
-        `[data-${keyLower}]`,
-        `.${keyLower}`,
-      ];
-
-      for (const sel of classSelectors) {
-        try {
-          const child = el.locator(sel).first();
-          if (await child.count() > 0) {
-            // For links, prefer title attribute (common for truncated titles)
-            if (keyLower === 'title' || keyLower === 'name') {
-              value = await child.getAttribute('title') ?? await child.textContent();
-            } else {
-              value = await child.textContent();
-            }
-            // If text is empty, try extracting from class name (e.g. "star-rating Three" → "Three")
-            if (!value?.trim()) {
-              const cls = await child.getAttribute('class') ?? '';
-              const clsParts = cls.split(/\s+/).filter(c => !c.includes(keyLower) && c.length > 0);
-              if (clsParts.length > 0) value = clsParts[clsParts.length - 1] ?? null;
-            }
-            if (value?.trim()) break;
-          }
-        } catch { /* continue */ }
-      }
-
-      // Strategy 2: For known property patterns, try specific selectors
-      if (!value?.trim()) {
-        try {
-          if (keyLower === 'title' || keyLower === 'name') {
-            // Headings, links with title attribute
-            for (const sel of ['h1 a', 'h2 a', 'h3 a', 'h4 a', 'h1', 'h2', 'h3', 'h4', 'a[title]']) {
-              const child = el.locator(sel).first();
-              if (await child.count() > 0) {
-                value = await child.getAttribute('title') ?? await child.textContent();
-                if (value?.trim()) break;
-              }
-            }
-          } else if (keyLower === 'price' || keyLower === 'cost' || keyLower === 'amount') {
-            // Price patterns
-            const text = await el.textContent() ?? '';
-            const priceMatch = text.match(/[$€£¥]\s*[\d,.]+|[\d,.]+\s*[$€£¥]/);
-            if (priceMatch) value = priceMatch[0].trim();
-          } else if (keyLower === 'url' || keyLower === 'link' || keyLower === 'href') {
-            const link = el.locator('a').first();
-            if (await link.count() > 0) {
-              value = await link.getAttribute('href');
-            }
-          } else if (keyLower === 'image' || keyLower === 'img' || keyLower === 'thumbnail') {
-            const img = el.locator('img').first();
-            if (await img.count() > 0) {
-              value = await img.getAttribute('src');
-            }
-          }
-        } catch { /* continue */ }
-      }
-
-      // Coerce type
-      const trimmed = value?.trim() ?? null;
-      if (trimmed === null) {
-        result[key] = null;
-      } else if (propSchema.type === 'number') {
-        const num = parseFloat(trimmed.replace(/[^0-9.-]/g, ''));
-        result[key] = isNaN(num) ? trimmed : num;
-      } else if (propSchema.type === 'boolean') {
-        result[key] = ['true', 'yes', '1', 'in stock', 'available'].includes(trimmed.toLowerCase());
-      } else {
-        result[key] = trimmed;
-      }
-    }
-
-    return result;
-  }
-
-  /**
-   * Extract tabular data from an HTML table.
-   */
-  private async extractTable(
-    _page: PlaywrightPage,
-    root: ReturnType<PlaywrightPage['locator']>,
-    schema: { items?: unknown },
-    includeSourceRefs: boolean,
-    sources: { ref: string; selector: BAPSelector; text?: string }[]
-  ): Promise<unknown[]> {
-    const rows: unknown[] = [];
-    const itemSchema = schema.items as { properties?: Record<string, { type?: string }> } | undefined;
-
-    try {
-      // Find table headers to map columns
-      const headers: string[] = [];
-      const thElements = await root.locator('table th').all();
-      for (const th of thElements) {
-        headers.push((await th.textContent() ?? '').trim().toLowerCase());
-      }
-
-      // Extract rows
-      const trElements = await root.locator('table tbody tr').all();
-      const limit = Math.min(trElements.length, 100);
-
-      for (let i = 0; i < limit; i++) {
-        const tr = trElements[i]!;
-        const cells = await tr.locator('td').all();
-        const obj: Record<string, unknown> = {};
-
-        if (itemSchema?.properties) {
-          // Map schema properties to table columns by name
-          for (const [key, propSchema] of Object.entries(itemSchema.properties)) {
-            const colIdx = headers.findIndex(h => h.includes(key.toLowerCase()));
-            if (colIdx >= 0 && colIdx < cells.length) {
-              const text = (await cells[colIdx]!.textContent() ?? '').trim();
-              obj[key] = propSchema.type === 'number' ? (parseFloat(text.replace(/[^0-9.-]/g, '')) || text) : text;
-            }
-          }
-        } else {
-          // No schema properties — use headers as keys
-          for (let c = 0; c < cells.length; c++) {
-            const key = c < headers.length ? headers[c]! : `col${c}`;
-            obj[key] = (await cells[c]!.textContent() ?? '').trim();
-          }
-        }
-
-        if (Object.values(obj).some(v => v !== null && v !== undefined && v !== '')) {
-          rows.push(obj);
-          if (includeSourceRefs) {
-            sources.push({
-              ref: `@s${rows.length}`,
-              selector: { type: 'css', value: `table tbody tr:nth-child(${i + 1})` },
-            });
-          }
-        }
-      }
-    } catch { /* table extraction failed */ }
-
-    return rows;
-  }
-
-  /**
-   * Extract a single object from page content.
-   */
-  private async extractObject(
-    page: PlaywrightPage,
-    root: ReturnType<PlaywrightPage['locator']>,
-    schema: { properties?: Record<string, unknown> },
-    includeSourceRefs: boolean,
-    sources: { ref: string; selector: BAPSelector; text?: string }[]
-  ): Promise<{ data: Record<string, unknown>; confidence: number }> {
-    const result: Record<string, unknown> = {};
-    const properties = schema.properties as Record<string, { type?: string; description?: string }>;
-
-    for (const [key, propSchema] of Object.entries(properties)) {
-      const searchTerms = [key, propSchema.description].filter(Boolean);
-
-      for (const term of searchTerms) {
-        if (!term) continue;
-
-        const labelSelectors = [
-          `label:has-text("${term}")`,
-          `th:has-text("${term}")`,
-          `dt:has-text("${term}")`,
-          `[class*="${term.toLowerCase()}"]`,
-        ];
-
-        for (const selector of labelSelectors) {
-          try {
-            const label = root.locator(selector).first();
-            if (await label.count() > 0) {
-              const parent = label.locator('..');
-              const siblingText = await parent.textContent();
-              if (siblingText) {
-                const value = siblingText.replace(new RegExp(term, 'gi'), '').trim();
-                if (value) {
-                  result[key] = propSchema.type === 'number' ? parseFloat(value) || value : value;
-                  if (includeSourceRefs) {
-                    sources.push({
-                      ref: `@s${Object.keys(result).length}`,
-                      selector: { type: 'css', value: selector },
-                      text: value.slice(0, 100),
-                    });
-                  }
-                  break;
-                }
-              }
-            }
-          } catch { /* continue */ }
-        }
-      }
-    }
-
-    // Fallback for meta-based extraction (og:title, meta description, etc.)
-    if (Object.keys(result).length === 0) {
-      try {
-        for (const key of Object.keys(properties)) {
-          if (key === 'title' || key === 'name') {
-            result[key] = await page.title();
-          } else if (key === 'description') {
-            const desc = await page.locator('meta[name="description"]').getAttribute('content');
-            if (desc) result[key] = desc;
-          } else if (key === 'url') {
-            result[key] = page.url();
-          }
-        }
-      } catch { /* continue */ }
-    }
-
-    return {
-      data: Object.keys(result).length > 0 ? result : { raw: (await root.textContent() ?? "").slice(0, 1000) },
-      confidence: Object.keys(result).length > 0 ? 0.7 : 0.2,
-    };
-  }
-
-  /**
-   * Get interactive elements with pre-computed selectors
-   * Supports stable refs that persist across observations
-   */
-  private async getInteractiveElements(
-    page: PlaywrightPage,
-    options: {
-      maxElements: number;
-      filterRoles?: string[];
-      includeBounds: boolean;
-      // Stable ref options
-      registry?: PageElementRegistry;
-      stableRefs?: boolean;
-      refreshRefs?: boolean;
-      includeRefHistory?: boolean;
-    }
-  ): Promise<{ elements: InteractiveElement[]; total: number }> {
-    const useStableRefs = options.stableRefs !== false && options.registry;
-    const registry = options.registry;
-
-    // Use page.evaluate for performance (single round-trip)
-    // The function runs in browser context where DOM types exist
-    type RawElement = {
-      index: number;
-      role: string;
-      name: string | undefined;
-      value: string | undefined;
-      tagName: string;
-      focused: boolean;
-      disabled: boolean;
-      actionHints: string[];
-      selectorType: string;
-      selectorValue: string;
-      /** Fusion 4: Pre-computed CSS path for selector caching */
-      cssPath: string;
-      bounds: { x: number; y: number; width: number; height: number } | undefined;
-      // Identity fields for stable refs
-      testId?: string;
-      id?: string;
-      ariaLabel?: string;
-      parentRole?: string;
-      siblingIndex?: number;
-    };
-
-    // This function runs in browser context - use any to bypass DOM type checking
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const browserFn = (opts: { includeBounds: boolean }): any[] => {
-      const selectors = [
-        'a[href]',
-        'button',
-        'input:not([type="hidden"])',
-        'select',
-        'textarea',
-        '[role="button"]',
-        '[role="link"]',
-        '[role="menuitem"]',
-        '[role="tab"]',
-        '[role="checkbox"]',
-        '[role="radio"]',
-        '[role="switch"]',
-        '[role="textbox"]',
-        '[role="combobox"]',
-        '[role="listbox"]',
-        '[role="slider"]',
-        '[contenteditable="true"]',
-        '[onclick]',
-        '[tabindex]:not([tabindex="-1"])',
-      ].join(',');
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      function getCssPath(element: any): string {
-        const pathParts: string[] = [];
-        let current = element;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        while (current && (current as any).tagName !== 'BODY') {
-          let selector = current.tagName.toLowerCase();
-          if (current.id) {
-            selector = `#${current.id}`;
-            pathParts.unshift(selector);
-            break;
-          }
-          const parent = current.parentElement;
-          if (parent) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const siblings = Array.from(parent.children).filter((c: any) => c.tagName === current.tagName);
-            if (siblings.length > 1) {
-              const idx = siblings.indexOf(current) + 1;
-              selector += `:nth-of-type(${idx})`;
-            }
-          }
-          pathParts.unshift(selector);
-          current = parent;
-        }
-        return pathParts.join(' > ');
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const doc = (globalThis as any).document;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const win = (globalThis as any).window;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const elements: any[] = Array.from(doc.querySelectorAll(selectors));
-
-      return elements
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((el: any) => {
-          const style = win.getComputedStyle(el);
-          if (style.display === 'none' || style.visibility === 'hidden') return false;
-          const rect = el.getBoundingClientRect();
-          if (rect.width === 0 || rect.height === 0) return false;
-          return true;
-        })
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((el: any, index: number) => {
-          const rect = el.getBoundingClientRect();
-          const role = el.getAttribute('role') || el.tagName.toLowerCase();
-
-          const hints: string[] = [];
-          if (el.tagName === 'A' || el.tagName === 'BUTTON' || el.getAttribute('role') === 'button') {
-            hints.push('clickable');
-          }
-          if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.getAttribute('contenteditable')) {
-            hints.push('editable');
-          }
-          if (el.tagName === 'SELECT') {
-            hints.push('selectable');
-          }
-          if (el.type === 'checkbox' || el.getAttribute('role') === 'checkbox') {
-            hints.push('checkable');
-          }
-
-          let selectorValue: string;
-          let selectorType: 'css' | 'testId' | 'role' | 'text';
-
-          const ariaLabel = el.getAttribute('aria-label');
-          const text = el.textContent?.trim().slice(0, 50);
-          const testIdAttr = el.getAttribute('data-testid');
-          const name = el.getAttribute('name');
-          const id = el.getAttribute('id');
-
-          if (testIdAttr) {
-            selectorType = 'testId';
-            selectorValue = testIdAttr;
-          } else if (ariaLabel) {
-            selectorType = 'role';
-            selectorValue = JSON.stringify({ role, name: ariaLabel });
-          } else if (text && text.length > 0 && text.length < 50) {
-            selectorType = 'text';
-            selectorValue = text;
-          } else if (id) {
-            selectorType = 'css';
-            selectorValue = `#${id}`;
-          } else if (name) {
-            selectorType = 'css';
-            selectorValue = `[name="${name}"]`;
-          } else {
-            selectorType = 'css';
-            selectorValue = getCssPath(el);
-          }
-
-          // Get parent role for context (used in stable refs)
-          const parent = el.parentElement;
-          let parentRole: string | undefined;
-          if (parent) {
-            parentRole = parent.getAttribute('role') || undefined;
-          }
-
-          // Get sibling index among same-role siblings
-          let siblingIndex: number | undefined;
-          if (parent) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const siblings = Array.from(parent.children).filter((c: any) =>
-              (c.getAttribute('role') || c.tagName.toLowerCase()) === role
-            );
-            if (siblings.length > 1) {
-              siblingIndex = siblings.indexOf(el);
-            }
-          }
-
-          // Fusion 4: always compute CSS path for selector caching
-          const cssPath = getCssPath(el);
-
-          return {
-            index,
-            role,
-            name: ariaLabel || text || undefined,
-            value: el.value || undefined,
-            tagName: el.tagName.toLowerCase(),
-            focused: doc.activeElement === el,
-            disabled: el.disabled || false,
-            actionHints: hints,
-            selectorType,
-            selectorValue,
-            cssPath,
-            bounds: opts.includeBounds ? {
-              x: Math.round(rect.x),
-              y: Math.round(rect.y),
-              width: Math.round(rect.width),
-              height: Math.round(rect.height),
-            } : undefined,
-            // Identity fields for stable refs
-            testId: testIdAttr || undefined,
-            id: id || undefined,
-            ariaLabel: ariaLabel || undefined,
-            parentRole,
-            siblingIndex,
-          };
-        });
-    };
-
-    const rawElements: RawElement[] = await page.evaluate(browserFn, { includeBounds: options.includeBounds });
-
-    const total = rawElements.length;
-
-    // Apply filters and limit
-    let filtered = rawElements;
-    if (options.filterRoles) {
-      filtered = filtered.filter(el => options.filterRoles!.includes(el.role));
-    }
-    filtered = filtered.slice(0, options.maxElements);
-
-    // Convert to InteractiveElement format with proper selectors
-    const elements: InteractiveElement[] = filtered.map((el, i) => {
-      let selector: BAPSelector;
-
-      if (el.selectorType === 'testId') {
-        selector = { type: 'testId', value: el.selectorValue };
-      } else if (el.selectorType === 'role') {
-        const parsed = JSON.parse(el.selectorValue);
-        selector = { type: 'role', role: parsed.role as AriaRole, name: parsed.name };
-      } else if (el.selectorType === 'text') {
-        selector = { type: 'text', value: el.selectorValue };
-      } else {
-        selector = { type: 'css', value: el.selectorValue };
-      }
-
-      // Generate stable ref or use index-based ref
-      let ref: string;
-      let stability: RefStability | undefined;
-      let previousRef: string | undefined;
-
-      if (useStableRefs && registry) {
-        // Build element identity
-        const identity: ElementIdentity = {
-          testId: el.testId,
-          id: el.id,
-          ariaLabel: el.ariaLabel,
-          role: el.role,
-          name: el.name,
-          tagName: el.tagName,
-          parentRole: el.parentRole,
-          siblingIndex: el.siblingIndex,
-        };
-
-        // Generate stable ref from identity
-        ref = generateStableRef(identity);
-
-        // Check if this ref already exists in registry
-        const existing = registry.elements.get(ref);
-        if (existing) {
-          // Check if identity matches
-          const matchScore = compareIdentities(identity, existing.identity);
-          if (matchScore > 0.8) {
-            // Same element, update last seen
-            existing.lastSeen = Date.now();
-            existing.bounds = el.bounds;
-            stability = 'stable';
-          } else {
-            // Collision - different element with same ref
-            // Append index to make it unique
-            ref = `${ref}_${i + 1}`;
-            stability = 'new';
-          }
-        } else {
-          // New element
-          stability = 'new';
-        }
-
-        // If refreshRefs was requested, check for previous ref
-        if (options.refreshRefs && options.includeRefHistory) {
-          // Look for this element with a different ref
-          for (const [oldRef, entry] of registry.elements) {
-            if (oldRef !== ref) {
-              const matchScore = compareIdentities(identity, entry.identity);
-              if (matchScore > 0.8) {
-                previousRef = oldRef;
-                stability = 'moved';
-                break;
-              }
-            }
-          }
-        }
-
-        // Update registry (Fusion 4: include cached CSS selector for fast resolution)
-        registry.elements.set(ref, {
-          ref,
-          selector,
-          identity,
-          lastSeen: Date.now(),
-          bounds: el.bounds,
-          cachedCssSelector: el.cssPath || undefined,
-        });
-      } else {
-        // Use simple index-based ref
-        ref = `@e${i + 1}`;
-      }
-
-      const element: InteractiveElement = {
-        ref,
-        selector,
-        role: el.role,
-        name: el.name,
-        value: el.value,
-        actionHints: el.actionHints as ActionHint[],
-        bounds: el.bounds,
-        tagName: el.tagName,
-        focused: el.focused,
-        disabled: el.disabled,
-      };
-
-      // Add stability fields if using stable refs
-      if (useStableRefs) {
-        element.stability = stability;
-        if (previousRef) {
-          element.previousRef = previousRef;
-        }
-      }
-
-      return element;
-    });
-
-    // Update registry timestamp
-    if (registry) {
-      registry.lastObservation = Date.now();
-    }
-
-    return { elements, total };
-  }
-
-  // ===========================================================================
-  // Helper Methods
-  // ===========================================================================
-
-  // PERF: Pre-compiled regex patterns for selector validation (avoids recompilation on each call)
-  private static readonly SELECTOR_PATTERNS = {
-    cssJavascript: /url\s*\(\s*['"]?\s*javascript:/i,
-    cssExpression: /expression\s*\(/i,
-    xpathDocument: /\bdocument\s*\(/i,
-  };
-  private static readonly MAX_SELECTOR_LENGTH = 10000;
-
-  /**
-   * SECURITY: Validate selector value for potential injection attacks
-   * PERF: Uses pre-compiled regex patterns
-   */
-  private validateSelectorValue(value: string, type: string): void {
-    // Check for empty or whitespace-only values
-    if (!value || !value.trim()) {
-      throw new BAPServerError(ErrorCodes.InvalidParams, `Empty ${type} selector value`);
-    }
-
-    // Check for excessively long selectors (potential DoS)
-    if (value.length > BAPPlaywrightServer.MAX_SELECTOR_LENGTH) {
-      this.logSecurity('SELECTOR_TOO_LONG', { type, length: value.length });
-      throw new BAPServerError(ErrorCodes.InvalidParams, `Selector too long (max ${BAPPlaywrightServer.MAX_SELECTOR_LENGTH} chars)`);
-    }
-
-    // For CSS selectors, check for potentially dangerous patterns
-    if (type === 'css') {
-      // Block javascript: protocol in url() functions
-      if (BAPPlaywrightServer.SELECTOR_PATTERNS.cssJavascript.test(value)) {
-        this.logSecurity('SELECTOR_INJECTION', { type, pattern: 'javascript:' });
-        throw new BAPServerError(ErrorCodes.InvalidParams, 'Invalid CSS selector: javascript: not allowed');
-      }
-      // Block expression() which is IE-specific and dangerous
-      if (BAPPlaywrightServer.SELECTOR_PATTERNS.cssExpression.test(value)) {
-        this.logSecurity('SELECTOR_INJECTION', { type, pattern: 'expression()' });
-        throw new BAPServerError(ErrorCodes.InvalidParams, 'Invalid CSS selector: expression() not allowed');
-      }
-    }
-
-    // For XPath, check for potentially dangerous functions
-    if (type === 'xpath') {
-      // Block document() which can access external documents
-      if (BAPPlaywrightServer.SELECTOR_PATTERNS.xpathDocument.test(value)) {
-        this.logSecurity('SELECTOR_INJECTION', { type, pattern: 'document()' });
-        throw new BAPServerError(ErrorCodes.InvalidParams, 'Invalid XPath: document() not allowed');
-      }
-    }
-  }
-
-  /**
-   * Resolve a BAP selector to a Playwright locator
-   */
-  private resolveSelector(page: PlaywrightPage, selector: BAPSelector): Locator {
-    switch (selector.type) {
-      case "css":
-        this.validateSelectorValue(selector.value, 'css');
-        return page.locator(selector.value);
-
-      case "xpath":
-        this.validateSelectorValue(selector.value, 'xpath');
-        return page.locator(`xpath=${selector.value}`);
-
-      case "role":
-        return page.getByRole(selector.role as AriaRole, {
-          name: selector.name,
-          exact: selector.exact,
-        });
-
-      case "text":
-        return page.getByText(selector.value, { exact: selector.exact });
-
-      case "label":
-        return page.getByLabel(selector.value, { exact: selector.exact });
-
-      case "placeholder":
-        return page.getByPlaceholder(selector.value, { exact: selector.exact });
-
-      case "testId":
-        return page.getByTestId(selector.value);
-
-      case "semantic":
-        // Semantic selectors require AI resolution
-        // For now, fall back to text search
-        return page.getByText(selector.description);
-
-      case "coordinates":
-        // For coordinates, we need to click directly
-        // Return a locator for the body and handle coordinates in the action
-        return page.locator("body");
-
-      case "ref": {
-        // Look up the element by its stable ref in the registry
-        const pageId = this.getPageId(page);
-        const owner = this.findPageOwner(pageId);
-        if (!owner) {
-          throw new BAPServerError(
-            ErrorCodes.ElementNotFound,
-            `No client state available for ref lookup: ${selector.ref}`
-          );
-        }
-        const registry = owner.state.elementRegistries.get(pageId);
-        if (!registry) {
-          throw new BAPServerError(
-            ErrorCodes.ElementNotFound,
-            `No element registry found for page. Call agent/observe first to populate refs.`
-          );
-        }
-        const entry = registry.elements.get(selector.ref);
-        if (!entry) {
-          throw new BAPServerError(
-            ErrorCodes.ElementNotFound,
-            `Element ref not found: ${selector.ref}. The element may have been removed or the ref may be stale.`
-          );
-        }
-        // Fusion 4: Use cached CSS selector for fast resolution (bypasses semantic lookup)
-        // Falls back to stored selector if cache miss or stale (executeStepWithRetry handles stale elements)
-        if (entry.cachedCssSelector) {
-          return page.locator(entry.cachedCssSelector);
-        }
-        // Fallback: Use the stored semantic selector
-        return this.resolveSelector(page, entry.selector);
-      }
-
-      default:
-        throw new BAPServerError(
-          ErrorCodes.InvalidParams,
-          `Unknown selector type: ${(selector as { type: string }).type}`
-        );
-    }
-  }
-
-  /**
-   * Get the browser type for launching
-   */
   private getBrowserType(name: string): BrowserType {
     switch (name) {
       case "chromium":
@@ -4311,9 +849,6 @@ export class BAPPlaywrightServer extends EventEmitter {
     }
   }
 
-  /**
-   * Map BAP wait condition to Playwright
-   */
   private mapWaitUntil(
     waitUntil?: WaitUntilState
   ): "load" | "domcontentloaded" | "networkidle" | "commit" | undefined {
@@ -4321,77 +856,46 @@ export class BAPPlaywrightServer extends EventEmitter {
     return waitUntil;
   }
 
-  /**
-   * Ensure browser is launched
-   */
-  private ensureBrowser(state: ClientState): void {
-    if (!state.context) {
-      throw new BAPServerError(ErrorCodes.BrowserNotLaunched, "Browser not launched");
-    }
-    if (!state.isPersistent && !state.browser) {
-      throw new BAPServerError(ErrorCodes.BrowserNotLaunched, "Browser not launched");
-    }
-  }
-
-  /**
-   * Check rate limit for a specific operation type
-   * Throws BAPServerError if rate limit is exceeded
-   *
-   * PERF: Uses sliding window counter algorithm - O(1) time complexity
-   * instead of O(n) array filter on every request
-   */
-  private checkRateLimit(state: ClientState, type: 'request' | 'screenshot'): void {
+  private checkRateLimit(state: ClientState, type: "request" | "screenshot"): void {
     const now = Date.now();
     const limits = this.options.limits;
 
-    if (type === 'request') {
+    if (type === "request") {
       const maxRps = limits.maxRequestsPerSecond ?? 50;
       const windowMs = 1000;
-
-      // Initialize sliding window if needed
       if (!state.requestWindow) {
         state.requestWindow = { count: 0, windowStart: now };
       }
-
-      // Check if we're in a new window
       if (now - state.requestWindow.windowStart >= windowMs) {
-        // Start new window
         state.requestWindow = { count: 1, windowStart: now };
       } else {
-        // Same window - check limit
         if (state.requestWindow.count >= maxRps) {
           throw new BAPServerError(
             ErrorCodes.ServerError,
             `Rate limit exceeded: ${maxRps} requests per second`,
-            true, // retryable
-            windowMs - (now - state.requestWindow.windowStart)  // retryAfterMs
+            true,
+            windowMs - (now - state.requestWindow.windowStart)
           );
         }
         state.requestWindow.count++;
       }
     }
 
-    if (type === 'screenshot') {
+    if (type === "screenshot") {
       const maxPerMinute = limits.maxScreenshotsPerMinute ?? 30;
       const windowMs = 60000;
-
-      // Initialize sliding window if needed
       if (!state.screenshotWindow) {
         state.screenshotWindow = { count: 0, windowStart: now };
       }
-
-      // Check if we're in a new window
       if (now - state.screenshotWindow.windowStart >= windowMs) {
-        // Start new window
         state.screenshotWindow = { count: 1, windowStart: now };
       } else {
-        // Same window - check limit
         if (state.screenshotWindow.count >= maxPerMinute) {
           throw new BAPServerError(
             ErrorCodes.ServerError,
             `Screenshot rate limit exceeded: ${maxPerMinute} per minute`,
-            true, // retryable
-            windowMs - (now - state.screenshotWindow.windowStart)  // retryAfterMs
+            true,
+            windowMs - (now - state.screenshotWindow.windowStart)
           );
         }
         state.screenshotWindow.count++;
@@ -4399,9 +903,6 @@ export class BAPPlaywrightServer extends EventEmitter {
     }
   }
 
-  /**
-   * Check page limit for a client
-   */
   private checkPageLimit(state: ClientState): void {
     const maxPages = this.options.limits.maxPagesPerClient ?? 10;
     if (state.pages.size >= maxPages) {
@@ -4412,404 +913,52 @@ export class BAPPlaywrightServer extends EventEmitter {
     }
   }
 
-  /**
-   * Sanitize browser launch arguments
-   * Filters out dangerous args and only allows safe, known args
-   */
-  private sanitizeBrowserArgs(args?: readonly string[]): string[] {
-    if (!args || args.length === 0) {
-      return [];
+  private getPageId(page: PlaywrightPage): string {
+    for (const state of this.clients.values()) {
+      for (const [pageId, p] of state.pages) {
+        if (p === page) return pageId;
+      }
     }
-
-    return args.filter(arg => {
-      // Extract arg name (before '=')
-      const argName = arg.split('=')[0];
-
-      // Check blocklist first - always reject these
-      if (BLOCKED_BROWSER_ARGS.includes(argName)) {
-        this.log(`Security: Blocked browser arg filtered: ${argName}`);
-        return false;
+    for (const dormant of this.dormantSessions.values()) {
+      for (const [pageId, p] of dormant.pages) {
+        if (p === page) return pageId;
       }
-
-      // Check allowlist
-      const isAllowed = ALLOWED_BROWSER_ARGS.some(pattern => {
-        if (typeof pattern === 'string') {
-          return arg === pattern || arg.startsWith(pattern + '=');
-        }
-        return pattern.test(arg);
-      });
-
-      if (!isAllowed) {
-        this.log(`Security: Unknown browser arg filtered: ${arg}`);
-        return false;
-      }
-
-      return true;
-    });
+    }
+    throw new BAPServerError(ErrorCodes.PageNotFound, "Page not found in registry");
   }
 
-  /**
-   * Validate a URL for security concerns
-   * Blocks dangerous protocols and cloud metadata endpoints by default
-   */
-  private validateUrl(url: string): void {
-    const security = this.options.security;
-    const blockedProtocols = security.blockedProtocols ?? DEFAULT_BLOCKED_PROTOCOLS;
-    const blockedHosts = security.blockedHosts ?? DEFAULT_BLOCKED_HOSTS;
-
-    let parsed: URL;
-    try {
-      parsed = new URL(url);
-    } catch {
-      throw new BAPServerError(ErrorCodes.InvalidParams, `Invalid URL: ${url}`);
-    }
-
-    const protocol = parsed.protocol.replace(':', '');
-
-    // Check allowed protocols first (if specified, takes precedence)
-    if (security.allowedProtocols?.length) {
-      if (!security.allowedProtocols.includes(protocol)) {
-        throw new BAPServerError(
-          ErrorCodes.InvalidParams,
-          `Protocol not allowed: ${protocol}. Allowed: ${security.allowedProtocols.join(', ')}`
-        );
-      }
-    } else {
-      // Check blocked protocols
-      if (blockedProtocols.includes(protocol)) {
-        throw new BAPServerError(
-          ErrorCodes.InvalidParams,
-          `Blocked protocol: ${protocol}`
-        );
-      }
-    }
-
-    // Check allowed hosts first (if specified, takes precedence)
-    if (security.allowedHosts?.length) {
-      const isAllowed = security.allowedHosts.some(pattern => {
-        if (pattern.startsWith('*.')) {
-          // Wildcard subdomain match
-          const domain = pattern.slice(2);
-          return parsed.hostname === domain || parsed.hostname.endsWith('.' + domain);
-        }
-        return parsed.hostname === pattern;
-      });
-      if (!isAllowed) {
-        throw new BAPServerError(
-          ErrorCodes.InvalidParams,
-          `Host not allowed: ${parsed.hostname}`
-        );
-      }
-    } else {
-      // Check blocked hosts
-      if (blockedHosts.includes(parsed.hostname)) {
-        throw new BAPServerError(
-          ErrorCodes.InvalidParams,
-          `Blocked host (cloud metadata endpoint): ${parsed.hostname}`
-        );
-      }
-    }
-
-    // Log warning for internal IPs (but don't block by default)
-    const hostname = parsed.hostname;
-    if (
-      hostname === 'localhost' ||
-      hostname.startsWith('127.') ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./)
-    ) {
-      this.log(`Warning: Navigation to internal address: ${hostname}`);
-    }
-  }
-
-  /**
-   * Get page by ID or active page
-   */
-  private getPage(state: ClientState, pageId?: string): PlaywrightPage {
-    const id = pageId ?? state.activePage;
-    if (!id) {
-      throw new BAPServerError(ErrorCodes.PageNotFound, "No active page");
-    }
-
-    const page = state.pages.get(id);
-    if (!page) {
-      throw new BAPServerError(ErrorCodes.PageNotFound, `Page not found: ${id}`);
-    }
-
-    return page;
-  }
-
-  /**
-   * Find the connected client that currently owns a page.
-   */
   private findConnectedClientForPage(pageId: string): { ws: WebSocket; state: ClientState } | null {
     for (const [ws, state] of this.clients) {
-      if (state.pages.has(pageId)) {
-        return { ws, state };
-      }
+      if (state.pages.has(pageId)) return { ws, state };
     }
-
     return null;
   }
 
-  /**
-   * Find a dormant session that currently owns a page.
-   */
-  private findDormantSessionForPage(pageId: string): DormantSession | null {
-    for (const dormant of this.dormantSessions.values()) {
-      if (dormant.pages.has(pageId)) {
-        return dormant;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Find the current owner of a page across live and dormant sessions.
-   */
   private findPageOwner(pageId: string): PageOwner | null {
-    const connectedOwner = this.findConnectedClientForPage(pageId);
-    if (connectedOwner) {
-      return connectedOwner;
-    }
+    const connected = this.findConnectedClientForPage(pageId);
+    if (connected) return connected;
 
-    const dormantOwner = this.findDormantSessionForPage(pageId);
-    if (dormantOwner) {
-      return { ws: null, state: dormantOwner };
+    for (const dormant of this.dormantSessions.values()) {
+      if (dormant.pages.has(pageId)) return { ws: null, state: dormant };
     }
-
     return null;
   }
 
-  /**
-   * Remove all page-scoped bookkeeping for a page from its owner.
-   */
   private removePageFromOwner(state: ClientState | DormantSession, pageId: string): void {
     state.pages.delete(pageId);
     state.pageToContext.delete(pageId);
     state.elementRegistries.delete(pageId);
     state.frameContexts.delete(pageId);
-
     if (state.activePage === pageId) {
       state.activePage = state.pages.keys().next().value ?? null;
     }
   }
 
-  /**
-   * Emit an event to the active owner of a page if it is subscribed.
-   */
-  private emitOwnedEvent(
-    pageId: string,
-    subscription: string,
-    method: string,
-    params: Record<string, unknown>
-  ): void {
-    const owner = this.findConnectedClientForPage(pageId);
-    if (!owner || !owner.state.eventSubscriptions.has(subscription)) {
-      return;
-    }
-
-    this.sendEvent(owner.ws, method, params);
-  }
-
-  /**
-   * Get page ID from a Playwright page object
-   */
-  private getPageId(page: PlaywrightPage): string {
-    for (const state of this.clients.values()) {
-      for (const [pageId, p] of state.pages) {
-        if (p === page) {
-          return pageId;
-        }
-      }
-    }
-
-    for (const dormant of this.dormantSessions.values()) {
-      for (const [pageId, p] of dormant.pages) {
-        if (p === page) {
-          return pageId;
-        }
-      }
-    }
-
-    throw new BAPServerError(ErrorCodes.PageNotFound, "Page not found in registry");
-  }
-
-  /**
-   * Set up event listeners for a page
-   */
-  private setupPageListeners(page: PlaywrightPage, pageId: string): void {
-    // Page events
-    page.on("load", () => {
-      this.emitOwnedEvent(pageId, "page", "events/page", {
-        type: "load",
-        pageId,
-        url: page.url(),
-        timestamp: Date.now(),
-      });
-    });
-
-    page.on("domcontentloaded", () => {
-      this.emitOwnedEvent(pageId, "page", "events/page", {
-        type: "domcontentloaded",
-        pageId,
-        url: page.url(),
-        timestamp: Date.now(),
-      });
-    });
-
-    // Console events
-    page.on("console", (msg: ConsoleMessage) => {
-      this.emitOwnedEvent(pageId, "console", "events/console", {
-        pageId,
-        level: msg.type() as "log" | "debug" | "info" | "warn" | "error",
-        text: msg.text(),
-        url: msg.location().url,
-        line: msg.location().lineNumber,
-        column: msg.location().columnNumber,
-        timestamp: Date.now(),
-      });
-    });
-
-    // Network events
-    page.on("request", (request: Request) => {
-      this.emitOwnedEvent(pageId, "network", "events/network", {
-        type: "request",
-        requestId: request.url() + "-" + Date.now(),
-        pageId,
-        url: request.url(),
-        method: request.method(),
-        resourceType: request.resourceType(),
-        headers: request.headers(),
-        postData: request.postData(),
-        timestamp: Date.now(),
-      });
-    });
-
-    page.on("response", (response: Response) => {
-      this.emitOwnedEvent(pageId, "network", "events/network", {
-        type: "response",
-        requestId: response.url() + "-" + Date.now(),
-        pageId,
-        url: response.url(),
-        status: response.status(),
-        headers: response.headers(),
-        timestamp: Date.now(),
-      });
-    });
-
-    // Dialog events
-    page.on("dialog", (dialog: Dialog) => {
-      this.emitOwnedEvent(pageId, "dialog", "events/dialog", {
-        pageId,
-        type: dialog.type() as "alert" | "confirm" | "prompt" | "beforeunload",
-        message: dialog.message(),
-        defaultValue: dialog.defaultValue(),
-        timestamp: Date.now(),
-      });
-    });
-
-    // Download events
-    page.on("download", (download: Download) => {
-      this.emitOwnedEvent(pageId, "download", "events/download", {
-        pageId,
-        url: download.url(),
-        suggestedFilename: download.suggestedFilename(),
-        state: "started",
-        timestamp: Date.now(),
-      });
-    });
-
-    // Handle external page close (user closes tab, browser crash, etc.)
-    page.on("close", () => {
-      const activeOwner = this.findConnectedClientForPage(pageId);
-      const owner = activeOwner ?? this.findPageOwner(pageId);
-
-      if (owner) {
-        this.removePageFromOwner(owner.state, pageId);
-      }
-
-      if (activeOwner?.state.eventSubscriptions.has("page")) {
-        this.sendEvent(activeOwner.ws, "events/page", {
-          type: "close",
-          pageId,
-          timestamp: Date.now(),
-        });
-      }
-
-      this.log(`Page ${pageId} closed externally`);
-    });
-  }
-
-  /**
-   * Send an event notification to the client
-   */
-  private sendEvent(ws: WebSocket, method: string, params: Record<string, unknown>): void {
-    if (ws.readyState !== WebSocket.OPEN) {
-      return;
-    }
-    const notification = createNotification(method, params);
-    ws.send(JSON.stringify(notification));
-  }
-
-  /**
-   * Convert Playwright accessibility node to BAP format
-   */
-  private convertAccessibilityNode(node: PlaywrightAccessibilityNode | null | undefined): AccessibilityNode {
-    if (!node) {
-      return { role: "none" };
-    }
-
-    return {
-      role: node.role ?? "none",
-      name: node.name,
-      value: node.value,
-      description: node.description,
-      checked: node.checked,
-      disabled: node.disabled,
-      expanded: node.expanded,
-      focused: node.focused,
-      selected: node.selected,
-      required: node.required,
-      level: node.level,
-      children: node.children?.map((child) => this.convertAccessibilityNode(child)),
-    };
-  }
-
-  /**
-   * Simple HTML to Markdown conversion
-   */
-  private htmlToMarkdown(html: string): string {
-    // Very basic conversion - in production, use a proper library like turndown
-    return html
-      .replace(/<h1[^>]*>(.*?)<\/h1>/gi, "# $1\n")
-      .replace(/<h2[^>]*>(.*?)<\/h2>/gi, "## $1\n")
-      .replace(/<h3[^>]*>(.*?)<\/h3>/gi, "### $1\n")
-      .replace(/<p[^>]*>(.*?)<\/p>/gi, "$1\n\n")
-      .replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, "[$2]($1)")
-      .replace(/<strong[^>]*>(.*?)<\/strong>/gi, "**$1**")
-      .replace(/<em[^>]*>(.*?)<\/em>/gi, "*$1*")
-      .replace(/<li[^>]*>(.*?)<\/li>/gi, "- $1\n")
-      .replace(/<[^>]+>/g, "")
-      .replace(/\n\n+/g, "\n\n")
-      .trim();
-  }
-
-  /**
-   * Check whether a browser context is still usable.
-   */
   private isContextAlive(context: BrowserContext | null): boolean {
-    if (!context) {
-      return false;
-    }
-
+    if (!context) return false;
     try {
       const browser = context.browser();
-      if (browser) {
-        return browser.isConnected();
-      }
+      if (browser) return browser.isConnected();
       void context.pages();
       return true;
     } catch {
@@ -4817,9 +966,6 @@ export class BAPPlaywrightServer extends EventEmitter {
     }
   }
 
-  /**
-   * Clear state tied to a single WebSocket connection before parking or cleanup.
-   */
   private clearConnectionScopedState(state: ClientState, errorMessage: string): void {
     if (state.speculativePrefetchTimer) {
       clearTimeout(state.speculativePrefetchTimer);
@@ -4839,39 +985,37 @@ export class BAPPlaywrightServer extends EventEmitter {
     state.pendingApprovals.clear();
   }
 
-  /**
-   * Clean up client state
-   */
   private async cleanupClient(state: ClientState): Promise<void> {
-    // Clear session timeouts (v0.2.0)
-    this.clearSessionTimeouts(state);
-
+    clearSessionTimeouts(state);
     this.clearConnectionScopedState(state, "Client disconnected");
 
     if (state.tracing && state.context) {
       try {
         await state.context.tracing.stop();
       } catch {
-        // Ignore
+        /* Ignore */
       }
     }
 
-    if (state.isPersistent && state.context) {
+    if (state.browserOwnership === "borrowed") {
+      // CDP attach: drop reference only, never close the external browser
+    } else if (state.isPersistent && state.context) {
       try {
         await state.context.close();
       } catch {
-        // Ignore
+        /* Ignore */
       }
     } else if (state.browser) {
       try {
         await state.browser.close();
       } catch {
-        // Ignore
+        /* Ignore */
       }
     }
 
     state.browser = null;
     state.isPersistent = false;
+    state.browserOwnership = "owned";
     state.context = null;
     state.pages.clear();
     state.pageToContext.clear();
@@ -4884,172 +1028,90 @@ export class BAPPlaywrightServer extends EventEmitter {
     state.initialized = false;
   }
 
-  // ===========================================================================
-  // Session Persistence (v0.3.0)
-  // ===========================================================================
-
-  /**
-   * Park a client's browser state into the dormant store.
-   * Called on disconnect when the client has a sessionId and browser is still alive.
-   * Nullifies browser/pages on state so cleanupClient() becomes a no-op for those.
-   */
-  private parkSession(state: ClientState): void {
-    const sessionId = state.sessionId!;
-
-    this.clearConnectionScopedState(state, "Client disconnected");
-
-    // If there's already a dormant session with this ID (shouldn't happen, but be safe),
-    // expire it first
-    const existing = this.dormantSessions.get(sessionId);
-    if (existing) {
-      clearTimeout(existing.ttlHandle);
-      try {
-        if (existing.isPersistent) {
-          existing.context?.close();
-        } else {
-          existing.browser?.close();
-        }
-      } catch { /* ignore */ }
-      this.dormantSessions.delete(sessionId);
-    }
-
-    const ttl = this.options.session.dormantSessionTtl * 1000;
-    const ttlHandle = setTimeout(() => {
-      this.expireDormantSession(sessionId);
-    }, ttl);
-
-    const dormant: DormantSession = {
-      sessionId,
-      browser: state.browser,
-      isPersistent: state.isPersistent,
-      context: state.context,
-      contexts: new Map(state.contexts),
-      defaultContextId: state.defaultContextId,
-      pages: new Map(state.pages),
-      pageToContext: new Map(state.pageToContext),
-      activePage: state.activePage,
-      elementRegistries: new Map(state.elementRegistries),
-      frameContexts: new Map(state.frameContexts),
-      sessionApprovals: new Set(state.sessionApprovals),
-      ttlHandle,
-      parkedAt: Date.now(),
+  private convertAccessibilityNode(
+    node: PlaywrightAccessibilityNode | null | undefined
+  ): AccessibilityNode {
+    if (!node) return { role: "none" };
+    return {
+      role: node.role ?? "none",
+      name: node.name,
+      value: node.value,
+      description: node.description,
+      checked: node.checked,
+      disabled: node.disabled,
+      expanded: node.expanded,
+      focused: node.focused,
+      selected: node.selected,
+      required: node.required,
+      level: node.level,
+      children: node.children?.map((child) => this.convertAccessibilityNode(child)),
     };
-
-    this.dormantSessions.set(sessionId, dormant);
-    this.log("Session parked", { sessionId, ttl: `${this.options.session.dormantSessionTtl}s` });
-
-    // Nullify state so cleanupClient() won't destroy the browser/pages
-    state.browser = null;
-    state.isPersistent = false;
-    state.context = null;
-    state.pages = new Map();
-    state.pageToContext = new Map();
-    state.activePage = null;
-    state.elementRegistries = new Map();
-    state.frameContexts = new Map();
-    state.contexts = new Map();
-    state.defaultContextId = null;
   }
 
-  /**
-   * Restore a dormant session into a new client's state.
-   * Returns true if restoration succeeded, false if browser crashed during dormancy.
-   */
-  private restoreSession(dormant: DormantSession, state: ClientState): boolean {
-    clearTimeout(dormant.ttlHandle);
-    this.dormantSessions.delete(dormant.sessionId);
-
-    // Verify browser/context is still alive
-    const isAlive = dormant.isPersistent
-      ? this.isContextAlive(dormant.context)
-      : Boolean(dormant.browser?.isConnected());
-    if (!isAlive) {
-      this.log("Dormant session browser crashed, starting fresh", { sessionId: dormant.sessionId });
-      try {
-        if (dormant.isPersistent) {
-          dormant.context?.close();
-        } else {
-          dormant.browser?.close();
-        }
-      } catch { /* ignore */ }
-      return false;
-    }
-
-    state.browser = dormant.browser;
-    state.isPersistent = dormant.isPersistent;
-    state.context = dormant.context;
-    state.contexts = dormant.contexts;
-    state.defaultContextId = dormant.defaultContextId;
-    state.pages = dormant.pages;
-    state.pageToContext = dormant.pageToContext;
-    state.activePage = dormant.activePage;
-    state.elementRegistries = dormant.elementRegistries;
-    state.frameContexts = dormant.frameContexts;
-    state.sessionApprovals = dormant.sessionApprovals;
-
-    return true;
+  private htmlToMarkdown(html: string): string {
+    return html
+      .replace(/<h1[^>]*>(.*?)<\/h1>/gi, "# $1\n")
+      .replace(/<h2[^>]*>(.*?)<\/h2>/gi, "## $1\n")
+      .replace(/<h3[^>]*>(.*?)<\/h3>/gi, "### $1\n")
+      .replace(/<p[^>]*>(.*?)<\/p>/gi, "$1\n\n")
+      .replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, "[$2]($1)")
+      .replace(/<strong[^>]*>(.*?)<\/strong>/gi, "**$1**")
+      .replace(/<em[^>]*>(.*?)<\/em>/gi, "*$1*")
+      .replace(/<li[^>]*>(.*?)<\/li>/gi, "- $1\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/\n\n+/g, "\n\n")
+      .trim();
   }
 
-  /**
-   * Expire and destroy a dormant session after TTL.
-   */
-  private expireDormantSession(sessionId: string): void {
-    const dormant = this.dormantSessions.get(sessionId);
-    if (!dormant) return;
+  // ===========================================================================
+  // Error Handling
+  // ===========================================================================
 
-    this.log("Dormant session expired", { sessionId });
-    this.dormantSessions.delete(sessionId);
-
-    try {
-      if (dormant.isPersistent) {
-        dormant.context?.close();
-      } else {
-        dormant.browser?.close();
-      }
-    } catch {
-      // Browser may already be closed
-    }
-  }
-
-  /**
-   * Handle errors and convert to appropriate response
-   */
   private handleError(id: string | number, error: unknown): JSONRPCErrorResponse {
     if (error instanceof BAPServerError) {
       return createErrorResponse(id, error.code as ErrorCode, error.message, {
         retryable: error.retryable,
         retryAfterMs: error.retryAfterMs,
         details: error.details,
+        recoveryHint: error.recoveryHint,
       });
     }
 
     if (error instanceof Error) {
-      // Map Playwright errors to BAP error codes
       const message = error.message;
-
       if (message.includes("Timeout")) {
-        return createErrorResponse(id, ErrorCodes.Timeout, message, { retryable: true });
+        return createErrorResponse(id, ErrorCodes.Timeout, message, {
+          retryable: true,
+          recoveryHint: "Increase timeout or wait for the page to finish loading, then retry",
+        });
       }
-
       if (message.includes("Target closed") || message.includes("Target page")) {
-        return createErrorResponse(id, ErrorCodes.TargetClosed, message, { retryable: false });
+        return createErrorResponse(id, ErrorCodes.TargetClosed, message, {
+          retryable: false,
+          recoveryHint:
+            "The page was closed. Create a new page with page/create or navigate to a URL",
+        });
       }
-
       if (message.includes("Element is not visible")) {
-        return createErrorResponse(id, ErrorCodes.ElementNotVisible, message, { retryable: true });
+        return createErrorResponse(id, ErrorCodes.ElementNotVisible, message, {
+          retryable: true,
+          recoveryHint: "Scroll the element into view or wait for it to appear, then retry",
+        });
       }
-
       if (message.includes("Element is not enabled")) {
-        return createErrorResponse(id, ErrorCodes.ElementNotEnabled, message, { retryable: true });
+        return createErrorResponse(id, ErrorCodes.ElementNotEnabled, message, {
+          retryable: true,
+          recoveryHint: "Wait for the element to become enabled, then retry",
+        });
       }
-
       if (message.includes("waiting for") && message.includes("to be visible")) {
         return createErrorResponse(id, ErrorCodes.ElementNotFound, message, {
           retryable: true,
           retryAfterMs: 1000,
+          recoveryHint:
+            "Run observe() to get current interactive elements and use a fresh selector",
         });
       }
-
       return createErrorResponse(id, ErrorCodes.InternalError, message, { retryable: false });
     }
 
@@ -5057,356 +1119,24 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   // ===========================================================================
-  // Context Handlers (Multi-Context Support)
+  // Logging
   // ===========================================================================
 
-  private async handleContextCreate(
-    state: ClientState,
-    params: ContextCreateParams
-  ): Promise<ContextCreateResult> {
-    if (state.isPersistent) {
-      throw new BAPServerError(
-        ErrorCodes.InvalidParams,
-        "Cannot create additional contexts in persistent profile mode"
-      );
-    }
-    if (!state.browser) {
-      throw new BAPServerError(ErrorCodes.BrowserNotLaunched, "Browser not launched");
-    }
-
-    // Check context limit
-    const maxContexts = 5; // TODO: Make configurable
-    if (state.contexts.size >= maxContexts) {
-      throw new BAPServerError(
-        ErrorCodes.ResourceLimitExceeded,
-        `Maximum ${maxContexts} contexts allowed`,
-        false,
-        undefined,
-        { resource: "contexts", limit: maxContexts, current: state.contexts.size }
-      );
-    }
-
-    // Validate custom ID if provided
-    const contextId = params.contextId ?? `ctx-${randomUUID().slice(0, 8)}`;
-
-    if (state.contexts.has(contextId)) {
-      throw new BAPServerError(
-        ErrorCodes.InvalidParams,
-        `Context with ID '${contextId}' already exists`
-      );
-    }
-
-    // Create context with options
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const contextOptions: any = {};
-    if (params.options) {
-      if (params.options.viewport) contextOptions.viewport = params.options.viewport;
-      if (params.options.userAgent) contextOptions.userAgent = params.options.userAgent;
-      if (params.options.locale) contextOptions.locale = params.options.locale;
-      if (params.options.timezoneId) contextOptions.timezoneId = params.options.timezoneId;
-      if (params.options.geolocation) contextOptions.geolocation = params.options.geolocation;
-      if (params.options.permissions) contextOptions.permissions = params.options.permissions;
-      if (params.options.colorScheme) contextOptions.colorScheme = params.options.colorScheme;
-      if (params.options.offline) contextOptions.offline = params.options.offline;
-      if (params.options.storageState) {
-        contextOptions.storageState = params.options.storageState;
-      }
-    }
-
-    const context = await state.browser.newContext(contextOptions);
-
-    // Auto-cleanup on context close
-    context.on("close", () => {
-      state.contexts.delete(contextId);
-      // Clean up pages in this context
-      for (const [pageId, ctxId] of state.pageToContext) {
-        if (ctxId === contextId) {
-          state.pages.delete(pageId);
-          state.pageToContext.delete(pageId);
-          state.elementRegistries.delete(pageId);
-          state.frameContexts.delete(pageId);
-        }
-      }
-    });
-
-    state.contexts.set(contextId, {
-      context,
-      created: Date.now(),
-      options: params.options,
-    });
-
-    // Set as default if this is the first context
-    if (!state.defaultContextId) {
-      state.defaultContextId = contextId;
-      state.context = context;
-    }
-
-    return { contextId };
+  private logSecurity(event: string, details: Record<string, unknown>): void {
+    // Security events always log regardless of debug flag — use a dedicated logger
+    const entry = { event, ...details };
+    process.stderr.write(
+      JSON.stringify({
+        ts: new Date().toISOString(),
+        level: "security",
+        component: "BAP Server",
+        ...entry,
+      }) + "\n"
+    );
   }
 
-  private async handleContextList(state: ClientState): Promise<ContextListResult> {
-    const contexts: ContextInfo[] = [];
-
-    for (const [id, ctxState] of state.contexts) {
-      const pageCount = Array.from(state.pageToContext.values()).filter(
-        (ctxId) => ctxId === id
-      ).length;
-
-      contexts.push({
-        id,
-        pageCount,
-        created: ctxState.created,
-        options: ctxState.options,
-      });
-    }
-
-    return {
-      contexts,
-      limits: {
-        maxContexts: 5, // TODO: Make configurable
-        currentCount: state.contexts.size,
-      },
-    };
-  }
-
-  private async handleContextDestroy(
-    state: ClientState,
-    params: ContextDestroyParams
-  ): Promise<ContextDestroyResult> {
-    const ctxState = state.contexts.get(params.contextId);
-    if (!ctxState) {
-      throw new BAPServerError(
-        ErrorCodes.ContextNotFound,
-        `Context not found: ${params.contextId}`
-      );
-    }
-
-    // Count pages before destroying
-    let pagesDestroyed = 0;
-    for (const [, ctxId] of state.pageToContext) {
-      if (ctxId === params.contextId) {
-        pagesDestroyed++;
-      }
-    }
-
-    // Close the context (triggers cleanup via event handler)
-    await ctxState.context.close();
-
-    // If this was the default context, clear it
-    if (state.defaultContextId === params.contextId) {
-      state.defaultContextId = null;
-      state.context = null;
-
-      // Set another context as default if available
-      const firstContext = state.contexts.values().next().value;
-      if (firstContext) {
-        state.defaultContextId = Array.from(state.contexts.keys())[0];
-        state.context = firstContext.context;
-      }
-    }
-
-    return { pagesDestroyed };
-  }
-
-  // ===========================================================================
-  // Frame Handlers (Frame & Shadow DOM Support)
-  // ===========================================================================
-
-  private async handleFrameList(
-    state: ClientState,
-    params: FrameListParams
-  ): Promise<FrameListResult> {
-    const page = this.getPage(state, params.pageId);
-    const frames: FrameInfo[] = [];
-
-    for (const frame of page.frames()) {
-      const parentFrame = frame.parentFrame();
-      frames.push({
-        frameId: this.getFrameId(frame),
-        name: frame.name(),
-        url: frame.url(),
-        parentFrameId: parentFrame ? this.getFrameId(parentFrame) : undefined,
-        isMain: frame === page.mainFrame(),
-      });
-    }
-
-    return { frames };
-  }
-
-  private async handleFrameSwitch(
-    state: ClientState,
-    params: FrameSwitchParams
-  ): Promise<FrameSwitchResult> {
-    const page = this.getPage(state, params.pageId);
-    const pageId = params.pageId ?? state.activePage!;
-    let targetFrame: import("playwright").Frame | null = null;
-
-    if (params.frameId) {
-      // Find by frame ID
-      targetFrame = page.frames().find((f) => this.getFrameId(f) === params.frameId) ?? null;
-    } else if (params.selector) {
-      // Find by selector (iframe element)
-      const locator = this.resolveSelector(page, params.selector);
-      const element = await locator.elementHandle();
-      if (element) {
-        targetFrame = await element.contentFrame();
-      }
-    } else if (params.url) {
-      // Find by URL pattern
-      targetFrame = page.frames().find((f) => f.url().includes(params.url!)) ?? null;
-    }
-
-    if (!targetFrame) {
-      throw new BAPServerError(ErrorCodes.FrameNotFound, "Frame not found");
-    }
-
-    // Validate frame URL against allowed domains
-    const frameUrl = targetFrame.url();
-    try {
-      this.validateUrl(frameUrl);
-    } catch {
-      throw new BAPServerError(
-        ErrorCodes.DomainNotAllowed,
-        `Frame URL not allowed: ${frameUrl}`
-      );
-    }
-
-    // Store frame context
-    state.frameContexts.set(pageId, {
-      pageId,
-      frameId: this.getFrameId(targetFrame),
-    });
-
-    return {
-      frameId: this.getFrameId(targetFrame),
-      url: frameUrl,
-    };
-  }
-
-  private async handleFrameMain(
-    state: ClientState,
-    params: FrameMainParams
-  ): Promise<FrameMainResult> {
-    const page = this.getPage(state, params.pageId);
-    const pageId = params.pageId ?? state.activePage!;
-
-    // Clear frame context (switch to main)
-    state.frameContexts.delete(pageId);
-
-    return {
-      frameId: this.getFrameId(page.mainFrame()),
-    };
-  }
-
-  /**
-   * Get a stable frame ID
-   */
-  private getFrameId(frame: import("playwright").Frame): string {
-    // Create stable ID from frame properties
-    const name = frame.name() || "main";
-    const url = frame.url();
-    // Simple hash
-    let hash = 0;
-    const str = `${name}:${url}`;
-    for (let i = 0; i < str.length; i++) {
-      hash = ((hash << 5) - hash) + str.charCodeAt(i);
-      hash = hash & hash;
-    }
-    return `frame-${Math.abs(hash).toString(36).slice(0, 8)}`;
-  }
-
-  // ===========================================================================
-  // Stream Handlers (Streaming Responses)
-  // ===========================================================================
-
-  private async handleStreamCancel(
-    state: ClientState,
-    params: StreamCancelParams
-  ): Promise<StreamCancelResult> {
-    const stream = state.activeStreams.get(params.streamId);
-    if (!stream) {
-      return { cancelled: false };
-    }
-
-    stream.cancelled = true;
-    state.activeStreams.delete(params.streamId);
-
-    return { cancelled: true };
-  }
-
-  // ===========================================================================
-  // Approval Handlers (Human-in-the-Loop)
-  // ===========================================================================
-
-  private async handleApprovalRespond(
-    state: ClientState,
-    params: ApprovalRespondParams
-  ): Promise<ApprovalRespondResult> {
-    const pending = state.pendingApprovals.get(params.requestId);
-    if (!pending) {
-      throw new BAPServerError(
-        ErrorCodes.InvalidParams,
-        `No pending approval with ID: ${params.requestId}`
-      );
-    }
-
-    // Clear timeout
-    clearTimeout(pending.timeoutHandle);
-    state.pendingApprovals.delete(params.requestId);
-
-    // Handle decision
-    if (params.decision === "deny") {
-      pending.reject(
-        new BAPServerError(
-          ErrorCodes.ApprovalDenied,
-          params.reason ?? "Approval denied by user"
-        )
-      );
-    } else {
-      // For approve-session, remember this rule for the session
-      if (params.decision === "approve-session") {
-        state.sessionApprovals.add(pending.rule);
-      }
-
-      // Execute the original request
-      // The resolve will be called by the interceptor when it continues
-      pending.resolve({ approved: true, decision: params.decision });
-    }
-
-    return { acknowledged: true };
-  }
-
-  /**
-   * Log a debug message with optional structured context
-   */
   private log(message: string, context?: Record<string, unknown>): void {
-    if (this.options.debug) {
-      if (context) {
-        const ctx = Object.entries(context)
-          .map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`)
-          .join(" ");
-        console.log(`[BAP Server] ${message} ${ctx}`);
-      } else {
-        console.log(`[BAP Server] ${message}`);
-      }
-    }
-  }
-}
-
-// =============================================================================
-// Server Error (moved here for forward reference)
-// =============================================================================
-
-class BAPServerError extends Error {
-  constructor(
-    public readonly code: number,
-    message: string,
-    public readonly retryable: boolean = false,
-    public readonly retryAfterMs?: number,
-    public readonly details?: Record<string, unknown>
-  ) {
-    super(message);
-    this.name = "BAPServerError";
+    this.logger.debug(message, context);
   }
 }
 
@@ -5414,9 +1144,6 @@ class BAPServerError extends Error {
 // CLI Entry Point
 // =============================================================================
 
-/**
- * Start the server from command line
- */
 export async function main(): Promise<void> {
   const port = parseInt(process.env.BAP_PORT ?? "9222", 10);
   const host = process.env.BAP_HOST ?? "localhost";
@@ -5433,7 +1160,6 @@ export async function main(): Promise<void> {
   await server.start();
   console.log(`BAP Playwright server running on ws://${host}:${port}`);
 
-  // Handle shutdown signals
   const shutdown = async () => {
     console.log("\nShutting down...");
     await server.stop();
@@ -5443,5 +1169,3 @@ export async function main(): Promise<void> {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }
-
-// Note: Use cli.ts as the entry point to start the server

@@ -63,6 +63,8 @@ export interface LoggerOptions {
   stderr?: boolean;
   /** Show timestamps */
   timestamps?: boolean;
+  /** Output format: "pretty" for human-readable, "json" for NDJSON (structured logging) */
+  format?: "pretty" | "json";
 }
 
 // =============================================================================
@@ -91,6 +93,7 @@ export class Logger {
   private enabled: boolean;
   private stderr: boolean;
   private timestamps: boolean;
+  private format: "pretty" | "json";
 
   constructor(options: LoggerOptions = {}) {
     this.prefix = options.prefix ?? "BAP";
@@ -98,6 +101,7 @@ export class Logger {
     this.enabled = options.enabled ?? true;
     this.stderr = options.stderr ?? false;
     this.timestamps = options.timestamps ?? false;
+    this.format = options.format ?? "pretty";
   }
 
   private formatPrefix(): string {
@@ -120,59 +124,110 @@ export class Logger {
     }
   }
 
+  /** Write context object respecting stderr setting */
+  private writeContext(context: Record<string, unknown>): void {
+    const output = JSON.stringify(context, null, 2);
+    if (this.stderr) {
+      console.error(output);
+    } else {
+      console.log(output);
+    }
+  }
+
+  /** Write a structured JSON log line to stderr */
+  private writeJson(level: string, message: string, context?: Record<string, unknown>): void {
+    const entry: Record<string, unknown> = {
+      ts: new Date().toISOString(),
+      level,
+      component: this.prefix,
+      msg: message,
+    };
+    if (context) {
+      for (const [k, v] of Object.entries(context)) {
+        entry[k] = v;
+      }
+    }
+    // Always stderr for JSON — safe for MCP stdio transport
+    process.stderr.write(JSON.stringify(entry) + "\n");
+  }
+
   /** Debug level - gray, shown only when level is debug */
-  debug(message: string, ...args: unknown[]): void {
+  debug(message: string, context?: Record<string, unknown>): void {
     if (!this.enabled || !shouldLog("debug", this.level)) return;
+    if (this.format === "json") {
+      this.writeJson("debug", message, context);
+      return;
+    }
     const formatted = `${this.formatPrefix()} ${pc.dim(icons.debug)} ${pc.dim(message)}`;
     this.write(formatted);
-    if (args.length > 0) {
-      console.dir(args.length === 1 ? args[0] : args, { depth: null });
+    if (context) {
+      this.writeContext(context);
     }
   }
 
   /** Info level - cyan icon */
-  info(message: string, ...args: unknown[]): void {
+  info(message: string, context?: Record<string, unknown>): void {
     if (!this.enabled || !shouldLog("info", this.level)) return;
+    if (this.format === "json") {
+      this.writeJson("info", message, context);
+      return;
+    }
     const formatted = `${this.formatPrefix()} ${pc.cyan(icons.info)} ${message}`;
     this.write(formatted);
-    if (args.length > 0) {
-      console.dir(args.length === 1 ? args[0] : args, { depth: null });
+    if (context) {
+      this.writeContext(context);
     }
   }
 
   /** Success level - green checkmark */
-  success(message: string, ...args: unknown[]): void {
+  success(message: string, context?: Record<string, unknown>): void {
     if (!this.enabled || !shouldLog("success", this.level)) return;
+    if (this.format === "json") {
+      this.writeJson("success", message, context);
+      return;
+    }
     const formatted = `${this.formatPrefix()} ${pc.green(icons.success)} ${pc.green(message)}`;
     this.write(formatted);
-    if (args.length > 0) {
-      console.dir(args.length === 1 ? args[0] : args, { depth: null });
+    if (context) {
+      this.writeContext(context);
     }
   }
 
   /** Warning level - yellow warning sign */
-  warn(message: string, ...args: unknown[]): void {
+  warn(message: string, context?: Record<string, unknown>): void {
     if (!this.enabled || !shouldLog("warn", this.level)) return;
+    if (this.format === "json") {
+      this.writeJson("warn", message, context);
+      return;
+    }
     const formatted = `${this.formatPrefix()} ${pc.yellow(icons.warning)} ${pc.yellow(message)}`;
     this.write(formatted);
-    if (args.length > 0) {
-      console.dir(args.length === 1 ? args[0] : args, { depth: null });
+    if (context) {
+      this.writeContext(context);
     }
   }
 
   /** Error level - red X */
-  error(message: string, ...args: unknown[]): void {
+  error(message: string, context?: Record<string, unknown>): void {
     if (!this.enabled || !shouldLog("error", this.level)) return;
+    if (this.format === "json") {
+      this.writeJson("error", message, context);
+      return;
+    }
     const formatted = `${this.formatPrefix()} ${pc.red(icons.error)} ${pc.red(message)}`;
     console.error(formatted);
-    if (args.length > 0) {
-      console.error(args.length === 1 ? args[0] : args);
+    if (context) {
+      this.writeContext(context);
     }
   }
 
   /** Log a step in a process */
   step(stepNumber: number, total: number, message: string): void {
     if (!this.enabled || !shouldLog("info", this.level)) return;
+    if (this.format === "json") {
+      this.writeJson("info", message, { step: stepNumber, total });
+      return;
+    }
     const progress = pc.dim(`[${stepNumber}/${total}]`);
     const formatted = `${this.formatPrefix()} ${progress} ${message}`;
     this.write(formatted);
@@ -181,6 +236,10 @@ export class Logger {
   /** Log with a custom icon */
   log(icon: string, message: string, color?: (s: string) => string): void {
     if (!this.enabled || !shouldLog("info", this.level)) return;
+    if (this.format === "json") {
+      this.writeJson("info", message);
+      return;
+    }
     const colorFn = color ?? ((s: string) => s);
     const formatted = `${this.formatPrefix()} ${icon} ${colorFn(message)}`;
     this.write(formatted);
@@ -194,6 +253,7 @@ export class Logger {
       enabled: this.enabled,
       stderr: this.stderr,
       timestamps: this.timestamps,
+      format: this.format,
     });
   }
 
@@ -253,9 +313,7 @@ export function box(lines: string[], options: BoxOptions = {}): string {
     const leftPad = Math.floor((innerWidth - titleLen) / 2);
     const rightPad = innerWidth - titleLen - leftPad;
     result.push(
-      borderColor(tl + h.repeat(leftPad)) +
-        titleColor(title) +
-        borderColor(h.repeat(rightPad) + tr)
+      borderColor(tl + h.repeat(leftPad)) + titleColor(title) + borderColor(h.repeat(rightPad) + tr)
     );
   } else {
     result.push(borderColor(tl + h.repeat(innerWidth) + tr));
@@ -266,11 +324,7 @@ export function box(lines: string[], options: BoxOptions = {}): string {
     const lineLen = stripAnsi(line).length;
     const rightPad = contentWidth - lineLen;
     result.push(
-      borderColor(v) +
-        " ".repeat(padding) +
-        line +
-        " ".repeat(rightPad + padding) +
-        borderColor(v)
+      borderColor(v) + " ".repeat(padding) + line + " ".repeat(rightPad + padding) + borderColor(v)
     );
   }
 
@@ -308,7 +362,18 @@ export function table(rows: TableRow[], labelColor?: (s: string) => string): str
 // Spinner (Simple)
 // =============================================================================
 
-const SPINNER_FRAMES = ["\u280b", "\u2819", "\u2839", "\u2838", "\u283c", "\u2834", "\u2826", "\u2827", "\u2807", "\u280f"];
+const SPINNER_FRAMES = [
+  "\u280b",
+  "\u2819",
+  "\u2839",
+  "\u2838",
+  "\u283c",
+  "\u2834",
+  "\u2826",
+  "\u2827",
+  "\u2807",
+  "\u280f",
+];
 
 export class Spinner {
   private frameIndex = 0;

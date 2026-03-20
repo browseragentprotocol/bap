@@ -4,7 +4,10 @@ import type { WebSocket } from "ws";
 import { describe, it, expect, vi } from "vitest";
 import type { BAPScope } from "@browseragentprotocol/protocol";
 import { BAPPlaywrightServer } from "../server.js";
-import type { BAPServerOptions } from "../server.js";
+import type { BAPServerOptions } from "../config.js";
+import { setupPageListeners } from "../events/forwarder.js";
+import { parkSession, restoreSession } from "../session/dormant-store.js";
+import type { ClientState, DormantSession } from "../types.js";
 
 type TestPage = EventEmitter & {
   url(): string;
@@ -38,27 +41,12 @@ type TestState = {
   pendingApprovals: Map<string, unknown>;
   sessionApprovals: Set<string>;
   sessionId: string;
-};
-
-type TestDormantSession = {
-  sessionId: string;
-};
-
-type SessionHarness = {
-  clients: Map<WebSocket, TestState>;
-  dormantSessions: Map<string, TestDormantSession>;
-  setupPageListeners(page: TestPage, pageId: string): void;
-  parkSession(state: TestState): void;
-  restoreSession(dormant: TestDormantSession, state: TestState): boolean;
+  speculativePrefetchTimer?: NodeJS.Timeout;
+  speculativeObservation?: unknown;
 };
 
 /**
  * Tests for server-side session persistence (dormant session store).
- *
- * These are structural/unit tests that verify the server's configuration
- * and type-level support for session persistence. Full integration tests
- * (with real WebSocket connections and browsers) require a running
- * Playwright instance and are out of scope here.
  */
 describe("BAPPlaywrightServer - session persistence", () => {
   it("accepts dormantSessionTtl in session options", () => {
@@ -104,9 +92,9 @@ describe("BAPPlaywrightServer - session persistence", () => {
     expect(server).toBeInstanceOf(BAPPlaywrightServer);
   });
 
-  it("routes restored page events to the reconnected client", () => {
-    const server = new BAPPlaywrightServer();
-    const harness = server as unknown as SessionHarness;
+  it("routes restored page events to the reconnected client", async () => {
+    const clients = new Map<WebSocket, TestState>();
+    const dormantSessions = new Map<string, DormantSession>();
     const page = Object.assign(new EventEmitter(), {
       url: () => "https://example.com",
     }) as TestPage;
@@ -165,18 +153,59 @@ describe("BAPPlaywrightServer - session persistence", () => {
       sessionApprovals: new Set(),
     };
 
-    harness.clients.set(staleWs, staleState);
-    harness.setupPageListeners(page, "page-1");
-    harness.parkSession(staleState);
-    harness.clients.delete(staleWs);
+    clients.set(staleWs, staleState);
 
-    const dormant = harness.dormantSessions.get("cli-9222");
+    // Set up page listeners using the extracted module
+    const eventDeps = {
+      findConnectedClientForPage: (pageId: string) => {
+        for (const [ws, state] of clients) {
+          if (state.pages.has(pageId)) return { ws, state: state as unknown as ClientState };
+        }
+        return null;
+      },
+      findPageOwner: (pageId: string) => {
+        for (const [ws, state] of clients) {
+          if (state.pages.has(pageId)) return { ws, state: state as unknown as ClientState };
+        }
+        for (const dormant of dormantSessions.values()) {
+          if (dormant.pages.has(pageId)) return { ws: null, state: dormant };
+        }
+        return null;
+      },
+      removePageFromOwner: (state: ClientState | DormantSession, pageId: string) => {
+        state.pages.delete(pageId);
+        state.pageToContext.delete(pageId);
+        state.elementRegistries.delete(pageId);
+        state.frameContexts.delete(pageId);
+        if (state.activePage === pageId) {
+          state.activePage = state.pages.keys().next().value ?? null;
+        }
+      },
+      log: vi.fn(),
+    };
+
+    setupPageListeners(page as unknown as import("playwright").Page, "page-1", eventDeps);
+
+    // Park session using extracted module
+    const dormantDeps = {
+      dormantSessions,
+      options: {
+        session: { dormantSessionTtl: 300 },
+      } as unknown as import("../config.js").ResolvedOptions,
+      log: vi.fn(),
+      isContextAlive: () => false,
+      clearConnectionScopedState: (_state: ClientState, _msg: string) => {},
+    };
+    await parkSession(staleState as unknown as ClientState, dormantDeps);
+    clients.delete(staleWs);
+
+    const dormant = dormantSessions.get("cli-9222");
     expect(dormant).toBeDefined();
-    if (!dormant) {
-      throw new Error("Expected dormant session to be present");
-    }
-    expect(harness.restoreSession(dormant, restoredState)).toBe(true);
-    harness.clients.set(restoredWs, restoredState);
+    if (!dormant) throw new Error("Expected dormant session to be present");
+    expect(restoreSession(dormant, restoredState as unknown as ClientState, dormantDeps)).toBe(
+      true
+    );
+    clients.set(restoredWs, restoredState);
 
     page.emit("load");
 
@@ -184,9 +213,9 @@ describe("BAPPlaywrightServer - session persistence", () => {
     expect(staleSocket.send).not.toHaveBeenCalled();
   });
 
-  it("removes restored pages from the active session when a tab closes externally", () => {
-    const server = new BAPPlaywrightServer();
-    const harness = server as unknown as SessionHarness;
+  it("removes restored pages from the active session when a tab closes externally", async () => {
+    const clients = new Map<WebSocket, TestState>();
+    const dormantSessions = new Map<string, DormantSession>();
     const page = Object.assign(new EventEmitter(), {
       url: () => "https://example.com",
     }) as TestPage;
@@ -245,18 +274,57 @@ describe("BAPPlaywrightServer - session persistence", () => {
       sessionApprovals: new Set(),
     };
 
-    harness.clients.set(staleWs, staleState);
-    harness.setupPageListeners(page, "page-1");
-    harness.parkSession(staleState);
-    harness.clients.delete(staleWs);
+    clients.set(staleWs, staleState);
 
-    const dormant = harness.dormantSessions.get("cli-9222");
+    const eventDeps = {
+      findConnectedClientForPage: (pageId: string) => {
+        for (const [ws, state] of clients) {
+          if (state.pages.has(pageId)) return { ws, state: state as unknown as ClientState };
+        }
+        return null;
+      },
+      findPageOwner: (pageId: string) => {
+        for (const [ws, state] of clients) {
+          if (state.pages.has(pageId)) return { ws, state: state as unknown as ClientState };
+        }
+        for (const dormant of dormantSessions.values()) {
+          if (dormant.pages.has(pageId)) return { ws: null, state: dormant };
+        }
+        return null;
+      },
+      removePageFromOwner: (state: ClientState | DormantSession, pageId: string) => {
+        state.pages.delete(pageId);
+        state.pageToContext.delete(pageId);
+        state.elementRegistries.delete(pageId);
+        state.frameContexts.delete(pageId);
+        if (state.activePage === pageId) {
+          state.activePage = state.pages.keys().next().value ?? null;
+        }
+      },
+      log: vi.fn(),
+    };
+
+    setupPageListeners(page as unknown as import("playwright").Page, "page-1", eventDeps);
+
+    const dormantDeps = {
+      dormantSessions,
+      options: {
+        session: { dormantSessionTtl: 300 },
+      } as unknown as import("../config.js").ResolvedOptions,
+      log: vi.fn(),
+      isContextAlive: () => false,
+      clearConnectionScopedState: (_state: ClientState, _msg: string) => {},
+    };
+    await parkSession(staleState as unknown as ClientState, dormantDeps);
+    clients.delete(staleWs);
+
+    const dormant = dormantSessions.get("cli-9222");
     expect(dormant).toBeDefined();
-    if (!dormant) {
-      throw new Error("Expected dormant session to be present");
-    }
-    expect(harness.restoreSession(dormant, restoredState)).toBe(true);
-    harness.clients.set(restoredWs, restoredState);
+    if (!dormant) throw new Error("Expected dormant session to be present");
+    expect(restoreSession(dormant, restoredState as unknown as ClientState, dormantDeps)).toBe(
+      true
+    );
+    clients.set(restoredWs, restoredState);
 
     page.emit("close");
 

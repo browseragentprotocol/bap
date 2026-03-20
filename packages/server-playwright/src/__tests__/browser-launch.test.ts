@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { BAPPlaywrightServer } from "../server.js";
+import { handleBrowserLaunch } from "../handlers/browser.js";
+import type { HandlerContext, ClientState } from "../types.js";
 
 type BrowserLaunchState = {
   browser: null;
@@ -19,7 +20,6 @@ type BrowserLaunchState = {
 
 describe("BAPPlaywrightServer - browser relaunch hygiene", () => {
   it("closes an existing persistent context before launching a new one", async () => {
-    const server = new BAPPlaywrightServer();
     const previousContext = {
       close: vi.fn().mockResolvedValue(undefined),
     };
@@ -44,31 +44,35 @@ describe("BAPPlaywrightServer - browser relaunch hygiene", () => {
       pendingApprovals: new Map(),
       sessionApprovals: new Set(),
     };
-    const privateServer = server as unknown as {
-      getBrowserType: (browserType: string) => {
-        launchPersistentContext: typeof launchPersistentContext;
-      };
-      handleBrowserLaunch: (
-        state: BrowserLaunchState,
-        params: {
-          browser: string;
-          channel: string;
-          headless: boolean;
-          userDataDir: string;
-        }
-      ) => Promise<void>;
-    };
 
-    vi.spyOn(privateServer, "getBrowserType").mockReturnValue({
-      launchPersistentContext,
-    } as never);
+    // Build a minimal HandlerContext mock
+    const ctx = {
+      options: {
+        defaultBrowser: "chromium",
+        defaultChannel: "chrome",
+        headless: true,
+        timeout: 30000,
+        security: {},
+        limits: {},
+      },
+      getBrowserType: vi.fn().mockReturnValue({ launchPersistentContext }),
+      sanitizeBrowserArgs: vi.fn().mockReturnValue([]),
+      logSecurity: vi.fn(),
+      log: vi.fn(),
+      setupPageListeners: vi.fn(),
+      validateUrl: vi.fn(),
+    } as unknown as HandlerContext;
 
-    await privateServer.handleBrowserLaunch(state, {
-      browser: "chromium",
-      channel: "chrome",
-      headless: false,
-      userDataDir: "/tmp/bap-profile",
-    });
+    await handleBrowserLaunch(
+      state as unknown as ClientState,
+      {
+        browser: "chromium",
+        channel: "chrome",
+        headless: false,
+        userDataDir: "/tmp/bap-profile",
+      },
+      ctx
+    );
 
     expect(previousContext.close).toHaveBeenCalledOnce();
     expect(launchPersistentContext).toHaveBeenCalledWith("/tmp/bap-profile", {

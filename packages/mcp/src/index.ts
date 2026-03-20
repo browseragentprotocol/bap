@@ -147,6 +147,8 @@ export interface BAPMCPServerOptions {
   allowedDomains?: string[];
   /** Maximum session duration in seconds (default: 3600) */
   maxSessionDuration?: number;
+  /** Slim mode: expose only 5 essential tools (navigate, observe, act, extract, screenshot) */
+  slim?: boolean;
 }
 
 interface ToolResult {
@@ -277,6 +279,9 @@ function formatSelectorForDisplay(selector: BAPSelector): string {
   }
 }
 
+/** The 5 essential tools exposed in --slim mode */
+const SLIM_TOOLS = new Set(["navigate", "observe", "act", "extract", "screenshot"]);
+
 // =============================================================================
 // Tool Definitions
 // =============================================================================
@@ -301,7 +306,8 @@ const TOOLS: Tool[] = [
         },
         observe: {
           type: "boolean",
-          description: "Fuse an observation after navigation (saves a round-trip). Returns interactive elements alongside navigate results.",
+          description:
+            "Fuse an observation after navigation (saves a round-trip). Returns interactive elements alongside navigate results.",
         },
         observeMaxElements: {
           type: "number",
@@ -342,7 +348,8 @@ const TOOLS: Tool[] = [
       properties: {
         selector: {
           type: "string",
-          description: 'Element selector for the input field. E.g., "role:textbox:Email" or "label:Password"',
+          description:
+            'Element selector for the input field. E.g., "role:textbox:Email" or "label:Password"',
         },
         text: {
           type: "string",
@@ -365,7 +372,8 @@ const TOOLS: Tool[] = [
       properties: {
         selector: {
           type: "string",
-          description: 'Element selector for the input field. E.g., "role:textbox:Search" or "label:Username"',
+          description:
+            'Element selector for the input field. E.g., "role:textbox:Search" or "label:Username"',
         },
         value: {
           type: "string",
@@ -377,7 +385,8 @@ const TOOLS: Tool[] = [
   },
   {
     name: "press",
-    description: "Press a keyboard key. Use for Enter, Tab, Escape, or keyboard shortcuts like Ctrl+A.",
+    description:
+      "Press a keyboard key. Use for Enter, Tab, Escape, or keyboard shortcuts like Ctrl+A.",
     inputSchema: {
       type: "object",
       properties: {
@@ -428,7 +437,8 @@ const TOOLS: Tool[] = [
         },
         selector: {
           type: "string",
-          description: "Optional: element to scroll within (scrolls page viewport if not specified)",
+          description:
+            "Optional: element to scroll within (scrolls page viewport if not specified)",
         },
       },
     },
@@ -463,7 +473,8 @@ const TOOLS: Tool[] = [
         format: {
           type: "string",
           enum: ["jpeg", "png"],
-          description: "Image format (default: jpeg). JPEG is ~60% smaller than PNG for typical pages.",
+          description:
+            "Image format (default: jpeg). JPEG is ~60% smaller than PNG for typical pages.",
         },
         quality: {
           type: "number",
@@ -618,14 +629,26 @@ Each step can have conditions and error handling. More efficient than calling ac
                 type: "string",
                 description: "BAP action to execute",
                 enum: [
-                  "action/click", "action/dblclick", "action/fill", "action/type", "action/press",
-                  "action/hover", "action/scroll", "action/select", "action/check", "action/uncheck",
-                  "page/navigate", "page/reload", "page/goBack", "page/goForward",
+                  "action/click",
+                  "action/dblclick",
+                  "action/fill",
+                  "action/type",
+                  "action/press",
+                  "action/hover",
+                  "action/scroll",
+                  "action/select",
+                  "action/check",
+                  "action/uncheck",
+                  "page/navigate",
+                  "page/reload",
+                  "page/goBack",
+                  "page/goForward",
                 ],
               },
               selector: {
                 type: "string",
-                description: 'Element selector for action (e.g., "role:button:Submit", "text:Login")',
+                description:
+                  'Element selector for action (e.g., "role:button:Submit", "text:Login")',
               },
               value: {
                 type: "string",
@@ -637,7 +660,7 @@ Each step can have conditions and error handling. More efficient than calling ac
               },
               key: {
                 type: "string",
-                description: "Key for action/press (e.g., \"Enter\", \"Tab\")",
+                description: 'Key for action/press (e.g., "Enter", "Tab")',
               },
             },
             required: ["action"],
@@ -649,7 +672,8 @@ Each step can have conditions and error handling. More efficient than calling ac
         },
         postObserve: {
           type: "boolean",
-          description: "Fuse a post-execution observation into this call (saves a round-trip). Returns interactive elements alongside act results.",
+          description:
+            "Fuse a post-execution observation into this call (saves a round-trip). Returns interactive elements alongside act results.",
         },
         observeMaxElements: {
           type: "number",
@@ -687,7 +711,8 @@ RECOMMENDED: Use this before complex interactions to understand the page.`,
         },
         annotateScreenshot: {
           type: "boolean",
-          description: "Annotate screenshot with numbered element markers (Set-of-Marks style). Useful for visual element identification.",
+          description:
+            "Annotate screenshot with numbered element markers (Set-of-Marks style). Useful for visual element identification.",
         },
         stableRefs: {
           type: "boolean",
@@ -695,16 +720,19 @@ RECOMMENDED: Use this before complex interactions to understand the page.`,
         },
         incremental: {
           type: "boolean",
-          description: "Return only changes since last observation (added, updated, removed elements). Useful for monitoring page state after actions.",
+          description:
+            "Return only changes since last observation (added, updated, removed elements). Useful for monitoring page state after actions.",
         },
         responseTier: {
           type: "string",
           enum: ["full", "interactive", "minimal"],
-          description: "Response compression tier: 'full' (default, all data), 'interactive' (elements+metadata only), 'minimal' (refs+names only)",
+          description:
+            "Response compression tier: 'full' (default, all data), 'interactive' (elements+metadata only), 'minimal' (refs+names only)",
         },
         includeWebMCPTools: {
           type: "boolean",
-          description: "Include WebMCP tools discovered on the page. WebMCP tools are exposed by cooperative websites for AI agent interaction.",
+          description:
+            "Include WebMCP tools discovered on the page. WebMCP tools are exposed by cooperative websites for AI agent interaction.",
         },
       },
     },
@@ -812,14 +840,23 @@ const RESOURCES: Resource[] = [
 // Browser Resolution
 // =============================================================================
 
-function resolveBrowser(browser: BrowserChoice): { browser: "chromium" | "firefox" | "webkit"; channel?: string } {
+function resolveBrowser(browser: BrowserChoice): {
+  browser: "chromium" | "firefox" | "webkit";
+  channel?: string;
+} {
   switch (browser) {
-    case "chrome":    return { browser: "chromium", channel: "chrome" };
-    case "chromium":  return { browser: "chromium" };
-    case "firefox":   return { browser: "firefox" };
-    case "webkit":    return { browser: "webkit" };
-    case "edge":      return { browser: "chromium", channel: "msedge" };
-    default:          return { browser: "chromium", channel: "chrome" };
+    case "chrome":
+      return { browser: "chromium", channel: "chrome" };
+    case "chromium":
+      return { browser: "chromium" };
+    case "firefox":
+      return { browser: "firefox" };
+    case "webkit":
+      return { browser: "webkit" };
+    case "edge":
+      return { browser: "chromium", channel: "msedge" };
+    default:
+      return { browser: "chromium", channel: "chrome" };
   }
 }
 
@@ -846,6 +883,7 @@ export class BAPMCPServer {
       verbose: options.verbose ?? false,
       allowedDomains: options.allowedDomains ?? [],
       maxSessionDuration: options.maxSessionDuration ?? 3600,
+      slim: options.slim ?? false,
     };
 
     this.server = new Server(
@@ -950,9 +988,7 @@ export class BAPMCPServer {
     } catch (err) {
       // If a channel was specified (e.g. local Chrome) and it's not found, fall back to bundled Chromium
       if (resolved.channel && String(err).includes("Looks like")) {
-        this.log(
-          `Local ${this.options.browser} not found, falling back to bundled Chromium`
-        );
+        this.log(`Local ${this.options.browser} not found, falling back to bundled Chromium`);
         await this.client.launch({ browser: "chromium", headless });
       } else {
         // Clean up on launch failure to avoid leaking the transport
@@ -973,12 +1009,16 @@ export class BAPMCPServer {
       if (this.client) {
         await this.client.close();
       }
-    } catch { /* ignore cleanup errors */ }
+    } catch {
+      /* ignore cleanup errors */
+    }
     try {
       if (this.transport) {
         await this.transport.close();
       }
-    } catch { /* ignore cleanup errors */ }
+    } catch {
+      /* ignore cleanup errors */
+    }
     this.client = null;
     this.transport = null;
   }
@@ -987,9 +1027,9 @@ export class BAPMCPServer {
    * Set up MCP request handlers
    */
   private setupHandlers(): void {
-    // List available tools
+    // List available tools (--slim mode filters to 5 essentials)
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: TOOLS,
+      tools: this.options.slim ? TOOLS.filter((t) => SLIM_TOOLS.has(t.name)) : TOOLS,
     }));
 
     // List available resources
@@ -1053,7 +1093,12 @@ export class BAPMCPServer {
         // Security check
         if (!this.isAllowedDomain(url)) {
           return {
-            content: [{ type: "text", text: `Error: Domain not allowed. Allowed domains: ${this.options.allowedDomains.join(", ") || "all"}` }],
+            content: [
+              {
+                type: "text",
+                text: `Error: Domain not allowed. Allowed domains: ${this.options.allowedDomains.join(", ") || "all"}`,
+              },
+            ],
             isError: true,
           };
         }
@@ -1078,19 +1123,23 @@ export class BAPMCPServer {
         const observeFlag = validated.observe;
         const result = await client.navigate(url, {
           waitUntil,
-          ...(observeFlag ? {
-            observe: {
-              includeMetadata: true,
-              includeInteractiveElements: true,
-              maxElements: validated.observeMaxElements ?? 50,
-            },
-          } : {}),
+          ...(observeFlag
+            ? {
+                observe: {
+                  includeMetadata: true,
+                  includeInteractiveElements: true,
+                  maxElements: validated.observeMaxElements ?? 50,
+                },
+              }
+            : {}),
         });
 
         const textParts = [`Navigated to: ${result.url}\nStatus: ${result.status}`];
 
         // Append fused observation if present
-        const observation = (result as Record<string, unknown>).observation as AgentObserveResult | undefined;
+        const observation = (result as Record<string, unknown>).observation as
+          | AgentObserveResult
+          | undefined;
         if (observation?.interactiveElements && observation.interactiveElements.length > 0) {
           const elementList = observation.interactiveElements
             .map((el: InteractiveElement) => {
@@ -1099,7 +1148,9 @@ export class BAPMCPServer {
               return `${el.ref} ${el.role}${el.name ? `: "${el.name}"` : ""} - ${selector} (${hints})`;
             })
             .join("\n");
-          textParts.push(`\nInteractive Elements (${observation.interactiveElements.length}/${observation.totalInteractiveElements ?? "?"}):\n${elementList}`);
+          textParts.push(
+            `\nInteractive Elements (${observation.interactiveElements.length}/${observation.totalInteractiveElements ?? "?"}):\n${elementList}`
+          );
         }
 
         return {
@@ -1128,7 +1179,9 @@ export class BAPMCPServer {
         const selector = parseSelector(validated.selector);
         await client.type(selector, validated.text, { delay: validated.delay });
         return {
-          content: [{ type: "text", text: `Typed "${validated.text}" into: ${validated.selector}` }],
+          content: [
+            { type: "text", text: `Typed "${validated.text}" into: ${validated.selector}` },
+          ],
         };
       }
 
@@ -1137,7 +1190,9 @@ export class BAPMCPServer {
         const selector = parseSelector(validated.selector);
         await client.fill(selector, validated.value);
         return {
-          content: [{ type: "text", text: `Filled "${validated.value}" into: ${validated.selector}` }],
+          content: [
+            { type: "text", text: `Filled "${validated.value}" into: ${validated.selector}` },
+          ],
         };
       }
 
@@ -1155,7 +1210,9 @@ export class BAPMCPServer {
         const selector = parseSelector(validated.selector);
         await client.select(selector, validated.value);
         return {
-          content: [{ type: "text", text: `Selected "${validated.value}" in: ${validated.selector}` }],
+          content: [
+            { type: "text", text: `Selected "${validated.value}" in: ${validated.selector}` },
+          ],
         };
       }
 
@@ -1180,9 +1237,10 @@ export class BAPMCPServer {
 
       // Observations
       case "screenshot": {
-        const fullPage = args.fullPage as boolean ?? false;
+        const fullPage = (args.fullPage as boolean) ?? false;
         const format = (args.format as string) === "png" ? "png" : "jpeg";
-        const quality = typeof args.quality === "number" ? args.quality : (format === "jpeg" ? 80 : undefined);
+        const quality =
+          typeof args.quality === "number" ? args.quality : format === "jpeg" ? 80 : undefined;
         const result = await client.screenshot({ fullPage, format, quality });
         return {
           content: [
@@ -1196,7 +1254,7 @@ export class BAPMCPServer {
       }
 
       case "accessibility": {
-        const interestingOnly = args.interestingOnly as boolean ?? true;
+        const interestingOnly = (args.interestingOnly as boolean) ?? true;
         const result = await client.accessibility({ interestingOnly });
         return {
           content: [
@@ -1333,15 +1391,17 @@ export class BAPMCPServer {
         const postObserveFlag = args.postObserve as boolean | undefined;
         const result = await client.act({
           steps,
-          stopOnFirstError: args.stopOnFirstError as boolean ?? true,
-          ...(postObserveFlag ? {
-            postObserve: {
-              includeMetadata: true,
-              includeInteractiveElements: true,
-              maxElements: (args.observeMaxElements as number) ?? 50,
-              responseTier: "interactive" as const,
-            },
-          } : {}),
+          stopOnFirstError: (args.stopOnFirstError as boolean) ?? true,
+          ...(postObserveFlag
+            ? {
+                postObserve: {
+                  includeMetadata: true,
+                  includeInteractiveElements: true,
+                  maxElements: (args.observeMaxElements as number) ?? 50,
+                  responseTier: "interactive" as const,
+                },
+              }
+            : {}),
         });
 
         // Format result for AI consumption
@@ -1350,17 +1410,20 @@ export class BAPMCPServer {
           : `Failed at step ${(result.failedAt ?? 0) + 1}: ${result.results[result.failedAt ?? 0]?.error?.message ?? "Unknown error"}`;
 
         const stepDetails = result.results
-          .map((r: StepResult) =>
-            `${r.success ? "OK" : "FAIL"} Step ${r.step + 1}${r.label ? ` (${r.label})` : ""}: ${
-              r.success ? "completed" : r.error?.message ?? "failed"
-            }`
+          .map(
+            (r: StepResult) =>
+              `${r.success ? "OK" : "FAIL"} Step ${r.step + 1}${r.label ? ` (${r.label})` : ""}: ${
+                r.success ? "completed" : (r.error?.message ?? "failed")
+              }`
           )
           .join("\n");
 
         const actTextParts = [`${summary}\n\n${stepDetails}\n\nTotal time: ${result.duration}ms`];
 
         // Append fused post-observation if present
-        const postObs = (result as Record<string, unknown>).postObservation as AgentObserveResult | undefined;
+        const postObs = (result as Record<string, unknown>).postObservation as
+          | AgentObserveResult
+          | undefined;
         if (postObs?.interactiveElements && postObs.interactiveElements.length > 0) {
           const elementList = postObs.interactiveElements
             .map((el: InteractiveElement) => {
@@ -1369,7 +1432,9 @@ export class BAPMCPServer {
               return `${el.ref} ${el.role}${el.name ? `: "${el.name}"` : ""} - ${selector} (${hints})`;
             })
             .join("\n");
-          actTextParts.push(`\nPost-execution Elements (${postObs.interactiveElements.length}/${postObs.totalInteractiveElements ?? "?"}):\n${elementList}`);
+          actTextParts.push(
+            `\nPost-execution Elements (${postObs.interactiveElements.length}/${postObs.totalInteractiveElements ?? "?"}):\n${elementList}`
+          );
         }
 
         return {
@@ -1403,7 +1468,12 @@ export class BAPMCPServer {
           includeWebMCPTools: args.includeWebMCPTools as boolean | undefined,
         });
 
-        const content: Array<{ type: "text" | "image"; text?: string; data?: string; mimeType?: string }> = [];
+        const content: Array<{
+          type: "text" | "image";
+          text?: string;
+          data?: string;
+          mimeType?: string;
+        }> = [];
 
         // Metadata
         if (result.metadata) {
@@ -1447,13 +1517,19 @@ export class BAPMCPServer {
         if (result.changes) {
           const changeParts: string[] = [];
           if (result.changes.added.length > 0) {
-            changeParts.push(`+ ${result.changes.added.length} added: ${result.changes.added.map((el: InteractiveElement) => `${el.ref} ${el.role}`).join(", ")}`);
+            changeParts.push(
+              `+ ${result.changes.added.length} added: ${result.changes.added.map((el: InteractiveElement) => `${el.ref} ${el.role}`).join(", ")}`
+            );
           }
           if (result.changes.updated.length > 0) {
-            changeParts.push(`~ ${result.changes.updated.length} updated: ${result.changes.updated.map((el: InteractiveElement) => `${el.ref} ${el.role}`).join(", ")}`);
+            changeParts.push(
+              `~ ${result.changes.updated.length} updated: ${result.changes.updated.map((el: InteractiveElement) => `${el.ref} ${el.role}`).join(", ")}`
+            );
           }
           if (result.changes.removed.length > 0) {
-            changeParts.push(`- ${result.changes.removed.length} removed: ${result.changes.removed.join(", ")}`);
+            changeParts.push(
+              `- ${result.changes.removed.length} removed: ${result.changes.removed.join(", ")}`
+            );
           }
           if (changeParts.length > 0) {
             content.push({
@@ -1471,7 +1547,10 @@ export class BAPMCPServer {
         // WebMCP tools (if discovered)
         if (result.webmcpTools && result.webmcpTools.length > 0) {
           const toolList = result.webmcpTools
-            .map((t: WebMCPTool) => `- ${t.name} (${t.source})${t.description ? `: ${t.description}` : ""}`)
+            .map(
+              (t: WebMCPTool) =>
+                `- ${t.name} (${t.source})${t.description ? `: ${t.description}` : ""}`
+            )
             .join("\n");
           content.push({
             type: "text",
@@ -1528,20 +1607,19 @@ export class BAPMCPServer {
       }
 
       case "discover_tools": {
-        const result = await client.discoverTools(
-          undefined,
-          {
-            maxTools: args.maxTools as number | undefined,
-            includeInputSchemas: args.includeInputSchemas as boolean | undefined,
-          }
-        );
+        const result = await client.discoverTools(undefined, {
+          maxTools: args.maxTools as number | undefined,
+          includeInputSchemas: args.includeInputSchemas as boolean | undefined,
+        });
 
         if (result.tools.length === 0) {
           return {
-            content: [{
-              type: "text",
-              text: "No WebMCP tools found on this page. WebMCP tools are exposed by cooperative websites via HTML attributes or the navigator.modelContext API.",
-            }],
+            content: [
+              {
+                type: "text",
+                text: "No WebMCP tools found on this page. WebMCP tools are exposed by cooperative websites via HTML attributes or the navigator.modelContext API.",
+              },
+            ],
           };
         }
 
@@ -1556,10 +1634,12 @@ export class BAPMCPServer {
           .join("\n");
 
         return {
-          content: [{
-            type: "text",
-            text: `WebMCP Tools (${result.tools.length}/${result.totalDiscovered})${result.apiVersion ? ` [API v${result.apiVersion}]` : ""}:\n${toolList}`,
-          }],
+          content: [
+            {
+              type: "text",
+              text: `WebMCP Tools (${result.tools.length}/${result.totalDiscovered})${result.apiVersion ? ` [API v${result.apiVersion}]` : ""}:\n${toolList}`,
+            },
+          ],
         };
       }
 

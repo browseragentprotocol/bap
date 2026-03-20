@@ -10,7 +10,7 @@ import { z } from "zod";
 // =============================================================================
 
 /** Current BAP protocol version */
-export const BAP_VERSION = "0.2.0";
+export const BAP_VERSION = "0.6.0";
 
 // =============================================================================
 // JSON-RPC 2.0 Schemas
@@ -26,6 +26,7 @@ export const JSONRPCErrorDataSchema = z
     retryable: z.boolean(),
     retryAfterMs: z.number().optional(),
     details: z.record(z.unknown()).optional(),
+    recoveryHint: z.string().optional(),
   })
   .optional();
 
@@ -171,14 +172,14 @@ export function isErrorResponse(response: JSONRPCResponse): response is JSONRPCE
   const { error } = response as { error: unknown };
 
   // Validate error object structure
-  if (typeof error !== 'object' || error === null) {
+  if (typeof error !== "object" || error === null) {
     return false;
   }
 
   const errorObj = error as Record<string, unknown>;
 
   // Required fields: code (number) and message (string)
-  if (typeof errorObj.code !== 'number' || typeof errorObj.message !== 'string') {
+  if (typeof errorObj.code !== "number" || typeof errorObj.message !== "string") {
     return false;
   }
 
@@ -208,10 +209,7 @@ export function createRequest<T extends Record<string, unknown>>(
 /**
  * Helper to create a success response
  */
-export function createSuccessResponse<T>(
-  id: string | number,
-  result: T
-): JSONRPCSuccessResponse {
+export function createSuccessResponse<T>(id: string | number, result: T): JSONRPCSuccessResponse {
   return {
     jsonrpc: "2.0",
     id,

@@ -59,8 +59,7 @@ npx pnpm check:artifacts
 - The Python SDK version is synced automatically to the same release version by
   `scripts/sync-python-version.mjs`
 - The release workflow verifies both registries after publish
-- The current launch train is set up for the next stable minor release from
-  `0.3.0` to `0.4.0`
+- Current version: `0.6.0` (all packages linked, versioned together via changesets)
 
 ## Common failure modes
 

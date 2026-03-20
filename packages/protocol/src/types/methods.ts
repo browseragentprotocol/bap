@@ -49,6 +49,8 @@ export const BrowserLaunchParamsSchema = z.object({
   proxy: ProxyConfigSchema.optional(),
   downloadsPath: z.string().optional(),
   userDataDir: z.string().optional(),
+  /** CDP endpoint URL for attaching to a running browser (e.g., ws://localhost:9222) */
+  cdpUrl: z.string().optional(),
 });
 export type BrowserLaunchParams = z.infer<typeof BrowserLaunchParamsSchema>;
 
@@ -663,7 +665,10 @@ export type ContextOptions = z.infer<typeof ContextOptionsSchema>;
 /** context/create parameters */
 export const ContextCreateParamsSchema = z.object({
   /** Optional custom ID (alphanumeric + hyphen, max 64 chars) */
-  contextId: z.string().regex(/^[a-zA-Z0-9-]{1,64}$/).optional(),
+  contextId: z
+    .string()
+    .regex(/^[a-zA-Z0-9-]{1,64}$/)
+    .optional(),
   /** Context options */
   options: ContextOptionsSchema.optional(),
 });
@@ -823,11 +828,15 @@ export const ApprovalRuleMatchSchema = z.object({
   /** Action method names to match */
   actions: z.array(z.string()).optional(),
   /** Selector patterns to match */
-  selectors: z.array(z.object({
-    type: z.literal("role"),
-    role: z.string(),
-    namePattern: z.string().optional(),
-  })).optional(),
+  selectors: z
+    .array(
+      z.object({
+        type: z.literal("role"),
+        role: z.string(),
+        namePattern: z.string().optional(),
+      })
+    )
+    .optional(),
   /** Domain patterns to match */
   domains: z.array(z.string()).optional(),
   /** URL regex patterns to match */

@@ -36,6 +36,7 @@ interface CLIArgs {
   verbose?: boolean;
   headless?: boolean;
   allowedDomains?: string[];
+  slim?: boolean;
   help?: boolean;
   version?: boolean;
 }
@@ -67,6 +68,8 @@ function parseArgs(): CLIArgs {
       args.headless = false;
     } else if (arg === "--allowed-domains") {
       args.allowedDomains = argv[++i]?.split(",").map((d) => d.trim());
+    } else if (arg === "--slim") {
+      args.slim = true;
     }
   }
 
@@ -165,7 +168,7 @@ async function waitForServer(
   port: number,
   host: string = "localhost",
   timeoutMs: number = 15000,
-  intervalMs: number = 150,
+  intervalMs: number = 150
 ): Promise<void> {
   const start = Date.now();
 
@@ -178,7 +181,7 @@ async function waitForServer(
 
   throw new Error(
     `BAP server did not start within ${timeoutMs / 1000}s on port ${port}. ` +
-    `Ensure Playwright browsers are installed: npx playwright install chromium`
+      `Ensure Playwright browsers are installed: npx playwright install chromium`
   );
 }
 
@@ -221,7 +224,7 @@ interface StandaloneServerOptions {
  * and returns the ChildProcess handle for lifecycle management.
  */
 async function startStandaloneServer(
-  options: StandaloneServerOptions,
+  options: StandaloneServerOptions
 ): Promise<ChildProcess | null> {
   const { port, host, browser, headless, verbose } = options;
 
@@ -236,8 +239,10 @@ async function startStandaloneServer(
   const { command, args } = resolveServerCommand();
   const serverArgs = [
     ...args,
-    "--port", port.toString(),
-    "--host", host,
+    "--port",
+    port.toString(),
+    "--host",
+    host,
     headless ? "--headless" : "--no-headless",
   ];
 
@@ -272,7 +277,7 @@ async function startStandaloneServer(
   }
 
   child.on("error", (err) => {
-    log.error("Failed to start BAP server", err);
+    log.error("Failed to start BAP server", { error: err.message });
   });
 
   child.on("exit", (code, signal) => {
@@ -319,9 +324,7 @@ async function main(): Promise<void> {
   }
 
   if (args.version) {
-    console.error(
-      `${icons.connection} BAP MCP Server ${pc.dim("v0.2.0")}`
-    );
+    console.error(`${icons.connection} BAP MCP Server ${pc.dim("v0.6.0")}`);
     process.exit(0);
   }
 
@@ -357,6 +360,7 @@ async function main(): Promise<void> {
       headless: args.headless ?? true,
       verbose: args.verbose,
       allowedDomains: args.allowedDomains,
+      slim: args.slim,
     });
 
     // Graceful shutdown — clean up MCP server and child process
@@ -381,13 +385,15 @@ async function main(): Promise<void> {
     process.on("SIGTERM", () => shutdown("SIGTERM"));
 
     process.on("uncaughtException", (error) => {
-      log.error("Uncaught exception", error);
+      log.error("Uncaught exception", { error: error.message });
       serverProcess?.kill("SIGTERM");
       process.exit(1);
     });
 
     process.on("unhandledRejection", (reason) => {
-      log.error("Unhandled rejection", reason);
+      log.error("Unhandled rejection", {
+        reason: reason instanceof Error ? reason.message : String(reason),
+      });
       serverProcess?.kill("SIGTERM");
       process.exit(1);
     });
@@ -398,7 +404,9 @@ async function main(): Promise<void> {
     await server.run();
   } catch (error) {
     serverProcess?.kill("SIGTERM");
-    log.error("Failed to start server", error);
+    log.error("Failed to start server", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     process.exit(1);
   }
 }

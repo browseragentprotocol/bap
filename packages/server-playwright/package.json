@@ -52,6 +52,7 @@
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:integration": "vitest run --include '**/integration.test.ts'",
     "test:watch": "vitest",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",

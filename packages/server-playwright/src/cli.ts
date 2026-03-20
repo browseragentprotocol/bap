@@ -11,13 +11,7 @@
  *   npx bap-server --browser firefox  # Use Firefox
  */
 
-import {
-  Logger,
-  banner,
-  table,
-  icons,
-  pc,
-} from "@browseragentprotocol/logger";
+import { Logger, banner, table, icons, pc } from "@browseragentprotocol/logger";
 import { BAPPlaywrightServer, BAPServerOptions } from "./server.js";
 
 const log = new Logger({ prefix: "BAP Server" });
@@ -51,12 +45,10 @@ function parseArgs(): Partial<BAPServerOptions> {
       config.headless = true;
     } else if (arg === "--browser" || arg === "-b") {
       const nextArg = args[++i];
-      if (nextArg)
-        config.defaultBrowser = nextArg as "chromium" | "firefox" | "webkit";
+      if (nextArg) config.defaultBrowser = nextArg as "chromium" | "firefox" | "webkit";
     } else if (arg.startsWith("--browser=")) {
       const value = arg.split("=")[1];
-      if (value)
-        config.defaultBrowser = value as "chromium" | "firefox" | "webkit";
+      if (value) config.defaultBrowser = value as "chromium" | "firefox" | "webkit";
     } else if (arg === "--timeout" || arg === "-t") {
       const nextArg = args[++i];
       if (nextArg) config.timeout = parseInt(nextArg, 10);
@@ -75,9 +67,7 @@ function parseArgs(): Partial<BAPServerOptions> {
       printHelp();
       process.exit(0);
     } else if (arg === "--version" || arg === "-v") {
-      console.log(
-        `${icons.server} BAP Playwright Server ${pc.dim("v0.2.0")}`
-      );
+      console.log(`${icons.server} BAP Playwright Server ${pc.dim("v0.6.0")}`);
       process.exit(0);
     }
   }
@@ -195,12 +185,14 @@ async function main(): Promise<void> {
     console.log(pc.dim(`  Press ${pc.white("Ctrl+C")} to stop`));
     console.log();
   } catch (error) {
-    log.error("Failed to start server", error);
+    log.error("Failed to start server", {
+      error: error instanceof Error ? error.message : String(error),
+    });
     process.exit(1);
   }
 }
 
 main().catch((error) => {
-  log.error("Fatal error", error);
+  log.error("Fatal error", { error: error instanceof Error ? error.message : String(error) });
   process.exit(1);
 });

@@ -19,6 +19,8 @@ export class BAPError extends Error {
   readonly retryAfterMs?: number;
   /** Additional error details */
   readonly details?: Record<string, unknown>;
+  /** Recovery hint for the agent/user — suggests what to try next */
+  readonly recoveryHint?: string;
 
   /**
    * Create a new BAPError
@@ -31,12 +33,15 @@ export class BAPError extends Error {
   constructor(
     codeOrMessage: ErrorCode | number | string,
     messageOrCode: string | number,
-    options?: {
-      retryable?: boolean;
-      retryAfterMs?: number;
-      details?: Record<string, unknown>;
-      cause?: Error;
-    } | boolean
+    options?:
+      | {
+          retryable?: boolean;
+          retryAfterMs?: number;
+          details?: Record<string, unknown>;
+          recoveryHint?: string;
+          cause?: Error;
+        }
+      | boolean
   ) {
     // Support legacy signature: (message, code, retryable, retryAfterMs?, details?)
     let code: ErrorCode | number;
@@ -44,23 +49,25 @@ export class BAPError extends Error {
     let retryable: boolean = false;
     let retryAfterMs: number | undefined;
     let details: Record<string, unknown> | undefined;
+    let recoveryHint: string | undefined;
     let cause: Error | undefined;
 
-    if (typeof codeOrMessage === 'string') {
+    if (typeof codeOrMessage === "string") {
       // Legacy signature: (message, code, retryable?, retryAfterMs?, details?)
       message = codeOrMessage;
       code = messageOrCode as number;
-      if (typeof options === 'boolean') {
+      if (typeof options === "boolean") {
         retryable = options;
       }
     } else {
       // New signature: (code, message, options?)
       code = codeOrMessage;
       message = messageOrCode as string;
-      if (options && typeof options === 'object') {
+      if (options && typeof options === "object") {
         retryable = options.retryable ?? false;
         retryAfterMs = options.retryAfterMs;
         details = options.details;
+        recoveryHint = options.recoveryHint;
         cause = options.cause;
       }
     }
@@ -71,6 +78,7 @@ export class BAPError extends Error {
     this.retryable = retryable;
     this.retryAfterMs = retryAfterMs;
     this.details = details;
+    this.recoveryHint = recoveryHint;
 
     // Maintain proper stack trace for where error was thrown
     if (Error.captureStackTrace) {
@@ -86,6 +94,7 @@ export class BAPError extends Error {
       retryable: error.data?.retryable ?? false,
       retryAfterMs: error.data?.retryAfterMs,
       details: error.data?.details,
+      recoveryHint: error.data?.recoveryHint,
     });
   }
 
@@ -107,6 +116,7 @@ export class BAPError extends Error {
         retryable: this.retryable,
         retryAfterMs: this.retryAfterMs,
         details: this.details,
+        ...(this.recoveryHint !== undefined ? { recoveryHint: this.recoveryHint } : {}),
       },
     };
   }
@@ -124,6 +134,8 @@ export class BAPConnectionError extends BAPError {
     super(ErrorCodes.ServerError, message, {
       retryable: true,
       retryAfterMs: 1000,
+      recoveryHint:
+        "Check that the BAP server is running and the WebSocket URL is correct, then retry",
       ...options,
     });
     this.name = "BAPConnectionError";
@@ -200,7 +212,9 @@ export class BAPInternalError extends BAPError {
  */
 export class BAPNotInitializedError extends BAPError {
   constructor() {
-    super(ErrorCodes.NotInitialized, "Client not initialized. Call initialize() first.");
+    super(ErrorCodes.NotInitialized, "Client not initialized. Call initialize() first.", {
+      recoveryHint: "Send an initialize request before calling any other method",
+    });
     this.name = "BAPNotInitializedError";
   }
 }
@@ -210,7 +224,10 @@ export class BAPNotInitializedError extends BAPError {
  */
 export class BAPAlreadyInitializedError extends BAPError {
   constructor() {
-    super(ErrorCodes.AlreadyInitialized, "Client already initialized");
+    super(ErrorCodes.AlreadyInitialized, "Client already initialized", {
+      recoveryHint:
+        "The connection is already initialized. Proceed with browser/launch or other commands",
+    });
     this.name = "BAPAlreadyInitializedError";
   }
 }
@@ -224,7 +241,9 @@ export class BAPAlreadyInitializedError extends BAPError {
  */
 export class BAPBrowserNotLaunchedError extends BAPError {
   constructor() {
-    super(ErrorCodes.BrowserNotLaunched, "Browser not launched. Call launch() first.");
+    super(ErrorCodes.BrowserNotLaunched, "Browser not launched. Call launch() first.", {
+      recoveryHint: "Call browser/launch to start a browser before performing browser operations",
+    });
     this.name = "BAPBrowserNotLaunchedError";
   }
 }
@@ -236,6 +255,7 @@ export class BAPPageNotFoundError extends BAPError {
   constructor(pageId: string) {
     super(ErrorCodes.PageNotFound, `Page not found: ${pageId}`, {
       details: { pageId },
+      recoveryHint: "Call page/list to see available pages, or page/create to open a new one",
     });
     this.name = "BAPPageNotFoundError";
   }
@@ -254,6 +274,8 @@ export class BAPElementNotFoundError extends BAPError {
       retryable: options?.retryable ?? true,
       retryAfterMs: options?.retryAfterMs ?? 500,
       details: { selector },
+      recoveryHint:
+        "Run observe() to refresh interactive elements, then retry with an updated selector",
     });
     this.name = "BAPElementNotFoundError";
   }
@@ -268,6 +290,7 @@ export class BAPElementNotVisibleError extends BAPError {
       retryable: true,
       retryAfterMs: 500,
       details: { selector },
+      recoveryHint: "Scroll the element into view or wait for it to appear, then retry",
     });
     this.name = "BAPElementNotVisibleError";
   }
@@ -282,6 +305,7 @@ export class BAPElementNotEnabledError extends BAPError {
       retryable: true,
       retryAfterMs: 500,
       details: { selector },
+      recoveryHint: "Wait for the element to become enabled (e.g., form validation), then retry",
     });
     this.name = "BAPElementNotEnabledError";
   }
@@ -294,6 +318,8 @@ export class BAPSelectorAmbiguousError extends BAPError {
   constructor(selector: unknown, count: number) {
     super(ErrorCodes.SelectorAmbiguous, `Selector matched ${count} elements, expected 1`, {
       details: { selector, count },
+      recoveryHint:
+        "Use a more specific selector (e.g., testId, CSS with nth-child, or role with exact name) to match exactly one element",
     });
     this.name = "BAPSelectorAmbiguousError";
   }
@@ -306,6 +332,8 @@ export class BAPInterceptedRequestError extends BAPError {
   constructor(requestId: string, url: string) {
     super(ErrorCodes.InterceptedRequest, `Request intercepted: ${url}`, {
       details: { requestId, url },
+      recoveryHint:
+        "Handle the intercepted request by providing a response or continuing the request",
     });
     this.name = "BAPInterceptedRequestError";
   }
@@ -327,6 +355,7 @@ export class BAPNavigationError extends BAPError {
       retryable: options?.retryable ?? true,
       retryAfterMs: 1000,
       details: { url: options?.url, status: options?.status },
+      recoveryHint: "Check the URL is valid and accessible, then retry navigation",
       cause: options?.cause,
     });
     this.name = "BAPNavigationError";
@@ -346,6 +375,7 @@ export class BAPTimeoutError extends BAPError {
       retryable: true,
       retryAfterMs: 0,
       details: { timeout: options?.timeout },
+      recoveryHint: "Increase timeout or wait for the page to finish loading, then retry",
     });
     this.name = "BAPTimeoutError";
   }
@@ -367,6 +397,8 @@ export class BAPActionError extends BAPError {
     super(ErrorCodes.ActionFailed, `${action} failed: ${message}`, {
       retryable: options?.retryable ?? false,
       details: { action, selector: options?.selector },
+      recoveryHint:
+        "Run observe() to verify the element state, then retry the action with a valid selector",
       cause: options?.cause,
     });
     this.name = "BAPActionError";
@@ -384,6 +416,8 @@ export class BAPTargetClosedError extends BAPError {
   constructor(target: string = "target") {
     super(ErrorCodes.TargetClosed, `${target} was closed`, {
       retryable: false,
+      recoveryHint:
+        "The page or context was closed. Create a new page with page/create or navigate to a URL",
     });
     this.name = "BAPTargetClosedError";
   }
@@ -397,6 +431,8 @@ export class BAPExecutionContextDestroyedError extends BAPError {
     super(ErrorCodes.ExecutionContextDestroyed, "Execution context was destroyed", {
       retryable: true,
       retryAfterMs: 100,
+      recoveryHint:
+        "The page navigated during the operation. Wait for navigation to complete, then retry",
     });
     this.name = "BAPExecutionContextDestroyedError";
   }
@@ -423,9 +459,13 @@ export class BAPContextNotFoundError extends BAPError {
  */
 export class BAPResourceLimitExceededError extends BAPError {
   constructor(resource: string, limit: number, current: number) {
-    super(ErrorCodes.ResourceLimitExceeded, `Resource limit exceeded: ${resource} (max: ${limit}, current: ${current})`, {
-      details: { resource, limit, current },
-    });
+    super(
+      ErrorCodes.ResourceLimitExceeded,
+      `Resource limit exceeded: ${resource} (max: ${limit}, current: ${current})`,
+      {
+        details: { resource, limit, current },
+      }
+    );
     this.name = "BAPResourceLimitExceededError";
   }
 }
@@ -480,9 +520,13 @@ export class BAPApprovalRequiredError extends BAPError {
  */
 export class BAPFrameNotFoundError extends BAPError {
   constructor(identifier?: string) {
-    super(ErrorCodes.FrameNotFound, identifier ? `Frame not found: ${identifier}` : "Frame not found", {
-      details: { identifier },
-    });
+    super(
+      ErrorCodes.FrameNotFound,
+      identifier ? `Frame not found: ${identifier}` : "Frame not found",
+      {
+        details: { identifier },
+      }
+    );
     this.name = "BAPFrameNotFoundError";
   }
 }
@@ -541,12 +585,14 @@ function createErrorFromCode(
     retryable?: boolean;
     retryAfterMs?: number;
     details?: Record<string, unknown>;
+    recoveryHint?: string;
   }
 ): BAPError {
   const baseOptions = {
     retryable: options?.retryable ?? false,
     retryAfterMs: options?.retryAfterMs,
     details: options?.details,
+    recoveryHint: options?.recoveryHint,
   };
 
   // Create the appropriate error subclass based on the error code
@@ -568,7 +614,7 @@ function createErrorFromCode(
     case ErrorCodes.BrowserNotLaunched:
       return new BAPBrowserNotLaunchedError();
     case ErrorCodes.PageNotFound:
-      return new BAPPageNotFoundError(options?.details?.pageId as string ?? "unknown");
+      return new BAPPageNotFoundError((options?.details?.pageId as string) ?? "unknown");
     case ErrorCodes.ElementNotFound:
       return new BAPElementNotFoundError(options?.details?.selector, {
         retryable: options?.retryable,
@@ -593,27 +639,26 @@ function createErrorFromCode(
     case ErrorCodes.SelectorAmbiguous:
       return new BAPSelectorAmbiguousError(
         options?.details?.selector,
-        options?.details?.count as number ?? 0
+        (options?.details?.count as number) ?? 0
       );
     case ErrorCodes.InterceptedRequest:
       return new BAPInterceptedRequestError(
-        options?.details?.requestId as string ?? "unknown",
-        options?.details?.url as string ?? "unknown"
+        (options?.details?.requestId as string) ?? "unknown",
+        (options?.details?.url as string) ?? "unknown"
       );
     case ErrorCodes.ActionFailed:
-      return new BAPActionError(
-        options?.details?.action as string ?? "action",
-        message,
-        { selector: options?.details?.selector, retryable: options?.retryable }
-      );
+      return new BAPActionError((options?.details?.action as string) ?? "action", message, {
+        selector: options?.details?.selector,
+        retryable: options?.retryable,
+      });
     // Context errors
     case ErrorCodes.ContextNotFound:
-      return new BAPContextNotFoundError(options?.details?.contextId as string ?? "unknown");
+      return new BAPContextNotFoundError((options?.details?.contextId as string) ?? "unknown");
     case ErrorCodes.ResourceLimitExceeded:
       return new BAPResourceLimitExceededError(
-        options?.details?.resource as string ?? "resource",
-        options?.details?.limit as number ?? 0,
-        options?.details?.current as number ?? 0
+        (options?.details?.resource as string) ?? "resource",
+        (options?.details?.limit as number) ?? 0,
+        (options?.details?.current as number) ?? 0
       );
     // Approval errors
     case ErrorCodes.ApprovalDenied:
@@ -622,22 +667,22 @@ function createErrorFromCode(
         options?.details?.rule as string
       );
     case ErrorCodes.ApprovalTimeout:
-      return new BAPApprovalTimeoutError(options?.details?.timeout as number ?? 60000);
+      return new BAPApprovalTimeoutError((options?.details?.timeout as number) ?? 60000);
     case ErrorCodes.ApprovalRequired:
       return new BAPApprovalRequiredError(
-        options?.details?.requestId as string ?? "unknown",
-        options?.details?.rule as string ?? "unknown"
+        (options?.details?.requestId as string) ?? "unknown",
+        (options?.details?.rule as string) ?? "unknown"
       );
     // Frame errors
     case ErrorCodes.FrameNotFound:
       return new BAPFrameNotFoundError(options?.details?.identifier as string);
     case ErrorCodes.DomainNotAllowed:
-      return new BAPDomainNotAllowedError(options?.details?.domain as string ?? "unknown");
+      return new BAPDomainNotAllowedError((options?.details?.domain as string) ?? "unknown");
     // Stream errors
     case ErrorCodes.StreamNotFound:
-      return new BAPStreamNotFoundError(options?.details?.streamId as string ?? "unknown");
+      return new BAPStreamNotFoundError((options?.details?.streamId as string) ?? "unknown");
     case ErrorCodes.StreamCancelled:
-      return new BAPStreamCancelledError(options?.details?.streamId as string ?? "unknown");
+      return new BAPStreamCancelledError((options?.details?.streamId as string) ?? "unknown");
     default:
       return new BAPError(code, message, baseOptions);
   }
