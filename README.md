@@ -53,6 +53,12 @@ the BAP guidance.
 ## See It in Action
 
 <p align="center">
+  <img src="./assets/demos/workflow.gif" alt="BAP navigating a bookstore, clicking Travel category, and viewing book details" width="960" />
+  <br/>
+  <em>Navigate → click → browse: 3 commands, one workflow</em>
+</p>
+
+<p align="center">
   <img src="./assets/demos/skill-scorer.gif" alt="BAP browsing GitHub to find a SKILL.md, then scoring it on skills.menu" width="960" />
   <br/>
   <em>Multi-site workflow: browse GitHub → open skills.menu → paste &amp; score</em>

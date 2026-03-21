@@ -46,11 +46,18 @@ echo "--- Demo 2: Skill Scorer ---"
 node "$SCRIPT_DIR/demo-skill-scorer.mjs"
 echo ""
 
-# Post-process both
+# Record Demo 3: Workflow (books.toscrape.com)
+echo "--- Demo 3: Workflow ---"
+node "$SCRIPT_DIR/demo-workflow.mjs"
+echo ""
+
+# Post-process all
 echo "--- Post-processing ---"
 bash "$SCRIPT_DIR/ffmpeg-post.sh" "$OUTPUT_DIR/blog-reader"
 echo ""
 bash "$SCRIPT_DIR/ffmpeg-post.sh" "$OUTPUT_DIR/skill-scorer"
+echo ""
+bash "$SCRIPT_DIR/ffmpeg-post.sh" "$OUTPUT_DIR/workflow"
 echo ""
 
 # Summary
@@ -62,3 +69,4 @@ echo ""
 echo "To embed in README:"
 echo '  ![Blog Reader Demo](./assets/demos/blog-reader.gif)'
 echo '  ![Skill Scorer Demo](./assets/demos/skill-scorer.gif)'
+echo '  ![Workflow Demo](./assets/demos/workflow.gif)'

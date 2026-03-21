@@ -52,12 +52,13 @@ if [ -f "$EVENTS" ] && command -v jq >/dev/null 2>&1; then
     PY="0"
 
     while IFS=' ' read -r T CX CY; do
-      # Each click: 0.25s zoom-in → 0.7s hold → 0.25s zoom-out
-      TS=$(echo "$T - 0.15" | bc -l)
-      T1=$(echo "$TS + 0.25" | bc -l)
-      T2=$(echo "$T1 + 0.70" | bc -l)
-      TE=$(echo "$T2 + 0.25" | bc -l)
-      Z="1.35"
+      # Anticipatory zoom: start 0.8s before click, hold through click, zoom out after
+      # 0.3s zoom-in → 0.5s hold (click happens during hold) → 0.3s zoom-out
+      TS=$(echo "$T - 0.80" | bc -l)
+      T1=$(echo "$TS + 0.30" | bc -l)
+      T2=$(echo "$T1 + 0.50" | bc -l)
+      TE=$(echo "$T2 + 0.30" | bc -l)
+      Z="${ZOOM_LEVEL:-1.6}"
 
       ZOOM="if(between(t,$TS,$T1),1+($Z-1)*(t-$TS)/0.25,if(between(t,$T1,$T2),$Z,if(between(t,$T2,$TE),$Z-($Z-1)*(t-$T2)/0.25,$ZOOM)))"
 
@@ -88,20 +89,25 @@ fi
 [ -f "$BASELINE" ] && rm -f "$BASELINE"
 
 # ============================================================================
-# Phase 3: GIF (960px wide, 10fps — keeps file under 10MB for README)
+# Phase 3: GIF (1920px wide for retina clarity, 12fps)
 # ============================================================================
-echo "  Phase 3: GIF export"
+GIF_WIDTH=${GIF_WIDTH:-1120}
+GIF_FPS_IN=${GIF_FPS_IN:-8}
+GIF_FPS_OUT=${GIF_FPS_OUT:-10}
+GIF_QUALITY=${GIF_QUALITY:-80}
+
+echo "  Phase 3: GIF export (${GIF_WIDTH}px, ${GIF_FPS_OUT}fps)"
 
 if command -v gifski >/dev/null 2>&1; then
   FRAMES=$(mktemp -d)
   ffmpeg -y -loglevel error -i "$FINAL" \
-    -vf "fps=10,scale=960:-1:flags=lanczos" \
+    -vf "fps=${GIF_FPS_IN},scale=${GIF_WIDTH}:-1:flags=lanczos" \
     "${FRAMES}/f_%04d.png"
-  gifski --fps 15 --width 960 --quality 85 -o "$GIF" "${FRAMES}"/f_*.png 2>/dev/null
+  gifski --fps "$GIF_FPS_OUT" --width "$GIF_WIDTH" --quality "$GIF_QUALITY" -o "$GIF" "${FRAMES}"/f_*.png 2>/dev/null
   rm -rf "$FRAMES"
 else
   ffmpeg -y -loglevel error -i "$FINAL" \
-    -filter_complex "fps=10,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=192:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle" \
+    -filter_complex "fps=${GIF_FPS_IN},scale=${GIF_WIDTH}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=192:stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle" \
     "$GIF"
 fi
 

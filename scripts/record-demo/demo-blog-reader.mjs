@@ -44,7 +44,7 @@ async function main() {
 
   // 3. Click the BAP blog post
   console.log("  3/5 Opening article");
-  await clickOn('a:has-text("Introducing Browser Agent Protocol")', { hesitate: 250 });
+  await clickOn('a:has-text("Browser Agent Protocol")', { hesitate: 250 });
   await ctx.waitForStable();
   await hold(1500);
 
