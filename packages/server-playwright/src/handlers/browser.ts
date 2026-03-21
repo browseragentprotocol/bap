@@ -13,6 +13,7 @@ import {
 } from "@browseragentprotocol/protocol";
 import { BAPServerError } from "../errors.js";
 import type { HandlerContext, ClientState } from "../types.js";
+import { getStealthScripts, getStealthLaunchArgs } from "../stealth/evasions.js";
 
 export async function handleBrowserLaunch(
   state: ClientState,
@@ -26,7 +27,13 @@ export async function handleBrowserLaunch(
   const browserType = params.browser ?? ctx.options.defaultBrowser;
   const launcher = ctx.getBrowserType(browserType);
 
-  const sanitizedArgs = ctx.sanitizeBrowserArgs(params.args);
+  let sanitizedArgs = ctx.sanitizeBrowserArgs(params.args);
+
+  // Stealth mode: add anti-detection launch args
+  if (params.stealth) {
+    const stealthArgs = getStealthLaunchArgs();
+    sanitizedArgs = [...sanitizedArgs, ...stealthArgs.filter((a) => !sanitizedArgs.includes(a))];
+  }
 
   // SECURITY: Validate downloads path to prevent path traversal attacks
   let validatedDownloadsPath: string | undefined = undefined;
@@ -198,6 +205,16 @@ export async function handleBrowserLaunch(
 
   state.context = defaultContext;
   state.defaultContextId = contextId;
+
+  // Stealth mode: inject evasion scripts into the context
+  // Scripts run before any page JavaScript via addInitScript()
+  if (params.stealth) {
+    const scripts = getStealthScripts();
+    for (const script of scripts) {
+      await defaultContext.addInitScript(script);
+    }
+    ctx.log("Stealth mode enabled", { evasions: scripts.length });
+  }
 
   state.contexts.set(contextId, {
     context: defaultContext,

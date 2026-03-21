@@ -248,6 +248,8 @@ ${pc.dim("Run")} bap --help ${pc.dim("for all commands")}
     timeout: flags.timeout,
     sessionId,
     profile: flags.profile,
+    stealth: flags.stealth,
+    connect: flags.connect,
   });
 
   process.once("SIGINT", handleSigint);

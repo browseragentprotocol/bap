@@ -27,6 +27,8 @@ export interface ServerManagerOptions {
   timeout?: number;
   sessionId?: string;
   profile?: string;
+  stealth?: boolean;
+  connect?: boolean;
 }
 
 // =============================================================================
@@ -216,8 +218,10 @@ export function resolveProfile(profile: string, browser: string): string | undef
 // =============================================================================
 
 export class ServerManager {
-  private options: Required<Omit<ServerManagerOptions, "sessionId" | "profile">> &
-    Pick<ServerManagerOptions, "sessionId" | "profile">;
+  private options: Required<
+    Omit<ServerManagerOptions, "sessionId" | "profile" | "stealth" | "connect">
+  > &
+    Pick<ServerManagerOptions, "sessionId" | "profile" | "stealth" | "connect">;
   private client: BAPClient | null = null;
 
   constructor(options: ServerManagerOptions) {
@@ -346,6 +350,8 @@ export class ServerManager {
       channel,
       headless: this.options.headless,
       ...(userDataDir ? { userDataDir } : {}),
+      ...(this.options.stealth ? { stealth: true } : {}),
+      ...(this.options.connect ? { connect: true } : {}),
     });
 
     await client.createPage();

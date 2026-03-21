@@ -51,6 +51,10 @@ export const BrowserLaunchParamsSchema = z.object({
   userDataDir: z.string().optional(),
   /** CDP endpoint URL for attaching to a running browser (e.g., ws://localhost:9222) */
   cdpUrl: z.string().optional(),
+  /** Enable stealth mode to reduce bot detection fingerprint */
+  stealth: z.boolean().optional(),
+  /** Auto-discover and connect to a running Chrome instance */
+  connect: z.boolean().optional(),
 });
 export type BrowserLaunchParams = z.infer<typeof BrowserLaunchParamsSchema>;
 

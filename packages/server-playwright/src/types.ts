@@ -211,6 +211,8 @@ export interface HandlerContext {
   clearConnectionScopedState: (state: ClientState, errorMessage: string) => void;
   clearSessionTimeouts: (state: ClientState) => void;
   cleanupClient: (state: ClientState) => Promise<void>;
+  // CDP direct access (Chromium only, returns null for Firefox/WebKit)
+  getCDPSession: (page: PlaywrightPage) => import("playwright").CDPSession | null;
   // Handler dispatch (needed by agent/act for step retry, page/navigate fusion)
   dispatch: (
     ws: import("ws").WebSocket | null,

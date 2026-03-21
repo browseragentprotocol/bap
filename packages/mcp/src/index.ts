@@ -153,6 +153,10 @@ export interface BAPMCPServerOptions {
   slim?: boolean;
   /** In-process mode: run Playwright server in same process, bypass WebSocket */
   inProcess?: boolean;
+  /** Stealth mode: reduce bot detection fingerprint */
+  stealth?: boolean;
+  /** Auto-connect to running Chrome instance */
+  connect?: boolean;
 }
 
 interface ToolResult {
@@ -890,6 +894,8 @@ export class BAPMCPServer {
       maxSessionDuration: options.maxSessionDuration ?? 3600,
       slim: options.slim ?? false,
       inProcess: options.inProcess ?? false,
+      stealth: options.stealth ?? false,
+      connect: options.connect ?? false,
     };
 
     this.server = new Server(
@@ -1004,12 +1010,18 @@ export class BAPMCPServer {
         browser: resolved.browser,
         channel: resolved.channel,
         headless,
+        stealth: this.options.stealth || undefined,
+        connect: this.options.connect || undefined,
       });
     } catch (err) {
       // If a channel was specified (e.g. local Chrome) and it's not found, fall back to bundled Chromium
       if (resolved.channel && String(err).includes("Looks like")) {
         this.log(`Local ${this.options.browser} not found, falling back to bundled Chromium`);
-        await this.client.launch({ browser: "chromium", headless });
+        await this.client.launch({
+          browser: "chromium",
+          headless,
+          stealth: this.options.stealth || undefined,
+        });
       } else {
         // Clean up on launch failure to avoid leaking the transport
         await this.resetClient();

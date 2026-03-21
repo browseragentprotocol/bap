@@ -52,6 +52,9 @@ export interface GlobalFlags {
   passField?: string;
   // output format
   format?: "pretty" | "json" | "agent";
+  // stealth/connect flags
+  stealth?: boolean;
+  connect?: boolean;
 }
 
 export interface BAPConfig {
@@ -252,6 +255,10 @@ export function parseArgs(argv: string[]): GlobalFlags {
       flags.userField = arg.slice(13);
     } else if (arg.startsWith("--pass-field=")) {
       flags.passField = arg.slice(13);
+    } else if (arg === "--stealth") {
+      flags.stealth = true;
+    } else if (arg === "--connect") {
+      flags.connect = true;
     }
     // positional args
     else {

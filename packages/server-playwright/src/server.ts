@@ -95,6 +95,9 @@ import { TraceRecorder } from "./recording/trace-recorder.js";
 // Cache
 import { ActionCache } from "./cache/action-cache.js";
 
+// CDP direct access
+import { getCDPSession as _getCDPSession } from "./cdp/session.js";
+
 // Events
 import { sendEvent, setupPageListeners as _setupPageListeners } from "./events/forwarder.js";
 
@@ -259,6 +262,7 @@ export class BAPPlaywrightServer extends EventEmitter {
         convertAccessibilityNode: this.convertAccessibilityNode.bind(this),
         htmlToMarkdown: this.htmlToMarkdown.bind(this),
         actionCache: this.actionCache,
+        getCDPSession: _getCDPSession,
         parkSession: (state) => _parkSession(state, this.getDormantStoreDeps()),
         restoreSession: (dormant, state) =>
           _restoreSession(dormant, state, this.getDormantStoreDeps()),

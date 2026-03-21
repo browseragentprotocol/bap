@@ -38,6 +38,8 @@ interface CLIArgs {
   allowedDomains?: string[];
   slim?: boolean;
   inProcess?: boolean;
+  stealth?: boolean;
+  connect?: boolean;
   help?: boolean;
   version?: boolean;
 }
@@ -73,6 +75,10 @@ function parseArgs(): CLIArgs {
       args.slim = true;
     } else if (arg === "--in-process") {
       args.inProcess = true;
+    } else if (arg === "--stealth") {
+      args.stealth = true;
+    } else if (arg === "--connect") {
+      args.connect = true;
     }
   }
 
@@ -372,6 +378,8 @@ async function main(): Promise<void> {
       allowedDomains: args.allowedDomains,
       slim: args.slim,
       inProcess: isInProcess,
+      stealth: args.stealth,
+      connect: args.connect,
     });
 
     // Graceful shutdown — clean up MCP server and child process

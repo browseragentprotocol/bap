@@ -17,6 +17,7 @@ import type {
   ElementProperty,
 } from "@browseragentprotocol/protocol";
 import type { HandlerContext, ClientState } from "../types.js";
+import { cdpScreenshot } from "../cdp/fast-screenshot.js";
 
 export async function handleObserveScreenshot(
   state: ClientState,
@@ -31,6 +32,25 @@ export async function handleObserveScreenshot(
   const screenshotType =
     options?.format === "jpeg" || options?.format === "png" ? options.format : "jpeg";
 
+  // CDP fast path — bypasses Playwright's rendering pipeline
+  if (!options?.clip) {
+    const cdpBuffer = await cdpScreenshot(page, {
+      format: screenshotType,
+      quality: options?.quality ?? 80,
+      fullPage: options?.fullPage,
+    });
+    if (cdpBuffer) {
+      const viewport = page.viewportSize() ?? { width: 1280, height: 720 };
+      return {
+        data: cdpBuffer.toString("base64"),
+        format: screenshotType,
+        width: viewport.width,
+        height: viewport.height,
+      };
+    }
+  }
+
+  // Playwright fallback (Firefox/WebKit, or clip option which CDP doesn't support well)
   const buffer = await page.screenshot({
     fullPage: options?.fullPage,
     clip: options?.clip,
