@@ -359,8 +359,10 @@ export class BAPPlaywrightServer extends EventEmitter {
   /**
    * Create an in-process client that bypasses WebSocket.
    * Returns a handle with `request()` for sending JSON-RPC requests
-   * and `close()` for cleanup. Notifications are emitted via the
-   * `onNotification` callback.
+   * and `close()` for cleanup.
+   *
+   * Note: Server-push notifications (events) are not supported in
+   * in-process mode. Event streaming requires WebSocket transport.
    */
   createInProcessClient(options?: {
     sessionId?: string;
