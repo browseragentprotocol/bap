@@ -98,7 +98,7 @@ export async function getInteractiveElements(
         }
         const parent = current.parentElement;
         if (parent) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+           
           const siblings = Array.from(parent.children).filter(
             (c: any) => c.tagName === current.tagName
           );
@@ -194,7 +194,7 @@ export async function getInteractiveElements(
 
           let siblingIndex: number | undefined;
           if (parent) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+             
             const siblings = Array.from(parent.children).filter(
               (c: any) => (c.getAttribute("role") || c.tagName.toLowerCase()) === role
             );

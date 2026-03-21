@@ -15,6 +15,25 @@ import type {
 import { createNotification } from "@browseragentprotocol/protocol";
 import type { ClientState, DormantSession, PageOwner } from "../types.js";
 
+// Sensitive headers to redact from network events
+const REDACTED_HEADERS = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "x-api-key",
+  "proxy-authorization",
+  "x-auth-token",
+  "x-csrf-token",
+]);
+
+function redactHeaders(headers: Record<string, string>): Record<string, string> {
+  const safe: Record<string, string> = {};
+  for (const [key, value] of Object.entries(headers)) {
+    safe[key] = REDACTED_HEADERS.has(key.toLowerCase()) ? "[REDACTED]" : value;
+  }
+  return safe;
+}
+
 export interface EventForwarderDeps {
   findConnectedClientForPage: (pageId: string) => { ws: WebSocket; state: ClientState } | null;
   findPageOwner: (pageId: string) => PageOwner | null;
@@ -33,6 +52,24 @@ export function sendEvent(ws: WebSocket, method: string, params: Record<string, 
   ws.send(JSON.stringify(notification));
 }
 
+// Event rate limiter — drop events beyond 100/sec per page to prevent floods
+const eventWindows = new Map<string, { count: number; start: number }>();
+const MAX_EVENTS_PER_SEC = 100;
+
+function isEventAllowed(pageId: string): boolean {
+  const now = Date.now();
+  const window = eventWindows.get(pageId);
+  if (!window || now - window.start >= 1000) {
+    eventWindows.set(pageId, { count: 1, start: now });
+    return true;
+  }
+  if (window.count >= MAX_EVENTS_PER_SEC) {
+    return false;
+  }
+  window.count++;
+  return true;
+}
+
 /**
  * Emit an event to the active owner of a page if it is subscribed.
  */
@@ -43,6 +80,7 @@ function emitOwnedEvent(
   params: Record<string, unknown>,
   deps: EventForwarderDeps
 ): void {
+  if (!isEventAllowed(pageId)) return;
   const owner = deps.findConnectedClientForPage(pageId);
   if (!owner || !owner.state.eventSubscriptions.has(subscription)) {
     return;
@@ -121,8 +159,9 @@ export function setupPageListeners(
         url: request.url(),
         method: request.method(),
         resourceType: request.resourceType(),
-        headers: request.headers(),
-        postData: request.postData(),
+        headers: redactHeaders(request.headers()),
+        // Redact postData — may contain credentials in form bodies
+        postData: request.postData() ? "[REDACTED]" : null,
         timestamp: Date.now(),
       },
       deps
@@ -140,7 +179,7 @@ export function setupPageListeners(
         pageId,
         url: response.url(),
         status: response.status(),
-        headers: response.headers(),
+        headers: redactHeaders(response.headers()),
         timestamp: Date.now(),
       },
       deps
@@ -197,6 +236,9 @@ export function setupPageListeners(
         timestamp: Date.now(),
       });
     }
+
+    // Clean up rate limiter state for this page
+    eventWindows.delete(pageId);
 
     deps.log(`Page ${pageId} closed externally`);
   });

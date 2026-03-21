@@ -1,5 +1,11 @@
 # @browseragentprotocol/logger
 
+## 0.8.0
+
+### Minor Changes
+
+- Action caching with resolved CSS selectors, network header redaction, event rate limiting, CLI help restructuring
+
 ## 0.7.0
 
 ### Minor Changes

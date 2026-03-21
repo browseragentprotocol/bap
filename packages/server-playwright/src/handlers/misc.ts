@@ -3,6 +3,9 @@
  * @module @browseragentprotocol/server-playwright/handlers/misc
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { HandlerContext, ClientState } from "../types.js";
 
 // =============================================================================
@@ -58,13 +61,30 @@ export async function handleTraceStop(
     return {};
   }
 
-  const result = await state.context!.tracing.stop();
-  state.tracing = false;
+  // tracing.stop() requires a path argument to capture trace data
+  const tmpFile = path.join(os.tmpdir(), `bap-trace-${Date.now()}.zip`);
 
-  const buffer = result as Buffer | undefined;
-  return {
-    data: buffer?.toString("base64"),
-  };
+  try {
+    await state.context!.tracing.stop({ path: tmpFile });
+    state.tracing = false;
+
+    const buffer = fs.readFileSync(tmpFile);
+    // Clean up temp file
+    fs.unlinkSync(tmpFile);
+
+    return {
+      data: buffer.toString("base64"),
+    };
+  } catch {
+    state.tracing = false;
+    // Clean up on failure
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch {
+      /* ignore */
+    }
+    return {};
+  }
 }
 
 // =============================================================================

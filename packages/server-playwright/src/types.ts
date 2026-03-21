@@ -203,6 +203,8 @@ export interface HandlerContext {
     node: PlaywrightAccessibilityNode | null | undefined
   ) => AccessibilityNode;
   htmlToMarkdown: (html: string) => string;
+  // Action cache
+  actionCache: import("./cache/action-cache.js").ActionCache;
   // Session management
   parkSession: (state: ClientState) => Promise<void>;
   restoreSession: (dormant: DormantSession, state: ClientState) => boolean;

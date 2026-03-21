@@ -258,6 +258,7 @@ export class BAPPlaywrightServer extends EventEmitter {
         redactSensitiveContent,
         convertAccessibilityNode: this.convertAccessibilityNode.bind(this),
         htmlToMarkdown: this.htmlToMarkdown.bind(this),
+        actionCache: this.actionCache,
         parkSession: (state) => _parkSession(state, this.getDormantStoreDeps()),
         restoreSession: (dormant, state) =>
           _restoreSession(dormant, state, this.getDormantStoreDeps()),

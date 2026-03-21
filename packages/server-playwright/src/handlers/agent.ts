@@ -23,11 +23,13 @@ import {
   createElementRegistry,
   cleanupStaleEntries,
 } from "@browseragentprotocol/protocol";
+import type { BAPSelector } from "@browseragentprotocol/protocol";
 import { BAPServerError } from "../errors.js";
 import type { HandlerContext, ClientState } from "../types.js";
 import { getInteractiveElements } from "../elements/interactive.js";
 import { discoverWebMCPTools } from "./discovery.js";
 import { extractDataFromContent } from "./extract.js";
+import { ActionCache } from "../cache/action-cache.js";
 
 // =============================================================================
 // Agent Act
@@ -200,35 +202,103 @@ async function executeStepWithRetry(
   const maxRetries = step.onError === "retry" ? (step.maxRetries ?? 3) : 1;
   const retryDelay = step.retryDelay ?? 500;
 
+  // Action cache: build key from action + URL + selector
+  let cacheKey: string | undefined;
+  const selector = step.params.selector as BAPSelector | undefined;
+  try {
+    const page = ctx.getPage(state, step.params.pageId as string | undefined);
+    const urlOrigin = new URL(page.url()).origin;
+    const selectorHint = selector ? JSON.stringify(selector) : "";
+    cacheKey = ActionCache.cacheKey(step.action, urlOrigin, selectorHint);
+
+    // Check cache for a previously successful resolution
+    const cached = ctx.actionCache.get(cacheKey);
+    if (cached) {
+      // Use cached CSS selector for faster resolution
+      const cachedParams = {
+        ...step.params,
+        selector: cached.resolvedSelector,
+      };
+      try {
+        const result = await ctx.dispatch(ws, state, step.action, cachedParams);
+        return { result, retries: 0 };
+      } catch {
+        // Cached selector failed — invalidate and fall through to fresh execution
+        ctx.actionCache.delete(cacheKey);
+      }
+    }
+  } catch {
+    // Page may not exist yet — skip cache
+  }
+
   let lastError: Error | null = null;
   let retries = 0;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       // On retry attempts, try self-healing the selector if the step has one
-      const params = step.params;
-      if (attempt > 0 && step.params.selector) {
+      if (attempt > 0 && selector) {
         try {
           const page = ctx.getPage(state, step.params.pageId as string | undefined);
-          const selector = step.params
-            .selector as import("@browseragentprotocol/protocol").BAPSelector;
           const healed = await ctx.resolveSelectorWithHealing(page, selector);
-          // If healing found an alternative, use a CSS locator for it
           const box = await healed.boundingBox();
           if (box) {
-            // Healing succeeded — the healed locator works, proceed with original params
-            // (the healing already validated the selector resolves)
+            // Healing succeeded — the healed locator works
           }
         } catch {
           // Healing failed — proceed with original params anyway
         }
       }
 
-      const result = await ctx.dispatch(ws, state, step.action, params);
+      const result = await ctx.dispatch(ws, state, step.action, step.params);
+
+      // Cache successful resolution (if selector-based action)
+      // Store a CSS selector for fast replay — avoids re-resolving semantic selectors
+      if (cacheKey && selector && selector.type !== "css") {
+        try {
+          const page = ctx.getPage(state, step.params.pageId as string | undefined);
+          const urlOrigin = new URL(page.url()).origin;
+          // Resolve the semantic selector to get a CSS path for caching
+          const locator = ctx.resolveSelector(page, selector);
+          const elementHandle = await locator.first().elementHandle();
+          let cssSelector: string | undefined;
+          if (elementHandle) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            cssSelector = await page.evaluate((el: any) => {
+              // Build a minimal CSS selector from id or unique path
+              const CSSObj = (globalThis as any).CSS;
+              if (el.id) return `#${CSSObj?.escape ? CSSObj.escape(el.id) : el.id}`;
+              if (el.dataset?.testid) {
+                const escaped = CSSObj?.escape
+                  ? CSSObj.escape(el.dataset.testid)
+                  : el.dataset.testid;
+                return `[data-testid="${escaped}"]`;
+              }
+              return undefined;
+            }, elementHandle);
+          }
+          if (cssSelector) {
+            ctx.actionCache.set(cacheKey, {
+              action: step.action,
+              resolvedSelector: { type: "css", value: cssSelector },
+              urlPattern: urlOrigin,
+              domFingerprint: "",
+            });
+          }
+        } catch {
+          // Non-fatal — cache is best-effort
+        }
+      }
+
       return { result, retries };
     } catch (error) {
       lastError = error as Error;
       retries = attempt + 1;
+
+      // Invalidate cache on failure
+      if (cacheKey) {
+        ctx.actionCache.delete(cacheKey);
+      }
 
       if (attempt < maxRetries - 1 && step.onError === "retry") {
         await new Promise((resolve) => setTimeout(resolve, retryDelay * Math.pow(2, attempt)));

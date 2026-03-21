@@ -27,9 +27,14 @@ function printHelp(): void {
   console.log(`
 ${pc.bold("BAP CLI")} ${pc.dim("- CLI-first browser automation for coding agents")}
 
-${pc.cyan("BASIC COMMANDS")} ${pc.dim("(playwright-cli compatible)")}
-  bap open [url]                    Open browser (optionally navigate)
+${pc.yellow("ESSENTIALS")} ${pc.dim("(start here)")}
   bap goto <url>                    Navigate to URL
+  bap observe                       See interactive elements with refs
+  bap act <step1> <step2> ...       Multi-step actions in one call
+  bap extract --fields="a,b"        Extract structured data
+  bap screenshot                    Take screenshot
+
+${pc.cyan("ACTIONS")}
   bap click <ref|selector>          Click element
   bap fill <ref|selector> <value>   Fill input field
   bap type <text>                   Type text into focused element
@@ -39,17 +44,17 @@ ${pc.cyan("BASIC COMMANDS")} ${pc.dim("(playwright-cli compatible)")}
   bap uncheck <ref|selector>        Uncheck checkbox
   bap hover <ref|selector>          Hover over element
   bap scroll [dir] [--pixels=N]    Scroll page (up/down/left/right)
-  bap screenshot [--file=F]         Take screenshot
-  bap snapshot [--file=F]           Save accessibility snapshot (YAML)
-  bap close                         Close browser
-  bap close-all                     Close all sessions and server
+  bap snapshot                      Accessibility tree snapshot
 
 ${pc.cyan("NAVIGATION")}
+  bap open [url]                    Open browser (optionally navigate)
   bap back                          Go back
   bap forward                       Go forward
   bap reload                        Reload page
+  bap close                         Close browser
+  bap close-all                     Close all sessions and server
 
-${pc.cyan("COMPOSITE ACTIONS")} ${pc.dim("(the killer feature)")}
+${pc.cyan("COMPOSITE ACTIONS")}
   bap act <step1> <step2> ...       Execute multiple steps atomically
 
   ${pc.dim("Steps: action:selector=value or action:selector")}
@@ -122,7 +127,7 @@ ${pc.dim("Docs:")} ${pc.cyan("https://github.com/browseragentprotocol/bap")}
 }
 
 function printVersion(): void {
-  console.log("bap-cli 0.6.0");
+  console.log("bap-cli 0.8.0");
 }
 
 // =============================================================================
@@ -180,8 +185,24 @@ async function main(): Promise<void> {
   const handleSigint = cleanupAndExit(130);
   const handleSigterm = cleanupAndExit(143);
 
-  if (flags.help || (!flags.command && process.argv.length <= 2)) {
+  if (flags.help) {
     printHelp();
+    process.exit(0);
+  }
+
+  if (!flags.command && process.argv.length <= 2) {
+    console.log(`
+${pc.bold("BAP")} ${pc.dim("— Browser Agent Protocol")}
+
+${pc.cyan("Quick start:")}
+  ${pc.green("bap goto")} https://example.com    Navigate to a page
+  ${pc.green("bap observe")}                      See interactive elements
+  ${pc.green("bap click")} e5                      Click an element by ref
+  ${pc.green("bap act")} fill:e5="hi" click:e12   Multi-step actions
+  ${pc.green("bap trace")}                        View session history
+
+${pc.dim("Run")} bap --help ${pc.dim("for all commands")}
+`);
     process.exit(0);
   }
 
