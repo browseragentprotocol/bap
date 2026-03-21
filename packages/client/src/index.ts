@@ -169,10 +169,7 @@ export class WebSocketTransport implements BAPTransport {
   /** Called when reconnection succeeds */
   onReconnected: (() => void) | null = null;
 
-  constructor(
-    url: string,
-    options: WebSocketTransportOptions = {}
-  ) {
+  constructor(url: string, options: WebSocketTransportOptions = {}) {
     this.baseUrl = url;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
     this.reconnectDelay = options.reconnectDelay ?? 1000;
@@ -808,11 +805,7 @@ export class BAPClient extends EventEmitter {
   /**
    * Upload files to a file input
    */
-  async upload(
-    selector: BAPSelector,
-    files: FileUpload[],
-    options?: ActionOptions
-  ): Promise<void> {
+  async upload(selector: BAPSelector, files: FileUpload[], options?: ActionOptions): Promise<void> {
     await this.request("action/upload", {
       pageId: this.activePage,
       selector,
@@ -1285,7 +1278,9 @@ export class BAPClient extends EventEmitter {
    * await client.switchFrame({ url: "checkout.stripe.com" });
    * ```
    */
-  async switchFrame(params: Omit<FrameSwitchParams, "pageId"> & { pageId?: string }): Promise<FrameSwitchResult> {
+  async switchFrame(
+    params: Omit<FrameSwitchParams, "pageId"> & { pageId?: string }
+  ): Promise<FrameSwitchResult> {
     return this.request<FrameSwitchResult>("frame/switch", {
       pageId: params.pageId ?? this.activePage,
       frameId: params.frameId,
@@ -1444,6 +1439,14 @@ export class BAPClient extends EventEmitter {
   /**
    * Send a request and wait for response
    */
+  /**
+   * Send a raw JSON-RPC request to the BAP server.
+   * Use this for methods not covered by dedicated client methods (e.g., perf/*).
+   */
+  async command<T = unknown>(method: string, params: object = {}): Promise<T> {
+    return this.request<T>(method, params);
+  }
+
   private async request<T>(method: BAPMethod | string, params: object): Promise<T> {
     const id = ++this.requestId;
 

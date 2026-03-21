@@ -811,6 +811,50 @@ Returns an empty array on pages without WebMCP support.`,
       },
     },
   },
+  // Performance profiling tools (Chromium only)
+  {
+    name: "perf_metrics",
+    description: `Get browser performance metrics and Web Vitals (FCP, LCP, TBT, CLS, DOM nodes, JS heap).
+Chromium only — returns error for Firefox/WebKit.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "perf_trace_start",
+    description: `Start recording a Chrome performance trace. Call perf_trace_stop to get the trace data.
+Useful for analyzing rendering performance, JavaScript execution, and layout shifts.
+Chromium only.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        categories: {
+          type: "string",
+          description: "Trace categories (default: devtools.timeline,v8.execute)",
+        },
+      },
+    },
+  },
+  {
+    name: "perf_trace_stop",
+    description: `Stop recording and return the Chrome performance trace as base64-encoded JSON.
+Must call perf_trace_start first.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "perf_coverage",
+    description: `Analyze JS and CSS code coverage — shows how much code is actually used on the current page.
+Returns per-file usage percentages and a summary. Useful for identifying unused code.
+Chromium only.`,
+    inputSchema: {
+      type: "object",
+      properties: {},
+    },
+  },
 ];
 
 // =============================================================================
@@ -1732,6 +1776,29 @@ export class BAPMCPServer {
             },
           ],
         };
+      }
+
+      // Performance profiling tools
+      case "perf_metrics": {
+        const result = await client.command("perf/metrics");
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+      }
+
+      case "perf_trace_start": {
+        const result = await client.command("perf/trace/start", {
+          categories: args.categories as string | undefined,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+
+      case "perf_trace_stop": {
+        const result = await client.command("perf/trace/stop");
+        return { content: [{ type: "text", text: JSON.stringify(result) }] };
+      }
+
+      case "perf_coverage": {
+        const result = await client.command("perf/coverage");
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
       default:

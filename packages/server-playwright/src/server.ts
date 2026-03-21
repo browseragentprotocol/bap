@@ -158,6 +158,12 @@ import {
   handleEventsSubscribe,
 } from "./handlers/misc.js";
 import {
+  handlePerfMetrics,
+  handlePerfTraceStart,
+  handlePerfTraceStop,
+  handlePerfCoverage,
+} from "./handlers/perf.js";
+import {
   handleContextCreate,
   handleContextList,
   handleContextDestroy,
@@ -852,6 +858,16 @@ export class BAPPlaywrightServer extends EventEmitter {
         return handleTraceStart(state, params, ctx);
       case "trace/stop":
         return handleTraceStop(state, ctx);
+
+      // Performance profiling (CDP direct)
+      case "perf/metrics":
+        return handlePerfMetrics(state, params, ctx);
+      case "perf/trace/start":
+        return handlePerfTraceStart(state, params, ctx);
+      case "perf/trace/stop":
+        return handlePerfTraceStop(state, params, ctx);
+      case "perf/coverage":
+        return handlePerfCoverage(state, params, ctx);
 
       // Events
       case "events/subscribe":
