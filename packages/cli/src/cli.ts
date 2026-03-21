@@ -105,6 +105,11 @@ ${pc.cyan("TRACING")}
   bap trace --export=<file>         Export trace as JSON
   bap trace --limit=<N>             Show last N entries (default: 10)
 
+${pc.cyan("DEBUGGING")}
+  bap watch                         Stream live browser events
+  bap watch --filter=console        Filter by event type
+  bap demo                          Guided walkthrough for first-time users
+
 ${pc.cyan("CONFIGURATION")}
   bap config [key] [value]          View/set configuration
   bap install-skill                 Install skill to all detected agents
@@ -147,6 +152,7 @@ const CLIENT_ONLY_COMMANDS = new Set([
   "close-all", // tears down everything — don't auto-create
   "sessions", // informational — just lists contexts
   "tabs", // informational — just lists pages
+  "watch", // long-running event stream — don't auto-create browser
 ]);
 
 // =============================================================================
@@ -201,6 +207,7 @@ ${pc.cyan("Quick start:")}
   ${pc.green("bap act")} fill:e5="hi" click:e12   Multi-step actions
   ${pc.green("bap trace")}                        View session history
 
+${pc.dim("Run")} bap demo ${pc.dim("for a guided walkthrough")}
 ${pc.dim("Run")} bap --help ${pc.dim("for all commands")}
 `);
     process.exit(0);

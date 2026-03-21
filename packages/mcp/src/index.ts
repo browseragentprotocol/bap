@@ -26,6 +26,7 @@ import {
 import {
   BAPClient,
   WebSocketTransport,
+  type BAPTransport,
   type BAPSelector,
   type WaitUntilState,
   type ContentFormat,
@@ -33,6 +34,7 @@ import {
   type ExecutionStep,
   type ElementProperty,
 } from "@browseragentprotocol/client";
+import { DirectTransport } from "./direct-transport.js";
 import {
   type StepResult,
   type InteractiveElement,
@@ -149,6 +151,8 @@ export interface BAPMCPServerOptions {
   maxSessionDuration?: number;
   /** Slim mode: expose only 5 essential tools (navigate, observe, act, extract, screenshot) */
   slim?: boolean;
+  /** In-process mode: run Playwright server in same process, bypass WebSocket */
+  inProcess?: boolean;
 }
 
 interface ToolResult {
@@ -870,7 +874,8 @@ function resolveBrowser(browser: BrowserChoice): {
 export class BAPMCPServer {
   private server: Server;
   private client: BAPClient | null = null;
-  private transport: WebSocketTransport | null = null;
+  private transport: WebSocketTransport | BAPTransport | null = null;
+  private inProcessServer: unknown = null; // BAPPlaywrightServer, dynamically imported
   private options: Required<BAPMCPServerOptions>;
 
   constructor(options: BAPMCPServerOptions = {}) {
@@ -884,6 +889,7 @@ export class BAPMCPServer {
       allowedDomains: options.allowedDomains ?? [],
       maxSessionDuration: options.maxSessionDuration ?? 3600,
       slim: options.slim ?? false,
+      inProcess: options.inProcess ?? false,
     };
 
     this.server = new Server(
@@ -952,26 +958,40 @@ export class BAPMCPServer {
       }
     }
 
-    this.log("Connecting to BAP server:", this.options.bapServerUrl);
+    if (this.options.inProcess) {
+      this.log("Starting in-process BAP server...");
+      // Dynamic import to avoid hard dependency on server-playwright
+      const { BAPPlaywrightServer } = await import("@browseragentprotocol/server-playwright");
+      const server = new BAPPlaywrightServer({
+        debug: this.options.verbose,
+      });
+      this.inProcessServer = server;
+      const handle = server.createInProcessClient();
+      this.transport = new DirectTransport(handle.request, handle.close);
+      this.client = new BAPClient(this.transport);
+    } else {
+      this.log("Connecting to BAP server:", this.options.bapServerUrl);
 
-    this.transport = new WebSocketTransport(this.options.bapServerUrl, {
-      autoReconnect: true,
-      maxReconnectAttempts: 5,
-      reconnectDelay: 1000,
-    });
+      const wsTransport = new WebSocketTransport(this.options.bapServerUrl, {
+        autoReconnect: true,
+        maxReconnectAttempts: 5,
+        reconnectDelay: 1000,
+      });
 
-    // Hook reconnect callbacks for verbose logging
-    this.transport.onReconnecting = (attempt, max) => {
-      this.log(`Reconnecting to BAP server (attempt ${attempt}/${max})...`);
-    };
-    this.transport.onReconnected = () => {
-      this.log("Reconnected to BAP server");
-    };
-    this.transport.onClose = () => {
-      this.log("BAP server connection closed");
-    };
+      // Hook reconnect callbacks for verbose logging
+      wsTransport.onReconnecting = (attempt, max) => {
+        this.log(`Reconnecting to BAP server (attempt ${attempt}/${max})...`);
+      };
+      wsTransport.onReconnected = () => {
+        this.log("Reconnected to BAP server");
+      };
+      wsTransport.onClose = () => {
+        this.log("BAP server connection closed");
+      };
 
-    this.client = new BAPClient(this.transport);
+      this.transport = wsTransport;
+      this.client = new BAPClient(this.transport);
+    }
 
     // Connect and initialize the protocol
     await this.client.connect();
@@ -1021,6 +1041,15 @@ export class BAPMCPServer {
       }
     } catch {
       /* ignore cleanup errors */
+    }
+    // Stop in-process server to avoid leaking browser processes on reconnect
+    if (this.inProcessServer) {
+      try {
+        await (this.inProcessServer as { stop: () => Promise<void> }).stop();
+      } catch {
+        /* ignore cleanup errors */
+      }
+      this.inProcessServer = null;
     }
     this.client = null;
     this.transport = null;
@@ -1798,6 +1827,15 @@ export class BAPMCPServer {
    */
   async close(): Promise<void> {
     await this.resetClient();
+    // Stop in-process Playwright server if running
+    if (this.inProcessServer) {
+      try {
+        await (this.inProcessServer as { stop: () => Promise<void> }).stop();
+      } catch {
+        /* best effort */
+      }
+      this.inProcessServer = null;
+    }
     await this.server.close();
     this.log("BAP MCP Server closed");
   }

@@ -1,0 +1,26 @@
+{
+  "goal": "Build remaining v1.0.0 features: single-process MCP (--in-process), first-run guided demo, bap watch terminal live view",
+  "tier": "standard",
+  "baseBranch": "main",
+  "workBranch": "feat/v1.0-polish",
+  "phase": 2,
+  "phases": {
+    "0": {
+      "status": "complete",
+      "tier": "standard",
+      "rationale": "3 independent features across cli and mcp packages, ~10 files, ~550 LOC"
+    },
+    "1": { "status": "complete", "designDoc": null },
+    "2": {
+      "status": "complete",
+      "planDoc": null,
+      "tasks": [
+        "Create DirectTransport for in-process MCP",
+        "Wire --in-process flag in MCP CLI and server",
+        "Create bap demo command",
+        "Create bap watch command",
+        "Update CLI help text and docs for new commands"
+      ]
+    }
+  }
+}
