@@ -132,7 +132,7 @@ ${pc.dim("Docs:")} ${pc.cyan("https://github.com/browseragentprotocol/bap")}
 }
 
 function printVersion(): void {
-  console.log("bap-cli 0.8.0");
+  console.log("bap-cli 0.9.0");
 }
 
 // =============================================================================

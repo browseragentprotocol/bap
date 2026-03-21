@@ -1,5 +1,13 @@
 # @browseragentprotocol/protocol
 
+## 0.9.0
+
+### Minor Changes
+
+- Single-process MCP (`--in-process`): DirectTransport bypasses WebSocket for zero-overhead MCP integration
+- `bap demo`: guided walkthrough for first-time users
+- `bap watch`: live browser event streaming to terminal with color, `--filter`, `--format=json`
+
 ## 0.8.0
 
 ### Minor Changes

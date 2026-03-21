@@ -54,7 +54,7 @@ CLI usage:
     ```
 """
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 # Main client classes
 from browseragentprotocol.client import BAPClient

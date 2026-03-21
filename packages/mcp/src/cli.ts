@@ -329,7 +329,7 @@ async function main(): Promise<void> {
   }
 
   if (args.version) {
-    console.error(`${icons.connection} BAP MCP Server ${pc.dim("v0.8.0")}`);
+    console.error(`${icons.connection} BAP MCP Server ${pc.dim("v0.9.0")}`);
     process.exit(0);
   }
 
