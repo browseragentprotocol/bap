@@ -108,6 +108,12 @@ ${pc.cyan("TRACING")}
 ${pc.cyan("AGENT PLANNING")}
   bap plan "<goal>"                 Observe page + suggest actions for a goal
 
+${pc.cyan("WORKFLOWS")}
+  bap workflow record <name>        Start recording a workflow
+  bap workflow stop                 Stop and save as YAML
+  bap workflow run <name>           Replay a saved workflow
+  bap workflow list                 List saved workflows
+
 ${pc.cyan("DEBUGGING")}
   bap watch                         Stream live browser events
   bap watch --filter=console        Filter by event type
@@ -265,6 +271,18 @@ ${pc.dim("Run")} bap --help ${pc.dim("for all commands")}
       ? await serverManager.ensureClient()
       : await serverManager.ensureReady();
     await handler(flags.args, flags, client);
+
+    // Record step if workflow recording is active
+    if (flags.command !== "workflow") {
+      try {
+        const { isRecording, appendStep } = await import("./workflow/recorder.js");
+        if (isRecording()) {
+          appendStep(flags.command, flags.args);
+        }
+      } catch {
+        // Recording module not available or failed — non-fatal
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`Error: ${message}`);

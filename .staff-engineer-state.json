@@ -1,31 +1,14 @@
 {
-  "goal": "Build 5 features for BAP v1.0: CDP fast-path, connect to running Chrome, autonomous agent mode, performance profiling, stealth mode (100% detection coverage)",
-  "tier": "complex",
-  "baseBranch": "main",
+  "goal": "Build bap workflow command: record, run, list deterministic browser workflows with parameters and assertions",
+  "tier": "standard",
+  "baseBranch": "feat/v1.0-advanced",
   "workBranch": "feat/v1.0-advanced",
-  "phase": 2,
+  "phase": 0,
   "phases": {
     "0": {
       "status": "complete",
-      "tier": "complex",
-      "rationale": "5 cross-cutting features spanning protocol, server, MCP, CLI with new CDP integration, autonomous agent mode, and security-sensitive stealth evasions"
-    },
-    "1": { "status": "complete", "designDoc": null },
-    "2": {
-      "status": "complete",
-      "planDoc": "docs/plans/2026-03-21-v1.0-advanced-plan.md",
-      "tasks": [
-        "CDP Session Manager",
-        "CDP Fast-Path Screenshot",
-        "Stealth Evasion Scripts",
-        "Wire Stealth into Browser Launch",
-        "Connect to Running Chrome (Auto-Discovery)",
-        "Performance Profiling Handler",
-        "Wire Perf Tools into MCP",
-        "Autonomous Agent Mode (agent/plan)",
-        "Wire Agent Plan into MCP + CLI",
-        "Update Docs and Help Text"
-      ]
+      "tier": "standard",
+      "rationale": "Single feature area (workflow engine) with record/run/list sub-commands, contained in CLI package"
     }
   }
 }
