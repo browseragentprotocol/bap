@@ -163,6 +163,7 @@ import {
   handlePerfTraceStop,
   handlePerfCoverage,
 } from "./handlers/perf.js";
+import { handleAgentPlan, type AgentPlanParams } from "./handlers/autonomy.js";
 import {
   handleContextCreate,
   handleContextList,
@@ -908,6 +909,9 @@ export class BAPPlaywrightServer extends EventEmitter {
         return handleAgentObserve(state, params as unknown as AgentObserveParams, ctx);
       case "agent/extract":
         return handleAgentExtract(state, params as unknown as AgentExtractParams, ctx);
+
+      case "agent/plan":
+        return handleAgentPlan(state, params as unknown as AgentPlanParams, ctx);
 
       default:
         throw new BAPServerError(ErrorCodes.MethodNotFound, `Unknown method: ${method}`);

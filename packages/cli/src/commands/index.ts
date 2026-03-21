@@ -34,3 +34,4 @@ import "./install-skill.js";
 import "./trace.js";
 import "./demo.js";
 import "./watch.js";
+import "./plan.js";

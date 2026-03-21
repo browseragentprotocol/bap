@@ -811,6 +811,33 @@ Returns an empty array on pages without WebMCP support.`,
       },
     },
   },
+  // Autonomous agent planning
+  {
+    name: "plan",
+    description: `Observe the current page and suggest next actions based on a goal.
+Returns interactive elements and ranked action suggestions (fill, click, select).
+The AI agent decides which suggestions to execute — BAP does not make decisions.
+Use this to get structured guidance when you're unsure what to do next on a page.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        goal: {
+          type: "string",
+          description:
+            "What you want to accomplish on this page (e.g., 'login', 'search for products', 'fill the checkout form')",
+        },
+        maxSuggestions: {
+          type: "number",
+          description: "Maximum number of action suggestions (default: 10)",
+        },
+        includeScreenshot: {
+          type: "boolean",
+          description: "Include a screenshot of the current page (default: false)",
+        },
+      },
+      required: ["goal"],
+    },
+  },
   // Performance profiling tools (Chromium only)
   {
     name: "perf_metrics",
@@ -1776,6 +1803,16 @@ export class BAPMCPServer {
             },
           ],
         };
+      }
+
+      // Agent planning
+      case "plan": {
+        const result = await client.command("agent/plan", {
+          goal: args.goal as string,
+          maxSuggestions: args.maxSuggestions as number | undefined,
+          includeScreenshot: args.includeScreenshot as boolean | undefined,
+        });
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
       }
 
       // Performance profiling tools

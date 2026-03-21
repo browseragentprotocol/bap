@@ -105,6 +105,9 @@ ${pc.cyan("TRACING")}
   bap trace --export=<file>         Export trace as JSON
   bap trace --limit=<N>             Show last N entries (default: 10)
 
+${pc.cyan("AGENT PLANNING")}
+  bap plan "<goal>"                 Observe page + suggest actions for a goal
+
 ${pc.cyan("DEBUGGING")}
   bap watch                         Stream live browser events
   bap watch --filter=console        Filter by event type
@@ -122,6 +125,8 @@ ${pc.cyan("GLOBAL OPTIONS")}
   --headless / --no-headless        Browser visibility (default: visible)
   --profile <path>                  Chrome profile dir (default: auto-detect)
   --no-profile                      Fresh browser, no user profile
+  --stealth                          Reduce bot detection fingerprint
+  --connect                          Auto-attach to running Chrome
   --format <mode>                    Output: pretty (TTY), json (pipe), agent (default)
   -v, --verbose                     Verbose output
   -h, --help                        Show this help
