@@ -111,6 +111,9 @@ importers:
       '@browseragentprotocol/protocol':
         specifier: workspace:*
         version: link:../protocol
+      '@browseragentprotocol/server-playwright':
+        specifier: workspace:*
+        version: link:../server-playwright
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1
         version: 1.27.1(zod@3.25.76)
