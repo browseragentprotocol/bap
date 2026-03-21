@@ -156,6 +156,22 @@ bap recipe fill-form <url> --data=data.json
 bap recipe wait-for <selector> [--timeout=ms]
 ```
 
+### Debugging
+
+```bash
+bap watch                   # Live-tail browser events (console errors, network failures)
+bap trace                   # View recent session traces
+bap trace --sessions        # List recorded sessions
+bap trace --replay          # Generate self-contained HTML timeline
+bap trace --export          # Export traces as JSON
+```
+
+### Getting Started
+
+```bash
+bap demo                    # Guided walkthrough of BAP features
+```
+
 ### Configuration
 
 ```bash

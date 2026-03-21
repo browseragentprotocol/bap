@@ -15,11 +15,13 @@ This auto-starts a BAP Playwright server and exposes browser tools over MCP stdi
 ### Add to an MCP client
 
 **Claude Code:**
+
 ```bash
 claude mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
 ```
 
 **Claude Desktop** — add to `claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
@@ -32,11 +34,13 @@ claude mcp add --transport stdio bap-browser -- npx -y @browseragentprotocol/mcp
 ```
 
 **Codex CLI:**
+
 ```bash
 codex mcp add bap-browser -- npx -y @browseragentprotocol/mcp
 ```
 
 **Codex Desktop** — add to `~/.codex/config.toml`:
+
 ```toml
 [mcp_servers.bap-browser]
 command = "npx"
@@ -71,54 +75,58 @@ npx @browseragentprotocol/mcp --url ws://localhost:9222
 3. BAP server controls the browser via Playwright
 4. Results flow back to the agent
 
+## Event Streaming
+
+Browser console errors and 4xx/5xx network responses are automatically forwarded to connected MCP clients as `notifications/message` log entries. No configuration needed.
+
 ## Available Tools
 
 ### Navigation
 
-| Tool | Description |
-|------|-------------|
-| `navigate` | Navigate to a URL. Supports fused `observe` parameter to get page observation in one roundtrip |
-| `go_back` | Navigate back in browser history |
-| `go_forward` | Navigate forward in browser history |
-| `reload` | Reload the current page |
+| Tool         | Description                                                                                    |
+| ------------ | ---------------------------------------------------------------------------------------------- |
+| `navigate`   | Navigate to a URL. Supports fused `observe` parameter to get page observation in one roundtrip |
+| `go_back`    | Navigate back in browser history                                                               |
+| `go_forward` | Navigate forward in browser history                                                            |
+| `reload`     | Reload the current page                                                                        |
 
 ### Element Interaction
 
-| Tool | Description |
-|------|-------------|
-| `click` | Click an element using semantic selectors |
-| `type` | Type text character by character (first clicks element) |
-| `fill` | Fill a form field (clears existing content first) |
-| `press` | Press keyboard keys (Enter, Tab, shortcuts) |
-| `select` | Select an option from a dropdown |
-| `scroll` | Scroll the page or a specific element |
-| `hover` | Hover over an element |
+| Tool     | Description                                             |
+| -------- | ------------------------------------------------------- |
+| `click`  | Click an element using semantic selectors               |
+| `type`   | Type text character by character (first clicks element) |
+| `fill`   | Fill a form field (clears existing content first)       |
+| `press`  | Press keyboard keys (Enter, Tab, shortcuts)             |
+| `select` | Select an option from a dropdown                        |
+| `scroll` | Scroll the page or a specific element                   |
+| `hover`  | Hover over an element                                   |
 
 ### Observation
 
-| Tool | Description |
-|------|-------------|
-| `screenshot` | Take a screenshot of the page |
-| `accessibility` | Get the full accessibility tree |
+| Tool            | Description                                                     |
+| --------------- | --------------------------------------------------------------- |
+| `screenshot`    | Take a screenshot of the page                                   |
+| `accessibility` | Get the full accessibility tree                                 |
 | `aria_snapshot` | Token-efficient YAML accessibility snapshot (~80% fewer tokens) |
-| `content` | Get page text content as text or markdown |
-| `element` | Query element properties (exists, visible, enabled) |
+| `content`       | Get page text content as text or markdown                       |
+| `element`       | Query element properties (exists, visible, enabled)             |
 
 ### Page Management
 
-| Tool | Description |
-|------|-------------|
-| `pages` | List all open pages/tabs |
+| Tool            | Description                    |
+| --------------- | ------------------------------ |
+| `pages`         | List all open pages/tabs       |
 | `activate_page` | Switch to a different page/tab |
-| `close_page` | Close the current page/tab |
+| `close_page`    | Close the current page/tab     |
 
 ### AI Agent Methods
 
-| Tool | Description |
-|------|-------------|
+| Tool      | Description                                                                                                                                               |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `observe` | AI-optimized page observation with interactive elements and stable refs. Supports `incremental` (diff mode) and `responseTier` (full/interactive/minimal) |
-| `act` | Execute a sequence of browser actions in a single call. Supports fused `postObserve` to get observation in one roundtrip |
-| `extract` | Extract structured data from the page using schema and CSS heuristics |
+| `act`     | Execute a sequence of browser actions in a single call. Supports fused `postObserve` to get observation in one roundtrip                                  |
+| `extract` | Extract structured data from the page using schema and CSS heuristics                                                                                     |
 
 ### Selector Formats
 
@@ -144,6 +152,9 @@ Options:
   --headless                  Run browser headless (default: true)
   --no-headless               Visible browser window
   --allowed-domains <list>    Comma-separated list of allowed domains
+  --slim                      Expose only 5 essential tools (navigate, observe, act, extract,
+                              screenshot). Reduces tool definitions from ~4,200 to ~600 tokens
+  --in-process                Run the Playwright server in-process instead of as a child process
   -v, --verbose               Enable verbose logging to stderr
   -h, --help                  Show help
   --version                   Show version

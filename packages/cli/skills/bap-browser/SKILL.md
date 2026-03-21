@@ -1,99 +1,63 @@
 ---
 name: bap-browser
-description: "Browser automation CLI with composite actions and semantic selectors. Use when the user needs to visit websites, fill forms, extract data, take screenshots, or automate multi-step browser workflows like login, checkout, or search."
+description: "Browser automation CLI with composite actions, semantic selectors, and self-healing selectors. Use when the user needs to visit websites, fill forms, extract data, take screenshots, stream browser events, or automate multi-step browser workflows like login, checkout, or search."
 license: Apache-2.0
 ---
 
 # BAP Browser CLI
 
 AI-first browser automation. Like playwright-cli but with composite actions,
-semantic selectors, and structured extraction.
-
-## Command Resolution
-
-Pick the command form based on the environment:
-
-```bash
-# Inside the bap repo (preferred for local development and release testing)
-pnpm exec bap open https://example.com
-
-# If bap is installed globally
-bap open https://example.com
-
-# Only when explicitly testing the published npm package
-npx @browseragentprotocol/cli open https://example.com
-```
-
-Important:
-
-- Inside the repo, prefer `pnpm exec bap` so you use the local workspace build.
-- Avoid `npx @browseragentprotocol/cli` for local development. It pulls the published npm version, which can lag behind the branch being tested.
-- If `bap` is not on `PATH`, do not assume it is globally installed.
-- In the examples below, `bap` is shorthand for the command form you picked above.
+semantic selectors, self-healing selectors, and action caching built in.
 
 ## Quick Start
 
 ```bash
-pnpm exec bap goto https://example.com --observe
-pnpm exec bap click role:button:"Get Started"   # semantic selector
-pnpm exec bap close
+bap demo                                    # Guided walkthrough for first-time users
+bap goto https://example.com --observe      # Navigate + observe in 1 fused call
+bap click role:button:"Get Started"         # Semantic selector
+bap close
 ```
 
-For normal "open this URL and work on the page" tasks, prefer `bap goto`.
-Use `bap open` when you explicitly want browser lifecycle behavior, such as
-opening a blank browser first.
+Inside this repo, use `pnpm exec bap` instead of bare `bap`. Prefer `bap goto` for navigation; use `bap open` only for explicit browser lifecycle control.
 
-## Composite Actions
+## Smart Defaults
 
-Execute multiple browser steps in ONE command instead of one-at-a-time:
+**Session persistence** — Browser pages persist across CLI invocations. Disconnect parks context; reconnect restores it. Named sessions: `bap -s=checkout goto /cart`. Auto-expire after 5 minutes.
+
+**Self-healing selectors** — When a selector fails, BAP tries fallback identity signals (testId, ariaLabel+role, id, name) before erroring. No flags needed.
+
+**Action caching** — Selector resolutions cached to `~/.bap/cache/actions/` (24h TTL). Repeat actions skip re-resolution.
+
+## Usage
+
+**Composite actions** — multiple steps in ONE command:
 
 ```bash
-# Login flow — ONE command instead of 3+ separate calls
 bap act fill:role:textbox:"Email"="user@example.com" \
         fill:role:textbox:"Password"="secret" \
         click:role:button:"Sign in"
 ```
 
-Each step uses the syntax `action:selector=value` or `action:selector`.
+Step syntax: `action:selector=value` or `action:selector`.
 
-## Fused Operations
-
-Fused operations combine multiple server calls into one, cutting roundtrips by 50-85%.
+**Fused operations** — combine server calls into one, cutting roundtrips:
 
 ```bash
-# Navigate + observe in 1 call (instead of bap goto + bap observe)
-bap goto https://example.com --observe
-
-# Act + post-observe in 1 call (get updated page state after actions)
-bap act click:role:button:"Submit" --observe
-
-# Control response size with --tier
-bap goto https://example.com --observe --tier=minimal    # refs + names only
-bap goto https://example.com --observe --tier=interactive # elements + roles (default)
-bap observe --tier=full                                   # everything + metadata
+bap goto https://example.com --observe          # Navigate + observe (1 call, not 2)
+bap act click:role:button:"Submit" --observe    # Act + post-observe (1 call)
+bap observe --diff                               # Incremental: only changes
+bap observe --tier=minimal                       # Minimal response (refs + names only)
 ```
 
-**Always prefer fused calls** — `bap goto <url> --observe` is 1 roundtrip vs 2 for `bap goto` then `bap observe`.
+**Always prefer fused calls.** `--observe` saves a roundtrip. `--diff` avoids re-scanning unchanged elements. `--tier=minimal` reduces response size.
 
-## Common Patterns
+**Common patterns:**
 
 ```bash
-# Accept cookies + navigate
-bap act click:text:"Accept" goto:https://example.com/app
-
-# Fill and submit a search
-bap act fill:role:searchbox:"Search"="query here" press:Enter
-
-# Checkout form
-bap act fill:label:"Card number"="4111111111111111" \
-        fill:label:"Expiry"="12/28" \
-        fill:label:"CVV"="123" \
-        click:role:button:"Pay now"
-
-# Login with fused observe (2 calls total)
-bap goto https://app.example.com/login --observe
-bap act fill:label:"Email"="user@example.com" \
-        fill:label:"Password"="secret" \
+bap act click:text:"Accept" goto:https://example.com/app          # Dismiss + navigate
+bap act fill:role:searchbox:"Search"="query" press:Enter           # Search
+bap goto https://app.example.com/login --observe                   # Login flow (2 calls)
+bap act fill:label:"Email"="u@e.com" fill:label:"Password"="s" \
         click:role:button:"Sign in" --observe
 ```
 
@@ -125,7 +89,7 @@ Do not strip the `@` prefix from stable refs. `bap click ep44e3j` is not the sam
 
 For the full selector reference, see [references/SELECTORS.md](references/SELECTORS.md).
 
-## Commands
+## Commands (26)
 
 ### Navigation
 
@@ -160,6 +124,7 @@ bap observe                      # Compact interactive elements (default max 50)
 bap observe --full               # Full accessibility tree
 bap observe --forms              # Form fields only
 bap observe --max=20             # Limit number of elements returned
+bap observe --diff               # Incremental: only changes since last observe
 bap observe --tier=interactive   # Response tier: full, interactive, minimal
 bap snapshot                     # Full YAML snapshot (playwright-cli compatible)
 bap screenshot [--file=F]        # Save screenshot to .bap/ directory
@@ -183,6 +148,35 @@ bap tab-new [url]           # Open new tab
 bap tab-select <index>      # Switch to tab
 ```
 
+### Live Event Streaming
+
+```bash
+bap watch                             # Stream all browser events (console, network, dialog, download)
+bap watch --filter=console             # Only console messages
+bap watch --filter=network             # Only 4xx/5xx network responses
+bap watch --filter=dialog              # Only dialog events (alert, confirm, prompt)
+bap watch --filter=download            # Only download events
+bap watch --format=json                # Machine-readable NDJSON output
+```
+
+### Tracing
+
+```bash
+bap trace                              # Show traces for current session
+bap trace --sessions                   # List all recorded sessions
+bap trace --all                        # Show all traces across sessions
+bap trace --session=<id>               # Traces for a specific session
+bap trace --replay                     # Generate self-contained HTML timeline viewer
+bap trace --export                     # Export traces as JSON
+bap trace --limit=20                   # Limit number of trace entries shown
+```
+
+### Getting Started
+
+```bash
+bap demo                               # Guided walkthrough for first-time users
+```
+
 ### Recipes
 
 ```bash
@@ -191,50 +185,29 @@ bap recipe fill-form <url> --data=data.json
 bap recipe wait-for <selector> [--timeout=ms]
 ```
 
-## Output Behavior
+## Reference
 
-All outputs saved to `.bap/` directory (never injected into LLM context):
+**Output formats:** Use `--format=pretty` (TTY default, colored), `--format=json` (machine-readable), or `--format=agent` (concise markdown). TTY auto-detects. All file outputs (snapshots, screenshots, extractions) saved to `.bap/` directory — never injected into LLM context.
 
-- Snapshots: `.bap/snapshot-<timestamp>.yml`
-- Screenshots: `.bap/screenshot-<timestamp>.png`
-- Extractions: `.bap/extraction-<timestamp>.json`
+**Error recovery — when things go wrong:**
 
-After each command, BAP prints a concise summary:
+| Problem                      | What to do                                                                     |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| `bap: command not found`     | Use `pnpm exec bap` inside repo. Outside, `npm i -g @browseragentprotocol/cli` |
+| Element not found            | DOM changed. Run `bap observe` to get fresh element refs                       |
+| Stale ref after navigation   | Always re-run `bap observe` or use `--observe` flag after page changes         |
+| Stable ref click fails       | Use exact ref from `bap observe`, including the leading `@` prefix             |
+| Browser launch fails         | Try `--no-profile` for fresh browser without profile conflicts                 |
+| Server not responding        | `bap close-all` to kill daemon, then retry                                     |
+| Navigation timeout           | `bap --timeout=120000 goto <url>` to increase timeout                          |
+| Click intercepted by overlay | Dismiss first: `bap act click:text:"Accept" click:<target>`                    |
+| Wrong tab active             | `bap tabs` to list, `bap tab-select <index>` to switch                         |
 
-```
-### Page
-- URL: https://example.com/dashboard
-- Title: Dashboard
-### Snapshot
-Saved to .bap/snapshot-1739734242.yml
-```
+**Key rules for agents:**
 
-## Error Handling
-
-| Problem                                                 | Fix                                                                                                                                                                     |
-| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bap: command not found`                                | Inside this repo, use `pnpm exec bap`. Outside the repo, either install globally or use `npx @browseragentprotocol/cli` if you intentionally want the published package |
-| Element not found                                       | Run `bap observe` to get fresh refs — the DOM changed after navigation                                                                                                  |
-| Stable ref click does not work                          | Use the exact ref from `bap observe`, including the leading `@`                                                                                                         |
-| Stale element ref                                       | Re-run `bap observe` or `bap snapshot` after navigation or major DOM changes                                                                                            |
-| Browser launch fails                                    | Try `--no-profile` for a fresh browser, or use a dedicated `--profile <dir>` if the default Chrome profile is busy                                                      |
-| Chrome says it is controlled by automated test software | Expected for Playwright-launched Chrome. Use `--no-profile` for clean automation, or attach to a user-started browser in future workflows if that UX matters            |
-| Server not responding                                   | Run `bap close-all` to kill the daemon, then retry your command                                                                                                         |
-| Navigation timeout                                      | Increase the timeout: `bap --timeout=120000 goto <url>`                                                                                                                 |
-| Click intercepted / overlay                             | An overlay may be blocking the element. Try `bap act click:text:"Accept" click:<target>` to dismiss it first                                                            |
-| Wrong tab active                                        | Run `bap tabs` to list open tabs, then `bap tab-select <index>`                                                                                                         |
-
-## When to Use BAP vs playwright-cli
-
-| Scenario                                   | Use                                              |
-| ------------------------------------------ | ------------------------------------------------ |
-| Single click or type action                | Either works — BAP accepts `e15` refs            |
-| Multi-step flow (login, form, checkout)    | **BAP** — `bap act` batches steps in one command |
-| Extract structured data from page          | **BAP** — `bap extract` with schema validation   |
-| Need selectors resilient to layout changes | **BAP** — semantic selectors                     |
-| Quick page snapshot                        | Either works — same YAML format                  |
-
-## Installation
-
-Inside the repo, prefer `pnpm exec bap`.
-Use `npx @browseragentprotocol/cli` only when you explicitly want to test the published npm package.
+1. Always use `--observe` with `goto` and `act` to avoid extra roundtrips
+2. After navigation or DOM changes, re-run `bap observe` before clicking — refs go stale
+3. Prefer semantic selectors (`role:`, `label:`, `text:`) over positional refs — they survive redesigns
+4. Use `bap act` for multi-step flows instead of individual commands — fewer calls, fewer tokens
+5. Use `--diff` for incremental observation after small DOM changes
+6. Check `bap trace` when debugging failures — it records every request with timing

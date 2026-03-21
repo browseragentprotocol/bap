@@ -27,6 +27,8 @@ npm i -g @browseragentprotocol/cli
 bap install-skill
 ```
 
+Or run `bap demo` for a guided walkthrough.
+
 Then give your agent a task:
 
 ```text
@@ -45,6 +47,7 @@ the BAP guidance.
 | **Semantic selectors** | `role:button:"Submit"` and `label:"Email"` instead of brittle CSS                        |
 | **Fewer roundtrips**   | `goto --observe`, `act --observe`, stable refs, and structured extraction                |
 | **Warm daemon**        | Browser stays alive across commands — agents keep momentum                               |
+| **Token efficient**    | `--slim` mode exposes 5 tools (~600 tokens) vs 70+ in competitors (~4,200 tokens)        |
 | **Multiple surfaces**  | CLI, MCP, TypeScript SDK, Python SDK — pick what fits your stack                         |
 
 ## See It in Action
@@ -89,7 +92,7 @@ bap extract --fields="title,content"
 ## Against Other Tools
 
 - **vs Playwright CLI** — BAP is built for agent workflows, not human shell scripting.
-- **vs Playwright MCP** — When shell access is available, BAP CLI solves the same job with fewer roundtrips.
+- **vs Playwright MCP** — When shell access is available, BAP CLI solves the same job with fewer roundtrips. In MCP mode, `--slim` cuts tool definitions to ~600 tokens vs ~4,200 for Playwright MCP's 70+ tools.
 - **vs Chrome DevTools / CDP** — CDP is the low-level transport; BAP is the agent layer on top.
 
 ## Docs

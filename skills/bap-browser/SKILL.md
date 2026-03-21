@@ -8,25 +8,35 @@ license: See LICENSE.txt (Apache-2.0)
 
 You have BAP (Browser Agent Protocol) tools available. BAP wraps a real browser and exposes it through semantic, AI-native APIs. This document defines how to use them well.
 
+## Slim Mode (Recommended)
+
+Start the server with `--slim` to expose only **5 essential tools** instead of 23. This cuts tool definition tokens from ~4,200 to ~600 — a major context savings for AI agents.
+
+**Slim tools:** `navigate`, `observe`, `act`, `extract`, `screenshot`
+
+These 5 tools cover 95%+ of browser tasks. Use slim mode unless you need a specialized tool (e.g., `aria_snapshot`, `discover_tools`, tab management).
+
 ## Quick Start
 
 For most browser tasks, you only need three tools:
 
-1. **`navigate`** — open a URL
+1. **`navigate`** — open a URL (fuse with `observe: {}` to save a round-trip)
 2. **`observe`** — see what's on the page (returns interactive elements with stable refs)
 3. **`act`** — batch multiple interactions into a single call
 
 ```
-navigate({ url: "https://example.com/login" })
-observe({ includeScreenshot: true })
+navigate({ url: "https://example.com/login", observe: { maxElements: 20 } })
 act({
   steps: [
     { action: "action/fill", selector: "@e1", value: "user@example.com" },
     { action: "action/fill", selector: "@e2", value: "password123" },
     { action: "action/click", selector: "role:button:Sign in" }
-  ]
+  ],
+  postObserve: { responseTier: "interactive" }
 })
 ```
+
+Two calls. Login complete. Page state returned.
 
 Read on for the full tool reference, selector guide, and advanced patterns.
 
@@ -35,12 +45,14 @@ Read on for the full tool reference, selector guide, and advanced patterns.
 **I need to open a page** → `navigate`
 
 **I need to understand what's on the page:**
+
 - I want interactive elements with stable refs → `observe` (set `includeScreenshot: true` for visual context)
 - I want the page structure cheaply → `aria_snapshot` (preferred — ~80% fewer tokens than `accessibility`)
 - I want to read article/body text → `content` with `format: "markdown"`
 - I want a visual capture → `screenshot`
 
 **I need to interact with something:**
+
 - Single click → `click`
 - Fill a form field (replaces content) → `fill`
 - Type character-by-character (autocomplete, search-as-you-type) → `type`
@@ -59,6 +71,21 @@ Read on for the full tool reference, selector guide, and advanced patterns.
 
 **I need to go back/forward/reload** → `go_back` / `go_forward` / `reload`
 
+**I need to discover website-exposed tools** → `discover_tools` (WebMCP standard)
+
+## All 23 Tools
+
+| Category       | Tools                                                                           |
+| -------------- | ------------------------------------------------------------------------------- |
+| Navigation     | `navigate`, `go_back`, `go_forward`, `reload`                                   |
+| Observation    | `observe`, `screenshot`, `aria_snapshot`, `accessibility`, `content`, `element` |
+| Interaction    | `click`, `fill`, `type`, `press`, `hover`, `scroll`, `select`                   |
+| Composite      | `act` (batches multiple interactions), `extract` (structured data)              |
+| Tab management | `pages`, `activate_page`, `close_page`                                          |
+| Discovery      | `discover_tools` (WebMCP)                                                       |
+
+With `--slim` mode, only `navigate`, `observe`, `act`, `extract`, and `screenshot` are exposed.
+
 ## Selectors
 
 Every interaction tool takes a `selector` parameter. Use this priority:
@@ -75,6 +102,7 @@ css:.btn-primary          ← Last resort. Fragile.
 ```
 
 **Rules:**
+
 - Always prefer `role:` for buttons, links, inputs, checkboxes. They survive DOM changes.
 - Use `text:` when there's no clear ARIA role.
 - Never copy CSS selectors from page source. They break across deployments.
@@ -85,13 +113,16 @@ css:.btn-primary          ← Last resort. Fragile.
 For any multi-step interaction on a page you haven't seen yet:
 
 **Step 1: Observe.**
+
 ```
 observe({ includeScreenshot: true, maxElements: 30 })
 ```
+
 Returns interactive elements with stable refs (`@e1`, `@e2`, ...) and optional annotated screenshot. Now you know exactly what's on the page.
 
 **Step 2: Act.**
 Batch all your actions into one call:
+
 ```
 act({
   steps: [
@@ -106,15 +137,18 @@ This pattern turns 4+ round-trips into 2. Use it.
 
 ## Fused Operations
 
-Fused operations combine multiple server calls into one, cutting roundtrips by 50-85%.
+Fused operations combine multiple server calls into one, cutting roundtrips significantly.
 
 ### Navigate + Observe (1 call instead of 2)
+
 ```
 navigate({ url: "https://example.com", observe: { maxElements: 30, responseTier: "interactive" } })
 ```
+
 Returns navigation result AND observation in a single response. The `observation` field on the result contains the page elements.
 
 ### Act + Post-Observe (1 call instead of 2)
+
 ```
 act({
   steps: [
@@ -123,20 +157,51 @@ act({
   postObserve: { maxElements: 30, responseTier: "interactive" }
 })
 ```
+
 Executes actions AND returns the resulting page state. The `postObservation` field on the result contains the updated elements.
 
 ### Response Tiers
+
 Control how much data `observe` returns:
 
-| Tier | What's included | When to use |
-|------|----------------|-------------|
-| `"full"` | All fields, metadata, screenshots | First page load, debugging |
+| Tier            | What's included                   | When to use                           |
+| --------------- | --------------------------------- | ------------------------------------- |
+| `"full"`        | All fields, metadata, screenshots | First page load, debugging            |
 | `"interactive"` | Interactive elements, refs, roles | Most interactions (default for fused) |
-| `"minimal"` | Refs and names only | Rapid polling, confirmation checks |
+| `"minimal"`     | Refs and names only               | Rapid polling, confirmation checks    |
 
 ```
 observe({ responseTier: "interactive", maxElements: 20 })
 ```
+
+## Smart Features
+
+These work automatically — no extra configuration needed.
+
+**Self-healing selectors.** When a selector fails, BAP automatically retries with fallback identity signals (testId, ariaLabel+role, id, name). Selectors that broke due to DOM changes often resolve without agent intervention.
+
+**Action caching.** Selector resolutions are cached to a file-system LRU cache (SHA256 keys, 24h TTL). Repeat workflows run faster because resolved selectors skip the full lookup chain.
+
+**Incremental observe.** Pass `incremental: true` to `observe` to get only what changed since the last observation: `changes: { added, updated, removed }`. Ideal after an `act` step to see the effect without re-scanning the full page.
+
+```
+observe({ incremental: true, responseTier: "interactive" })
+```
+
+**Event streaming.** Browser console errors and 4xx/5xx network responses are forwarded as `notifications/message` to the MCP client in real time. No polling needed — your agent is notified of errors as they happen.
+
+**Alternative selectors.** Each element from `observe` includes `alternativeSelectors` ordered by reliability (testId > role > id > text > css). If one selector fails, try the next.
+
+## Server Flags
+
+| Flag                                  | What it does                                                                  |
+| ------------------------------------- | ----------------------------------------------------------------------------- |
+| `--slim`                              | Expose only 5 essential tools (~600 tokens vs ~4,200). Recommended.           |
+| `--in-process`                        | Run the Playwright server in-process (no child process spawn). Lower latency. |
+| `--headless` / `--no-headless`        | Headful/headless toggle (default: headless)                                   |
+| `--browser chromium\|firefox\|webkit` | Browser choice (default: chromium)                                            |
+| `--allowed-domains`                   | Comma-separated domain allowlist for navigation                               |
+| `--verbose`                           | Enable debug logging                                                          |
 
 ## Efficiency Rules
 
@@ -154,6 +219,7 @@ observe({ responseTier: "interactive", maxElements: 20 })
 ## Recipes
 
 ### Login (fused — 2 calls total)
+
 ```
 navigate({ url: "https://app.example.com/login", observe: { maxElements: 20 } })
 act({
@@ -167,6 +233,7 @@ act({
 ```
 
 ### Extract a table of data
+
 ```
 navigate({ url: "https://store.example.com/products" })
 extract({
@@ -187,12 +254,14 @@ extract({
 ```
 
 ### Read an article
+
 ```
 navigate({ url: "https://blog.example.com/post", waitUntil: "networkidle" })
 content({ format: "markdown" })
 ```
 
 ### Complex form with observe
+
 ```
 observe({ filterRoles: ["textbox", "combobox", "checkbox"] })
 act({
@@ -207,6 +276,7 @@ act({
 ```
 
 ### Search with autocomplete
+
 ```
 type({ selector: "role:combobox:Search", text: "browser agent", delay: 100 })
 press({ key: "ArrowDown" })
@@ -214,6 +284,7 @@ press({ key: "Enter" })
 ```
 
 ### Google search (fused)
+
 ```
 navigate({ url: "https://www.google.com", observe: { maxElements: 10 } })
 act({
@@ -226,6 +297,7 @@ content({ format: "markdown" })
 ```
 
 ### Compare prices across sites
+
 ```
 navigate({ url: "https://store-a.example.com/product" })
 extract({
@@ -257,13 +329,14 @@ extract({
 
 ## Error Recovery
 
-| Problem | Fix |
-|---------|-----|
-| Element not found | `observe` the page again — the DOM changed. Use fresh refs. |
-| Navigation timeout | Use `waitUntil: "domcontentloaded"` instead of `"networkidle"`. |
-| Stale ref | Refs persist within a page but invalidate after navigation. Re-observe. |
-| Click intercepted | `scroll` to the element first, or use `press({ key: "Enter", selector: "..." })`. |
-| Page loaded but blank | Wait, then `reload`. Some SPAs hydrate slowly. |
+| Problem               | Fix                                                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Element not found     | BAP auto-retries with fallback selectors. If still failing, `observe` again — the DOM changed. Use fresh refs. |
+| Navigation timeout    | Use `waitUntil: "domcontentloaded"` instead of `"networkidle"`.                                                |
+| Stale ref             | Refs persist within a page but invalidate after navigation. Re-observe.                                        |
+| Click intercepted     | `scroll` to the element first, or use `press({ key: "Enter", selector: "..." })`.                              |
+| Page loaded but blank | Wait, then `reload`. Some SPAs hydrate slowly.                                                                 |
+| Console/network error | Check `notifications/message` — BAP streams console errors and 4xx/5xx responses automatically.                |
 
 ## Do Not
 
@@ -273,6 +346,7 @@ extract({
 - Call `navigate` then `observe` separately when you can fuse them with `observe: {}`.
 - Call `act` then `observe` separately when you can fuse them with `postObserve: {}`.
 - Use `responseTier: "full"` when `"interactive"` or `"minimal"` suffice.
+- Re-scan the full page after a small action. Use `observe({ incremental: true })` to see only changes.
 - Take a screenshot to read text. Use `content({ format: "markdown" })`.
 - Skip `observe` on pages you haven't seen. You'll guess wrong.
 - Parse raw HTML. Use `extract` with a schema.
