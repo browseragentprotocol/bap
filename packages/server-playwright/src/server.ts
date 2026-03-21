@@ -353,6 +353,88 @@ export class BAPPlaywrightServer extends EventEmitter {
   }
 
   // ===========================================================================
+  // In-Process Client (for --in-process MCP mode)
+  // ===========================================================================
+
+  /**
+   * Create an in-process client that bypasses WebSocket.
+   * Returns a handle with `request()` for sending JSON-RPC requests
+   * and `close()` for cleanup.
+   *
+   * Note: Server-push notifications (events) are not supported in
+   * in-process mode. Event streaming requires WebSocket transport.
+   */
+  createInProcessClient(options?: {
+    sessionId?: string;
+    onNotification?: (message: string) => void;
+  }): {
+    request: (message: string) => Promise<string>;
+    close: () => Promise<void>;
+    state: ClientState;
+  } {
+    const now = Date.now();
+    const state: ClientState = {
+      clientId: randomUUID().slice(0, 8),
+      initialized: false,
+      browser: null,
+      isPersistent: false,
+      browserOwnership: "owned",
+      context: null,
+      contexts: new Map(),
+      defaultContextId: null,
+      pages: new Map(),
+      pageToContext: new Map(),
+      activePage: null,
+      eventSubscriptions: new Set(),
+      tracing: false,
+      scopes: this.getClientScopes(),
+      sessionStartTime: now,
+      lastActivityTime: now,
+      elementRegistries: new Map(),
+      frameContexts: new Map(),
+      activeStreams: new Map(),
+      pendingApprovals: new Map(),
+      sessionApprovals: new Set(),
+      sessionId: options?.sessionId,
+    };
+
+    // Use a sentinel key for in-process clients (no real WebSocket)
+    const sentinelWs = null;
+
+    this.log("In-process client created", { clientId: state.clientId });
+
+    const request = async (message: string): Promise<string> => {
+      let parsed: JSONRPCRequest;
+      try {
+        parsed = JSON.parse(message) as JSONRPCRequest;
+      } catch {
+        return JSON.stringify(createErrorResponse(0, ErrorCodes.ParseError, "Invalid JSON"));
+      }
+      if (!isRequest(parsed)) {
+        return JSON.stringify(
+          createErrorResponse(0, ErrorCodes.ParseError, "Invalid JSON-RPC request")
+        );
+      }
+      const response = await this.handleRequest(sentinelWs as unknown as WebSocket, state, parsed);
+      return JSON.stringify(response);
+    };
+
+    const close = async (): Promise<void> => {
+      this.log("In-process client disconnecting", { clientId: state.clientId });
+      const isAlive = state.isPersistent
+        ? this.isContextAlive(state.context)
+        : Boolean(state.browser?.isConnected());
+      if (state.sessionId && isAlive) {
+        await _parkSession(state, this.getDormantStoreDeps());
+      } else {
+        await this.cleanupClient(state);
+      }
+    };
+
+    return { request, close, state };
+  }
+
+  // ===========================================================================
   // Server Start / Stop
   // ===========================================================================
 

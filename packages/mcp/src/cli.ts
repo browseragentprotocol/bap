@@ -37,6 +37,7 @@ interface CLIArgs {
   headless?: boolean;
   allowedDomains?: string[];
   slim?: boolean;
+  inProcess?: boolean;
   help?: boolean;
   version?: boolean;
 }
@@ -70,6 +71,8 @@ function parseArgs(): CLIArgs {
       args.allowedDomains = argv[++i]?.split(",").map((d) => d.trim());
     } else if (arg === "--slim") {
       args.slim = true;
+    } else if (arg === "--in-process") {
+      args.inProcess = true;
     }
   }
 
@@ -94,6 +97,8 @@ ${pc.cyan("OPTIONS")}
   ${pc.yellow("--no-headless")}             Run with visible browser window
   ${pc.yellow("-v, --verbose")}               Enable verbose logging to stderr
   ${pc.yellow("--allowed-domains")} ${pc.dim("<list>")}   Comma-separated list of allowed domains
+  ${pc.yellow("--in-process")}                Run Playwright server in same process ${pc.dim("(no WebSocket)")}
+  ${pc.yellow("--slim")}                      Expose only 5 essential tools
   ${pc.yellow("-h, --help")}                  Show this help message
   ${pc.yellow("--version")}                   Show version
 
@@ -324,7 +329,7 @@ async function main(): Promise<void> {
   }
 
   if (args.version) {
-    console.error(`${icons.connection} BAP MCP Server ${pc.dim("v0.6.0")}`);
+    console.error(`${icons.connection} BAP MCP Server ${pc.dim("v0.8.0")}`);
     process.exit(0);
   }
 
@@ -332,15 +337,20 @@ async function main(): Promise<void> {
     log.setLevel("debug");
   }
 
-  // Determine mode: standalone (auto-start server) vs connect to existing
-  const isStandalone = !args.url;
+  // Determine mode: in-process vs standalone (auto-start server) vs connect to existing
+  const isInProcess = args.inProcess ?? false;
+  const isStandalone = !args.url && !isInProcess;
   const port = args.port ?? 9222;
   const host = "localhost";
   const bapServerUrl = args.url ?? `ws://${host}:${port}`;
   let serverProcess: ChildProcess | null = null;
 
   try {
-    if (isStandalone) {
+    if (isInProcess) {
+      if (args.verbose) {
+        log.info("In-process mode: running Playwright server in same process");
+      }
+    } else if (isStandalone) {
       if (args.verbose) {
         log.info("Standalone mode: auto-starting BAP Playwright server");
       }
@@ -361,6 +371,7 @@ async function main(): Promise<void> {
       verbose: args.verbose,
       allowedDomains: args.allowedDomains,
       slim: args.slim,
+      inProcess: isInProcess,
     });
 
     // Graceful shutdown — clean up MCP server and child process
