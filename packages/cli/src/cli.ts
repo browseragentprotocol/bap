@@ -114,6 +114,7 @@ ${pc.cyan("WORKFLOWS")}
   bap workflow run <name>           Replay a saved workflow
   bap workflow list                 List saved workflows
 
+
 ${pc.cyan("DEBUGGING")}
   bap watch                         Stream live browser events
   bap watch --filter=console        Filter by event type
