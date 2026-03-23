@@ -85,6 +85,17 @@ import {
   type ApprovalRespondResult,
   // Discovery types (WebMCP)
   type DiscoveryDiscoverResult,
+  // DBAR types (Deterministic Browser Agent Runtime)
+  type DBARCaptureStartParams,
+  type DBARCaptureStartResult,
+  type DBARCaptureStepResult,
+  type DBARCaptureFinishResult,
+  type DBARCaptureAbortResult,
+  type DBARReplayStartParams,
+  type DBARReplayStartResult,
+  type DBARReplayStepResult,
+  type DBARReplayFinishResult,
+  type DBARCapsuleValidateResult,
 } from "@browseragentprotocol/protocol";
 
 // Re-export protocol types and helpers
@@ -169,10 +180,7 @@ export class WebSocketTransport implements BAPTransport {
   /** Called when reconnection succeeds */
   onReconnected: (() => void) | null = null;
 
-  constructor(
-    url: string,
-    options: WebSocketTransportOptions = {}
-  ) {
+  constructor(url: string, options: WebSocketTransportOptions = {}) {
     this.baseUrl = url;
     this.maxReconnectAttempts = options.maxReconnectAttempts ?? 5;
     this.reconnectDelay = options.reconnectDelay ?? 1000;
@@ -808,11 +816,7 @@ export class BAPClient extends EventEmitter {
   /**
    * Upload files to a file input
    */
-  async upload(
-    selector: BAPSelector,
-    files: FileUpload[],
-    options?: ActionOptions
-  ): Promise<void> {
+  async upload(selector: BAPSelector, files: FileUpload[], options?: ActionOptions): Promise<void> {
     await this.request("action/upload", {
       pageId: this.activePage,
       selector,
@@ -1285,7 +1289,9 @@ export class BAPClient extends EventEmitter {
    * await client.switchFrame({ url: "checkout.stripe.com" });
    * ```
    */
-  async switchFrame(params: Omit<FrameSwitchParams, "pageId"> & { pageId?: string }): Promise<FrameSwitchResult> {
+  async switchFrame(
+    params: Omit<FrameSwitchParams, "pageId"> & { pageId?: string }
+  ): Promise<FrameSwitchResult> {
     return this.request<FrameSwitchResult>("frame/switch", {
       pageId: params.pageId ?? this.activePage,
       frameId: params.frameId,
@@ -1435,6 +1441,83 @@ export class BAPClient extends EventEmitter {
       maxRetries: options?.maxRetries,
       retryDelay: options?.retryDelay,
     };
+  }
+
+  // ===========================================================================
+  // DBAR Methods (Deterministic Browser Agent Runtime)
+  // ===========================================================================
+
+  /**
+   * Start a DBAR capture session on the active page.
+   */
+  async captureStart(
+    params: Omit<DBARCaptureStartParams, "pageId"> = {}
+  ): Promise<DBARCaptureStartResult> {
+    return this.request<DBARCaptureStartResult>("dbar/capture.start", {
+      ...params,
+    });
+  }
+
+  /**
+   * Execute a step boundary in the active capture session.
+   */
+  async captureStep(sessionId: string, label?: string): Promise<DBARCaptureStepResult> {
+    return this.request<DBARCaptureStepResult>("dbar/capture.step", {
+      sessionId,
+      label,
+    });
+  }
+
+  /**
+   * Finish the active capture session and return the capsule archive.
+   */
+  async captureFinish(sessionId: string): Promise<DBARCaptureFinishResult> {
+    return this.request<DBARCaptureFinishResult>("dbar/capture.finish", {
+      sessionId,
+    });
+  }
+
+  /**
+   * Abort the active capture session without producing a capsule.
+   */
+  async captureAbort(sessionId: string): Promise<DBARCaptureAbortResult> {
+    return this.request<DBARCaptureAbortResult>("dbar/capture.abort", {
+      sessionId,
+    });
+  }
+
+  /**
+   * Start a DBAR replay session from a capsule archive.
+   */
+  async replayStart(params: DBARReplayStartParams): Promise<DBARReplayStartResult> {
+    return this.request<DBARReplayStartResult>("dbar/replay.start", params);
+  }
+
+  /**
+   * Advance the replay by one step and compare observables.
+   */
+  async replayStep(sessionId: string): Promise<DBARReplayStepResult> {
+    return this.request<DBARReplayStepResult>("dbar/replay.step", {
+      sessionId,
+    });
+  }
+
+  /**
+   * Finish the replay session and return aggregate metrics.
+   */
+  async replayFinish(sessionId: string): Promise<DBARReplayFinishResult> {
+    return this.request<DBARReplayFinishResult>("dbar/replay.finish", {
+      sessionId,
+    });
+  }
+
+  /**
+   * Validate a capsule archive against the DBAR schema.
+   */
+  async capsuleValidate(capsuleArchive: string): Promise<DBARCapsuleValidateResult> {
+    return this.request<DBARCapsuleValidateResult>("dbar/capsule.validate", {
+      capsuleArchive,
+    });
   }
 
   // ===========================================================================

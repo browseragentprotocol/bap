@@ -166,6 +166,16 @@ import {
 } from "./handlers/context.js";
 import { handleDiscoveryDiscover } from "./handlers/discovery.js";
 import { handleAgentAct, handleAgentObserve, handleAgentExtract } from "./handlers/agent.js";
+import {
+  handleDBARCaptureStart,
+  handleDBARCaptureStep,
+  handleDBARCaptureFinish,
+  handleDBARCaptureAbort,
+  handleDBARReplayStart,
+  handleDBARReplayStep,
+  handleDBARReplayFinish,
+  handleDBARCapsuleValidate,
+} from "./handlers/dbar.js";
 
 // =============================================================================
 // Re-exports for public API
@@ -888,6 +898,24 @@ export class BAPPlaywrightServer extends EventEmitter {
         return handleAgentObserve(state, params as unknown as AgentObserveParams, ctx);
       case "agent/extract":
         return handleAgentExtract(state, params as unknown as AgentExtractParams, ctx);
+
+      // DBAR (Deterministic Browser Agent Runtime)
+      case "dbar/capture.start":
+        return handleDBARCaptureStart(state, params, ctx);
+      case "dbar/capture.step":
+        return handleDBARCaptureStep(state, params, ctx);
+      case "dbar/capture.finish":
+        return handleDBARCaptureFinish(state, params, ctx);
+      case "dbar/capture.abort":
+        return handleDBARCaptureAbort(state, params, ctx);
+      case "dbar/replay.start":
+        return handleDBARReplayStart(state, params, ctx);
+      case "dbar/replay.step":
+        return handleDBARReplayStep(state, params, ctx);
+      case "dbar/replay.finish":
+        return handleDBARReplayFinish(state, params, ctx);
+      case "dbar/capsule.validate":
+        return handleDBARCapsuleValidate(state, params, ctx);
 
       default:
         throw new BAPServerError(ErrorCodes.MethodNotFound, `Unknown method: ${method}`);
