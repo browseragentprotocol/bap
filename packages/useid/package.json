@@ -1,0 +1,59 @@
+{
+  "name": "@browseragentprotocol/useid",
+  "version": "0.1.0",
+  "description": "uSEID - Universal Semantic Element ID for stable cross-run element identity",
+  "author": "Browser Agent Protocol",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/browseragentprotocol/bap.git",
+    "directory": "packages/useid"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@browseragentprotocol/protocol": "workspace:*",
+    "@browseragentprotocol/dbar": "workspace:*",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.0",
+    "typescript": "^5.7.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
