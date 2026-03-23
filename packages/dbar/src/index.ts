@@ -72,3 +72,19 @@ export {
   type ScreenshotOptions,
 } from "./snapshot/screenshot.js";
 export { captureStorageState, restoreStorageState } from "./snapshot/state.js";
+
+// Capsule builder and validator
+export {
+  buildCapsule,
+  serializeCapsuleArchive,
+  deserializeCapsuleArchive,
+  type CapsuleBuildInput,
+  type CapsuleArchive,
+} from "./capsule/builder.js";
+export { validateCapsule } from "./capsule/validator.js";
+
+// Telemetry
+export { TraceTimeline, type TraceEntry } from "./telemetry/trace.js";
+
+// Coordinator
+export { Coordinator, type CaptureOptions, type CaptureSessionState } from "./coordinator.js";
