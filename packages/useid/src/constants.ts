@@ -25,6 +25,10 @@ export const NAME_MATCH_EXACT = 1.0;
 export const NAME_MATCH_NORMALIZED = 0.8;
 export const NAME_MATCH_FUZZY = 0.5;
 
+/** Default viewport dimensions for spatial normalization */
+export const DEFAULT_VIEWPORT_WIDTH = 1024;
+export const DEFAULT_VIEWPORT_HEIGHT = 768;
+
 /** uSEID schema version */
 export const USEID_VERSION = 1 as const;
 

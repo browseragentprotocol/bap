@@ -8,7 +8,7 @@ import type { USEIDSignature, USEIDConfig, FramePathEntry } from "./types.js";
 import { USEIDConfigSchema } from "./types.js";
 import { extractElements } from "./extractor.js";
 import { normalizeAccessibleName } from "./canonicalizer.js";
-import { USEID_VERSION } from "./constants.js";
+import { USEID_VERSION, DEFAULT_VIEWPORT_WIDTH, DEFAULT_VIEWPORT_HEIGHT } from "./constants.js";
 
 export interface BuildUSEIDOptions {
   domSnapshot: DOMSnapshotResult;
@@ -47,8 +47,8 @@ export function buildUSEID(opts: BuildUSEIDOptions): USEIDSignature {
   const pagePath = url.pathname;
 
   // Compute viewport-relative position
-  const viewportWidth = 1024; // Default assumption; could be configurable
-  const viewportHeight = 768;
+  const viewportWidth = DEFAULT_VIEWPORT_WIDTH;
+  const viewportHeight = DEFAULT_VIEWPORT_HEIGHT;
   const viewportRelative = {
     top: viewportHeight > 0 ? element.bbox.y / viewportHeight : 0,
     left: viewportWidth > 0 ? element.bbox.x / viewportWidth : 0,

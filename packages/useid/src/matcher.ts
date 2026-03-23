@@ -9,7 +9,12 @@
 
 import type { NormalizedElement, USEIDSignature, CandidateResult, MatchWeights } from "./types.js";
 import { nameSimilarity, jaccardSimilarity, normalizeRole } from "./canonicalizer.js";
-import { DEFAULT_WEIGHTS, NAME_CHANGE_PENALTY } from "./constants.js";
+import {
+  DEFAULT_WEIGHTS,
+  NAME_CHANGE_PENALTY,
+  DEFAULT_VIEWPORT_WIDTH,
+  DEFAULT_VIEWPORT_HEIGHT,
+} from "./constants.js";
 
 export interface MatcherConfig {
   weights?: MatchWeights;
@@ -106,8 +111,8 @@ function computeSpatialScore(sig: USEIDSignature, el: NormalizedElement): number
   const elCx = elBbox.x + elBbox.w / 2;
   const elCy = elBbox.y + elBbox.h / 2;
 
-  // Euclidean distance normalized by diagonal
-  const diagonal = Math.sqrt(1024 ** 2 + 768 ** 2); // Default viewport diagonal
+  // Euclidean distance normalized by viewport diagonal
+  const diagonal = Math.sqrt(DEFAULT_VIEWPORT_WIDTH ** 2 + DEFAULT_VIEWPORT_HEIGHT ** 2);
   const distance = Math.sqrt((sigCx - elCx) ** 2 + (sigCy - elCy) ** 2);
 
   return Math.max(0, 1 - distance / diagonal);

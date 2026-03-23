@@ -309,27 +309,28 @@ function findDOMMatch(
 // ── Utility functions ───────────────────────────────────────────────────────
 
 /** Roles that are always skipped — structural containers, never actionable */
+const STRUCTURAL_ROLES = new Set(["webarea", "rootwebarea", "document", "none", "presentation"]);
 function isStructuralRole(role: string): boolean {
-  const structural = new Set(["webarea", "rootwebarea", "document", "none", "presentation"]);
-  return structural.has(role.toLowerCase());
+  return STRUCTURAL_ROLES.has(role.toLowerCase());
 }
 
 /** Roles that are skipped when they have no accessible name */
+const GENERIC_ROLES = new Set([
+  "generic",
+  "group",
+  "article",
+  "section",
+  "region",
+  "list",
+  "listitem",
+  "paragraph",
+  "blockquote",
+  "figure",
+  "separator",
+  "status",
+]);
 function isGenericRole(role: string): boolean {
-  const generic = new Set([
-    "generic",
-    "group",
-    "article",
-    "section",
-    "region",
-    "list",
-    "listitem",
-    "paragraph",
-    "blockquote",
-    "figure",
-    "separator",
-    "status",
-  ]);
+  const generic = GENERIC_ROLES;
   return generic.has(role.toLowerCase());
 }
 
