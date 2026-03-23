@@ -8,6 +8,7 @@ import type {
   CapsuleMetrics,
   NetworkEntry,
 } from "./types.js";
+import type { MutableNetworkEntry } from "../network/types.js";
 
 /**
  * Input to {@link buildCapsule}. Collects all data captured during a browser
@@ -17,7 +18,7 @@ export interface CapsuleBuildInput {
   environment: EnvironmentDescriptor;
   seeds: SeedPackage;
   initialState: InitialState;
-  networkTranscript: { orderingPolicy: "creation" | "recorded"; entries: any[] };
+  networkTranscript: { orderingPolicy: "creation" | "recorded"; entries: MutableNetworkEntry[] };
   steps: CapsuleStep[];
   /**
    * Per-step artifact content keyed by step index. The builder writes each

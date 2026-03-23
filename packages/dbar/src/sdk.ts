@@ -206,14 +206,15 @@ export class DBAR {
     // 2. Set up CDP session + subsystems
     const cdpSession: CDPSession = await page.context().newCDPSession(page);
 
-    const replayer = new NetworkReplayer(cdpSession, capsule.networkTranscript, {
-      unmatchedRequestPolicy: options.unmatchedRequestPolicy ?? "block",
-      onDivergence: (d) => divergences.push(d),
-    });
-
     const timeVirtualizer = new TimeVirtualizer(cdpSession, {
       stepBudgetMs: options.stepBudgetMs ?? 10000,
       initialVirtualTime: capsule.seeds.initialTime,
+    });
+
+    const replayer = new NetworkReplayer(cdpSession, capsule.networkTranscript, {
+      unmatchedRequestPolicy: options.unmatchedRequestPolicy ?? "block",
+      onDivergence: (d) => divergences.push(d),
+      onFetchResolved: () => timeVirtualizer.trackFetchResolution(),
     });
 
     await replayer.start();
@@ -272,16 +273,16 @@ export class DBAR {
         });
       }
 
-      // Screenshot comparison is opt-in (v1 captures but does not compare by default)
+      // Screenshot comparison is opt-in (v1 captures but does not compare by default).
+      // Advisory only — does not affect stepDiverged.
       if (
         options.compareScreenshots &&
         liveObservables.screenshotHash !== expectedStep.observables.screenshotHash
       ) {
-        // Not a strict divergence — just logged
         divergences.push({
           step: expectedStep.index,
           type: "dom_mismatch",
-          details: "screenshot_mismatch (advisory)",
+          details: "screenshot hash mismatch (advisory, not a strict divergence)",
           expected: expectedStep.observables.screenshotHash,
           actual: liveObservables.screenshotHash,
         });

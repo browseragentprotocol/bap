@@ -46,6 +46,7 @@ async function getDBAR(): Promise<typeof import("@browseragentprotocol/dbar")> {
 interface DBARSessionState {
   captureSession?: InstanceType<(typeof import("@browseragentprotocol/dbar"))["CaptureSession"]>;
   replayArchive?: import("@browseragentprotocol/dbar").CapsuleArchive;
+  replayCDPSession?: import("playwright-core").CDPSession;
   replayStepIndex?: number;
   replayDivergences?: Array<{
     step: number;
@@ -186,8 +187,12 @@ export async function handleDBARReplayStart(
   const p = params as unknown as DBARReplayStartParams;
 
   const archive = dbar.deserializeCapsuleArchive(p.capsuleArchive);
+  const page = ctx.getPage(state, undefined);
+  const cdpSession = await page.context().newCDPSession(page);
+
   const dbarState = getDBARState(state);
   dbarState.replayArchive = archive;
+  dbarState.replayCDPSession = cdpSession;
   dbarState.replayStepIndex = 0;
   dbarState.replayDivergences = [];
   dbarState.replayStartTime = Date.now();
@@ -221,7 +226,13 @@ export async function handleDBARReplayStep(
 
   const expectedStep = capsule.steps[stepIndex]!;
   const page = ctx.getPage(state, undefined);
-  const cdpSession = await page.context().newCDPSession(page);
+  const cdpSession = dbarState.replayCDPSession;
+  if (!cdpSession) {
+    throw new BAPServerError(
+      ErrorCodes.InvalidRequest,
+      "CDP session not initialized — call replay.start first"
+    );
+  }
 
   // Capture live observables
   const [domResult, a11yResult, screenshotResult] = await Promise.all([
@@ -261,7 +272,6 @@ export async function handleDBARReplayStep(
     dbarState.replayDivergences!.push({ step: stepIndex, ...d });
   }
 
-  await cdpSession.detach();
   dbarState.replayStepIndex = stepIndex + 1;
 
   return {
@@ -313,7 +323,17 @@ export async function handleDBARReplayFinish(
   const timeToDivergence = divergences.length > 0 ? divergences[0]!.step : undefined;
   const overheadMs = Date.now() - (dbarState.replayStartTime ?? Date.now());
 
-  // Clean up
+  // Clean up CDP session
+  if (dbarState.replayCDPSession) {
+    try {
+      await dbarState.replayCDPSession.detach();
+    } catch {
+      // Session may already be detached
+    }
+    dbarState.replayCDPSession = undefined;
+  }
+
+  // Clean up state
   dbarState.replayArchive = undefined;
   dbarState.replayStepIndex = undefined;
   dbarState.replayDivergences = undefined;

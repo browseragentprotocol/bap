@@ -17,6 +17,8 @@ import {
 export interface NetworkRecorderOptions {
   /** Called when unsupported traffic (SSE, WebSocket) is detected. */
   onUnsupportedTraffic?: (divergence: Divergence) => void;
+  /** Called after each Fetch event is resolved (continue/fulfill/fail) for quiescence tracking. */
+  onFetchResolved?: () => void;
 }
 
 /**
@@ -90,6 +92,11 @@ export class NetworkRecorder {
     return [...this.divergences];
   }
 
+  /** Returns the internal transcript for capsule building. */
+  getTranscript(): MutableNetworkTranscript {
+    return this.transcript;
+  }
+
   /**
    * Computes a SHA-256 digest over all recorded (requestHash, responseHash|errorText)
    * pairs. Used for per-step network determinism verification.
@@ -150,6 +157,7 @@ export class NetworkRecorder {
     } catch {
       // Request may have been canceled
     }
+    this.options.onFetchResolved?.();
   }
 
   private async handleResponseStage(event: any): Promise<void> {
@@ -196,6 +204,7 @@ export class NetworkRecorder {
     } catch {
       // Response may have been handled
     }
+    this.options.onFetchResolved?.();
   }
 
   private onLoadingFailed(event: any): void {

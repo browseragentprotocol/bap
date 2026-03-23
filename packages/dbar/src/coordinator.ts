@@ -111,6 +111,7 @@ export class Coordinator {
 
     const recorder = new NetworkRecorder(cdpSession, {
       onUnsupportedTraffic: (d) => trace.recordDivergence(d.step, d.type, d.details),
+      onFetchResolved: () => timeVirtualizer.trackFetchResolution(),
     });
 
     const timeVirtualizer = new TimeVirtualizer(cdpSession, {
@@ -270,11 +271,10 @@ async function buildEnvironment(page: Page): Promise<EnvironmentDescriptor> {
 }
 
 /**
- * Access the recorder's internal transcript via private field.
- * Acceptable because the Coordinator is tightly coupled to NetworkRecorder.
+ * Access the recorder's transcript via its public API.
  */
 function getRecorderTranscript(recorder: NetworkRecorder): MutableNetworkTranscript {
-  return (recorder as any).transcript;
+  return recorder.getTranscript();
 }
 
 /**

@@ -13,6 +13,8 @@ export interface NetworkReplayerOptions {
   unmatchedRequestPolicy: "block" | "continue";
   /** Called when a divergence (unmatched request) is detected during replay. */
   onDivergence?: (divergence: Divergence) => void;
+  /** Called after each Fetch event is resolved (fulfill/fail/continue) for quiescence tracking. */
+  onFetchResolved?: () => void;
 }
 
 /**
@@ -150,6 +152,8 @@ export class NetworkReplayer {
         // May already be handled
       }
     }
+
+    this.options.onFetchResolved?.();
   }
 
   private addListener(event: string, handler: (...args: any[]) => void): void {
