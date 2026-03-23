@@ -36,3 +36,39 @@ export {
   ReplayResultSchema,
   ValidationResultSchema,
 } from "./capsule/types.js";
+
+// Time virtualizer
+export { TimeVirtualizer } from "./time/virtualizer.js";
+export {
+  type TimePolicy,
+  type TimeVirtualizerOptions,
+  type QuiescenceState,
+} from "./time/types.js";
+
+// Network types and utilities
+export {
+  type MutableNetworkTranscript,
+  type MutableNetworkEntry,
+  createTranscript,
+  hashRequest,
+  hashBody,
+  hashBuffer,
+  redactHeaders,
+  isSSE,
+  isWebSocket,
+} from "./network/types.js";
+export { NetworkRecorder, type NetworkRecorderOptions } from "./network/recorder.js";
+export { NetworkReplayer, type NetworkReplayerOptions } from "./network/replayer.js";
+
+// Snapshot modules
+export { captureDOMSnapshot, type DOMSnapshotResult } from "./snapshot/dom.js";
+export {
+  captureAccessibilitySnapshot,
+  type AccessibilitySnapshotResult,
+} from "./snapshot/accessibility.js";
+export {
+  captureScreenshot,
+  type ScreenshotResult,
+  type ScreenshotOptions,
+} from "./snapshot/screenshot.js";
+export { captureStorageState, restoreStorageState } from "./snapshot/state.js";
