@@ -88,3 +88,6 @@ export { TraceTimeline, type TraceEntry } from "./telemetry/trace.js";
 
 // Coordinator
 export { Coordinator, type CaptureOptions, type CaptureSessionState } from "./coordinator.js";
+
+// SDK
+export { DBAR, CaptureSession, type ReplayOptions } from "./sdk.js";
