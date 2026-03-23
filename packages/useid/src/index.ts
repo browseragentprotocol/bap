@@ -41,3 +41,37 @@ export {
   LANDMARK_ROLE_MAP,
   LANDMARK_TAG_MAP,
 } from "./constants.js";
+
+// Canonicalizer
+export {
+  normalizeAccessibleName,
+  normalizeTag,
+  normalizeRole,
+  tokenize,
+  jaccardSimilarity,
+  nameSimilarity,
+} from "./canonicalizer.js";
+
+// Extractor
+export { extractElements, type ExtractOptions } from "./extractor.js";
+
+// Builder
+export { buildUSEID, type BuildUSEIDOptions } from "./builder.js";
+
+// Candidate generator
+export { generateCandidates } from "./candidate.js";
+
+// Matcher
+export { scoreCandidates, type MatcherConfig } from "./matcher.js";
+
+// Safety gate
+export { checkBinding, applySafetyGate, type SafetyConfig } from "./safety.js";
+
+// Resolver
+export {
+  resolveUSEID,
+  compareUSEID,
+  explainResolution,
+  redactUSEID,
+  type ResolveUSEIDOptions,
+} from "./resolver.js";
