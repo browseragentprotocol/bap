@@ -18,6 +18,8 @@ export interface TraceEntry {
   duration: number;
   status: "ok" | "error";
   error?: string;
+  /** Abbreviated request shape for evidence export/debugging */
+  requestSummary?: Record<string, unknown>;
   /** Abbreviated result shape for debugging (not the full payload) */
   resultSummary?: Record<string, unknown>;
 }
@@ -117,6 +119,91 @@ export class TraceRecorder {
 
     // Default: return keys only
     return { keys: Object.keys(obj) };
+  }
+
+  /** Create a summarized request shape for trace evidence export */
+  static summarizeParams(method: string, params: unknown): Record<string, unknown> | undefined {
+    if (!params || typeof params !== "object") return undefined;
+
+    const obj = params as Record<string, unknown>;
+
+    const summarizeObserveParams = (
+      observe: unknown
+    ): Record<string, unknown> | undefined => {
+      if (!observe || typeof observe !== "object") return undefined;
+
+      const config = observe as Record<string, unknown>;
+      const summary: Record<string, unknown> = {};
+
+      if (typeof config.responseTier === "string") {
+        summary.responseTier = config.responseTier;
+      }
+      if (typeof config.incremental === "boolean") {
+        summary.incremental = config.incremental;
+      }
+      if (typeof config.includeScreenshot === "boolean") {
+        summary.includeScreenshot = config.includeScreenshot;
+      }
+      if ("annotateScreenshot" in config) {
+        summary.annotateScreenshot =
+          config.annotateScreenshot === true ||
+          typeof config.annotateScreenshot === "object";
+      }
+      if (typeof config.maxElements === "number") {
+        summary.maxElements = config.maxElements;
+      }
+      summary.stableRefs = config.stableRefs !== false;
+
+      return Object.keys(summary).length > 0 ? summary : undefined;
+    };
+
+    if (method === "page/navigate") {
+      const summary: Record<string, unknown> = {};
+      if (typeof obj.url === "string") summary.url = obj.url;
+      const observe = summarizeObserveParams(obj.observe);
+      if (observe) summary.observe = observe;
+      return Object.keys(summary).length > 0 ? summary : undefined;
+    }
+
+    if (method === "agent/observe") {
+      return summarizeObserveParams(obj);
+    }
+
+    if (method === "agent/act") {
+      const summary: Record<string, unknown> = {};
+      if (Array.isArray(obj.steps)) {
+        const actions = obj.steps
+          .map((step) => {
+            if (!step || typeof step !== "object") return null;
+            const action = (step as Record<string, unknown>).action;
+            return typeof action === "string" ? action : null;
+          })
+          .filter((action): action is string => action !== null);
+
+        if (actions.length > 0) {
+          summary.actions = actions;
+        }
+      }
+
+      const preObserve = summarizeObserveParams(obj.preObserve);
+      if (preObserve) summary.preObserve = preObserve;
+
+      const postObserve = summarizeObserveParams(obj.postObserve);
+      if (postObserve) summary.postObserve = postObserve;
+
+      return Object.keys(summary).length > 0 ? summary : undefined;
+    }
+
+    if (method === "agent/extract") {
+      const summary: Record<string, unknown> = {};
+      if (typeof obj.mode === "string") summary.mode = obj.mode;
+      if (typeof obj.includeSourceRefs === "boolean") {
+        summary.includeSourceRefs = obj.includeSourceRefs;
+      }
+      return Object.keys(summary).length > 0 ? summary : undefined;
+    }
+
+    return undefined;
   }
 
   /** Close all open streams */

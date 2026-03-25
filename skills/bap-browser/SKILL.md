@@ -2,6 +2,92 @@
 name: bap-browser
 description: "AI-powered browser automation via Browser Agent Protocol. Use when the user wants to visit a website, open a webpage, go to a URL, search on Google, look something up online, check a website, read a webpage, book a flight, order food, buy something online, check email or weather, download a file, compare prices, find product reviews, take a screenshot of a page, scrape or extract data from a site, monitor a webpage for changes, test a web application, automate web tasks, interact with a web page, log in to a site, submit or fill out a form, shop online, sign up for a service, browse the web, research a topic online, check stock prices, track a package, read the news, post on social media, or any task that requires controlling a web browser. Provides semantic selectors, batched multi-step actions, and structured data extraction for fast, token-efficient browser automation."
 license: See LICENSE.txt (Apache-2.0)
+contract:
+  kind: browser-agent
+  version: 1
+  runtime:
+    interfaces:
+      - mcp
+    tools:
+      - navigate
+      - go_back
+      - go_forward
+      - reload
+      - observe
+      - screenshot
+      - aria_snapshot
+      - accessibility
+      - content
+      - element
+      - click
+      - fill
+      - type
+      - press
+      - hover
+      - scroll
+      - select
+      - act
+      - extract
+      - pages
+      - activate_page
+      - close_page
+      - discover_tools
+    actionClasses:
+      - navigate
+      - observe
+      - click
+      - fill
+      - type
+      - press
+      - hover
+      - scroll
+      - select
+      - extract
+    domainPolicy:
+      mode: report
+    approval:
+      policy: manual
+      requiredFor:
+        - checkout
+        - purchase
+        - delete
+        - upload
+        - submit
+    artifacts:
+      outputs:
+        - trace-jsonl
+        - trace-replay-html
+        - json-extraction
+        - screenshot
+      sensitivity: moderate
+      retention: session
+      redaction:
+        - cookies
+        - auth-tokens
+        - passwords
+  provenance:
+    formats:
+      - bap-trace-jsonl
+    replay:
+      supported: true
+      determinism: best-effort
+      validator: bap trace --replay
+  grounding:
+    observation:
+      models:
+        - interactive-elements
+        - incremental-changes
+        - screenshot-observation
+    identity:
+      mechanisms:
+        - stable-ref
+        - semantic-selector
+        - selector-fallback
+      stableRefs: true
+    abstention:
+      supported: false
+      reasons:
+        - delegated-to-caller
 ---
 
 # BAP Browser Automation

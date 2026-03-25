@@ -703,6 +703,7 @@ export class BAPPlaywrightServer extends EventEmitter {
         method,
         duration,
         status: "ok",
+        requestSummary: TraceRecorder.summarizeParams(method, params ?? {}),
         resultSummary: TraceRecorder.summarizeResult(method, result),
       });
 
@@ -726,6 +727,7 @@ export class BAPPlaywrightServer extends EventEmitter {
         duration,
         status: "error",
         error: errMsg,
+        requestSummary: TraceRecorder.summarizeParams(method, params ?? {}),
       });
 
       return this.handleError(id, error);

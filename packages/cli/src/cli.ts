@@ -103,6 +103,7 @@ ${pc.cyan("TRACING")}
   bap trace --session=<id>          Show trace for a specific session
   bap trace --replay                Generate HTML timeline viewer
   bap trace --export=<file>         Export trace as JSON
+  bap trace --export-evidence=<f>   Export normalized contract evidence
   bap trace --limit=<N>             Show last N entries (default: 10)
 
 ${pc.cyan("DEBUGGING")}
