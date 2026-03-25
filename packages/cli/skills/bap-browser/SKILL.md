@@ -2,6 +2,89 @@
 name: bap-browser
 description: "Browser automation CLI with composite actions, semantic selectors, and self-healing selectors. Use when the user needs to visit websites, fill forms, extract data, take screenshots, stream browser events, or automate multi-step browser workflows like login, checkout, or search."
 license: Apache-2.0
+contract:
+  kind: browser-agent
+  version: 1
+  runtime:
+    interfaces:
+      - cli
+    tools:
+      - navigate
+      - go_back
+      - go_forward
+      - reload
+      - observe
+      - screenshot
+      - aria_snapshot
+      - content
+      - act
+      - extract
+      - pages
+      - activate_page
+      - close_page
+    actionClasses:
+      - navigate
+      - observe
+      - click
+      - fill
+      - type
+      - press
+      - hover
+      - scroll
+      - select
+      - extract
+    domainPolicy:
+      mode: report
+    approval:
+      policy: manual
+      requiredFor:
+        - checkout
+        - purchase
+        - delete
+        - upload
+        - submit
+    artifacts:
+      outputs:
+        - trace-jsonl
+        - trace-replay-html
+        - json-extraction
+        - screenshot
+      sensitivity: moderate
+      retention: session
+      redaction:
+        - cookies
+        - auth-tokens
+        - passwords
+  provenance:
+    formats:
+      - bap-trace-jsonl
+    replay:
+      supported: true
+      determinism: best-effort
+      validator: bap trace --replay
+  grounding:
+    observation:
+      models:
+        - interactive-elements
+        - incremental-changes
+        - screenshot-observation
+    identity:
+      mechanisms:
+        - stable-ref
+        - semantic-selector
+        - selector-fallback
+      stableRefs: true
+    abstention:
+      supported: false
+      reasons:
+        - delegated-to-caller
+  extensions:
+    cliAliases:
+      navigate: goto
+      go_back: back
+      go_forward: forward
+      pages: tabs
+      activate_page: tab-select
 ---
 
 # BAP Browser CLI
@@ -168,6 +251,7 @@ bap trace --all                        # Show all traces across sessions
 bap trace --session=<id>               # Traces for a specific session
 bap trace --replay                     # Generate self-contained HTML timeline viewer
 bap trace --export                     # Export traces as JSON
+bap trace --export-evidence=evidence.json  # Export normalized contract evidence
 bap trace --limit=20                   # Limit number of trace entries shown
 ```
 
@@ -211,3 +295,4 @@ bap recipe wait-for <selector> [--timeout=ms]
 4. Use `bap act` for multi-step flows instead of individual commands — fewer calls, fewer tokens
 5. Use `--diff` for incremental observation after small DOM changes
 6. Check `bap trace` when debugging failures — it records every request with timing
+7. Use `bap trace --export-evidence=...` when you need normalized contract audit evidence for skill validation
