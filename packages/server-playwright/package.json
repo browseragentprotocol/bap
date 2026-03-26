@@ -62,6 +62,7 @@
   "dependencies": {
     "@browseragentprotocol/logger": "workspace:*",
     "@browseragentprotocol/protocol": "workspace:*",
+    "@pyyush/useid": "^0.1.0",
     "playwright": "^1.58.2",
     "ws": "^8.19.0"
   },
