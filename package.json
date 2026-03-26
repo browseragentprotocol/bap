@@ -44,7 +44,7 @@
     "@types/node": "^25.5.0",
     "@types/ws": "^8.5.14",
     "@vitest/coverage-v8": "4.1.0",
-    "eslint": "^10.0.3",
+    "eslint": "^10.1.0",
     "prettier": "^3.4.0",
     "tsup": "^8.3.0",
     "turbo": "^2.8.19",
