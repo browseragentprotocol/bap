@@ -7,7 +7,7 @@ import type { Page as PlaywrightPage, Locator } from "playwright";
 import { type BAPSelector, type AriaRole, ErrorCodes } from "@browseragentprotocol/protocol";
 import { BAPServerError } from "../errors.js";
 import { validateSelectorValue } from "../security/selector-validator.js";
-import type { PageOwner } from "../types.js";
+import type { PageOwner, ElementRegistryEntryWithUSEID } from "../types.js";
 
 export interface SelectorResolverDeps {
   logSecurity: (event: string, details: Record<string, unknown>) => void;
@@ -214,8 +214,7 @@ export async function resolveSelectorWithHealing(
  */
 async function attemptUSEIDResolution(
   page: PlaywrightPage,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  entry: any
+  entry: ElementRegistryEntryWithUSEID | undefined
 ): Promise<Locator | null> {
   const signature = entry?.useidSignature;
   if (!signature) return null;
@@ -226,21 +225,29 @@ async function attemptUSEIDResolution(
     const useidModule = "@pyyush/useid";
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { resolveUSEID } = await (import(useidModule) as Promise<any>) as {
-      resolveUSEID: (opts: Record<string, unknown>) => USEIDResolveResult;
+      resolveUSEID: (opts: Record<string, unknown>) => USEIDResolveResult | Promise<USEIDResolveResult>;
     };
 
-    const [domSnapshot, accessibilitySnapshot] = await Promise.all([
-      captureDOMSnapshot(page),
-      captureA11ySnapshot(page),
+    // Snapshot capture with 5-second timeout to prevent hanging on slow pages
+    const snapshots = await Promise.race([
+      Promise.all([
+        captureDOMSnapshot(page),
+        captureA11ySnapshot(page),
+      ]),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
     ]);
+    if (!snapshots) return null; // Timed out
+
+    const [domSnapshot, accessibilitySnapshot] = snapshots;
     if (!domSnapshot || !accessibilitySnapshot) return null;
 
-    const result = resolveUSEID({
+    // resolveUSEID may be sync or async depending on the implementation
+    const result = await Promise.resolve(resolveUSEID({
       signature,
       domSnapshot,
       accessibilitySnapshot,
       pageUrl: page.url(),
-    });
+    }));
 
     if (!result.resolved) return null;
     if (result.confidence < USEID_CONFIDENCE_THRESHOLD) return null;
