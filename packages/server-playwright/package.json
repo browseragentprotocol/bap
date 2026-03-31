@@ -65,6 +65,9 @@
     "playwright": "^1.58.2",
     "ws": "^8.19.0"
   },
+  "optionalDependencies": {
+    "@pyyush/useid": "^0.1.0"
+  },
   "devDependencies": {
     "@types/ws": "^8.5.14",
     "tsup": "^8.3.0",

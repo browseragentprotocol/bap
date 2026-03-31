@@ -7,7 +7,7 @@ import type { Page as PlaywrightPage, Locator } from "playwright";
 import { type BAPSelector, type AriaRole, ErrorCodes } from "@browseragentprotocol/protocol";
 import { BAPServerError } from "../errors.js";
 import { validateSelectorValue } from "../security/selector-validator.js";
-import type { PageOwner } from "../types.js";
+import type { PageOwner, ElementRegistryEntryWithUSEID } from "../types.js";
 
 export interface SelectorResolverDeps {
   logSecurity: (event: string, details: Record<string, unknown>) => void;
@@ -97,6 +97,17 @@ export function resolveSelector(
   }
 }
 
+/** Minimum confidence for accepting a uSEID resolution result. */
+const USEID_CONFIDENCE_THRESHOLD = 0.85;
+
+// Minimal type stubs for @pyyush/useid — avoids hard type dependency on an optional package.
+// These mirror the subset of the uSEID API consumed by the resolver.
+interface USEIDDOMSnapshot { snapshot: unknown; hash?: string; serialized?: string }
+interface USEIDAccessibilitySnapshot { tree: unknown; hash?: string; serialized?: string }
+interface USEIDResolveResolved { resolved: true; selectorHint: string; candidateIndex: number; confidence: number }
+interface USEIDResolveAbstained { resolved: false; candidates: unknown[]; explanation: string; abstentionReason: string }
+type USEIDResolveResult = USEIDResolveResolved | USEIDResolveAbstained;
+
 /**
  * Self-healing selector resolution.
  * Tries the primary selector first. If it fails (0 matches), attempts
@@ -108,6 +119,7 @@ export function resolveSelector(
  * 3. ariaLabel → getByRole(role, { name: ariaLabel })
  * 4. testId → getByTestId(testId)
  * 5. id → page.locator(`#${id}`)
+ * 6. uSEID weighted matching (semantic 0.5 / structural 0.3 / spatial 0.2)
  */
 export async function resolveSelectorWithHealing(
   page: PlaywrightPage,
@@ -179,8 +191,98 @@ export async function resolveSelectorWithHealing(
         }
       }
     }
+
+    // Last resort: uSEID weighted matching (semantic + structural + spatial)
+    const useidLocator = await attemptUSEIDResolution(page, entry);
+    if (useidLocator) return useidLocator;
   }
 
   // No healing succeeded — return original (will fail with meaningful error on use)
   return locator;
+}
+
+/**
+ * Attempt uSEID-based element resolution as a last-resort healing strategy.
+ *
+ * Requires the entry to have a `useidSignature` (built during agent/observe).
+ * Captures fresh DOM and accessibility snapshots, then calls resolveUSEID
+ * with the stored signature. Accepts only high-confidence results (>= 0.85).
+ *
+ * @param page - Playwright page to resolve against
+ * @param entry - Element registry entry (may have useidSignature)
+ * @returns Locator if uSEID resolved with sufficient confidence, null otherwise
+ */
+async function attemptUSEIDResolution(
+  page: PlaywrightPage,
+  entry: ElementRegistryEntryWithUSEID | undefined
+): Promise<Locator | null> {
+  const signature = entry?.useidSignature;
+  if (!signature) return null;
+
+  try {
+    // Dynamic import: @pyyush/useid is an optional dependency.
+    // String indirection prevents TypeScript from resolving the module at compile time.
+    const useidModule = "@pyyush/useid";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { resolveUSEID } = await (import(useidModule) as Promise<any>) as {
+      resolveUSEID: (opts: Record<string, unknown>) => USEIDResolveResult | Promise<USEIDResolveResult>;
+    };
+
+    // Snapshot capture with 5-second timeout to prevent hanging on slow pages
+    const snapshots = await Promise.race([
+      Promise.all([
+        captureDOMSnapshot(page),
+        captureA11ySnapshot(page),
+      ]),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+    ]);
+    if (!snapshots) return null; // Timed out
+
+    const [domSnapshot, accessibilitySnapshot] = snapshots;
+    if (!domSnapshot || !accessibilitySnapshot) return null;
+
+    // resolveUSEID may be sync or async depending on the implementation
+    const result = await Promise.resolve(resolveUSEID({
+      signature,
+      domSnapshot,
+      accessibilitySnapshot,
+      pageUrl: page.url(),
+    }));
+
+    if (!result.resolved) return null;
+    if (result.confidence < USEID_CONFIDENCE_THRESHOLD) return null;
+
+    return page.locator(result.selectorHint);
+  } catch {
+    // uSEID not installed, snapshot capture failed, or resolution threw
+    return null;
+  }
+}
+
+/** Capture a CDP DOMSnapshot. Returns null on non-Chromium or CDP failure. */
+async function captureDOMSnapshot(page: PlaywrightPage): Promise<USEIDDOMSnapshot | null> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cdpSession = await (page.context() as any).newCDPSession(page);
+    const snapshot = await cdpSession.send("DOMSnapshot.captureSnapshot", {
+      computedStyles: [],
+      includeDOMRects: true,
+      includePaintOrder: false,
+    });
+    await cdpSession.detach();
+    return { snapshot };
+  } catch {
+    return null;
+  }
+}
+
+/** Capture a Playwright accessibility snapshot. Returns null on failure. */
+async function captureA11ySnapshot(page: PlaywrightPage): Promise<USEIDAccessibilitySnapshot | null> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tree = await (page as any).accessibility.snapshot();
+    return { tree };
+  } catch {
+    return null;
+  }
 }

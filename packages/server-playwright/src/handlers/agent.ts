@@ -546,6 +546,60 @@ export async function handleAgentObserve(
       result.totalInteractiveElements = elements.total;
     }
 
+    // Build uSEID signatures for self-healing (optional, Chromium-only via CDP)
+    try {
+      const useidModule = "@pyyush/useid";
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { buildUSEID, extractElements } = await (import(useidModule) as Promise<any>) as {
+        buildUSEID: (opts: Record<string, unknown>) => unknown;
+        extractElements: (opts: Record<string, unknown>) => { role?: string; name?: string }[];
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cdpSession = await (page.context() as any).newCDPSession(page);
+      const [domSnapshot, a11ySnapshot] = await Promise.race([
+        Promise.all([
+          cdpSession.send("DOMSnapshot.captureSnapshot", {
+            computedStyles: ["display", "visibility", "opacity", "position"],
+            includeDOMRects: true,
+          }).then((snapshot: unknown) => ({ snapshot })),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (page as any).accessibility?.snapshot?.({ interestingOnly: false })
+            .then((tree: unknown) => ({ tree: tree ?? { role: "WebArea", name: "", children: [] } }))
+            .catch(() => ({ tree: { role: "WebArea", name: "", children: [] } })),
+        ]),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("uSEID snapshot timeout")), 5000)),
+      ]) as [{ snapshot: unknown }, { tree: unknown }];
+
+      const useidPageUrl = page.url();
+      const useidElements = extractElements({
+        domSnapshot,
+        accessibilitySnapshot: a11ySnapshot,
+        pageUrl: useidPageUrl,
+      });
+
+      // Store signatures in registry entries by matching role + name
+      for (const [, entry] of registry.elements) {
+        const matchIdx = useidElements.findIndex(
+          (el) => el.role === entry.identity?.role && el.name === entry.identity?.name
+        );
+        if (matchIdx >= 0) {
+          const sig = buildUSEID({
+            domSnapshot,
+            accessibilitySnapshot: a11ySnapshot,
+            elementIndex: matchIdx,
+            pageUrl: useidPageUrl,
+          });
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (entry as any).useidSignature = sig;
+        }
+      }
+
+      await cdpSession.detach().catch(() => {});
+    } catch {
+      // uSEID not installed or not supported (Firefox/WebKit) — silently skip
+    }
+
     // Fusion 3: incremental observe
     if (params.incremental && previousRefs) {
       const currentRefs = new Set(elements.elements.map((el) => el.ref));

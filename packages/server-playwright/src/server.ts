@@ -1,7 +1,7 @@
 /**
  * @fileoverview BAP Playwright Server — thin shell
  * @module @browseragentprotocol/server-playwright
- * @version 0.6.0
+ * @version 0.9.0
  *
  * Decomposed from a 5400-line monolith into ~15 modules.
  * This file is the orchestration shell: constructor, start/stop,

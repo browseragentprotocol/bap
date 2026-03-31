@@ -147,6 +147,24 @@ export interface PlaywrightAccessibilityNode {
   children?: PlaywrightAccessibilityNode[];
 }
 
+/** Extended element registry entry with optional uSEID signature for self-healing. */
+export interface ElementRegistryEntryWithUSEID {
+  /** Original BAP selector */
+  selector: import("@browseragentprotocol/protocol").BAPSelector;
+  /** Cached CSS selector for fast resolution */
+  cachedCssSelector?: string;
+  /** Element identity signals for self-healing */
+  identity?: {
+    testId?: string;
+    ariaLabel?: string;
+    role?: string;
+    id?: string;
+    name?: string;
+  };
+  /** uSEID signature for weighted semantic matching (populated during agent/observe) */
+  useidSignature?: unknown;
+}
+
 export interface ActionConfirmationEvent {
   pageId: string;
   action: string;

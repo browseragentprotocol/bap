@@ -1,12 +1,12 @@
-# BAP Protocol Specification v0.8.0
+# BAP Protocol Specification v0.9.0
 
-**Status:** Stable — all 48 methods pinned. Additive changes only (new optional fields, new methods). No breaking changes without major version bump.
+**Status:** Stable — all 55 methods pinned. Additive changes only (new optional fields, new methods). No breaking changes without major version bump.
 
 ## Transport
 
 - **Protocol:** JSON-RPC 2.0 over WebSocket
 - **Default endpoint:** `ws://localhost:9222`
-- **Health check:** `GET /health` returns `{"status":"ok","version":"0.8.0"}`
+- **Health check:** `GET /health` returns `{"status":"ok","version":"0.9.0"}`
 - **Auth:** Optional token via `?token=<tok>` query param or `X-BAP-Token` header
 - **Max message size:** 10MB (configurable via `BAP_MAX_MESSAGE_SIZE`)
 

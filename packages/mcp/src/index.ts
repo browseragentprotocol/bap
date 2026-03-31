@@ -1,14 +1,11 @@
 /**
  * @fileoverview BAP MCP Integration
  * @module @browseragentprotocol/mcp
- * @version 0.2.0
+ * @version 0.9.0
  *
  * Exposes Browser Agent Protocol as an MCP (Model Context Protocol) server.
  * Allows AI agents to control browsers through standardized MCP tools.
  *
- * TODO (MEDIUM): Add input validation on tool arguments before passing to BAP client — DONE (critical tools)
- * TODO (MEDIUM): Enforce session timeout (maxSessionDuration) - currently unused
- * TODO (MEDIUM): Add resource cleanup on partial failure in ensureClient() — DONE (v0.2.0)
  * TODO (LOW): parseSelector should validate empty/whitespace-only strings
  * TODO (LOW): Consider sanitizing URLs in verbose logging to prevent token leakage
  */
