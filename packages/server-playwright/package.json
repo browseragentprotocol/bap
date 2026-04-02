@@ -62,7 +62,7 @@
   "dependencies": {
     "@browseragentprotocol/logger": "workspace:*",
     "@browseragentprotocol/protocol": "workspace:*",
-    "playwright": "^1.58.2",
+    "playwright": "^1.59.1",
     "ws": "^8.19.0"
   },
   "devDependencies": {
