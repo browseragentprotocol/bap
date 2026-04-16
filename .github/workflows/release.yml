@@ -30,7 +30,7 @@ jobs:
         run: echo "python_only=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.python_only == 'true' || 'false' }}" >> "$GITHUB_OUTPUT"
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v5
+        uses: pnpm/action-setup@v6
         with:
           version: 9.15.0
 
