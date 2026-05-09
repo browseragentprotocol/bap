@@ -10,7 +10,11 @@ vi.mock("@pyyush/useid", () => ({
   resolveUSEID: mockResolveUSEID,
 }));
 
-import { resolveSelectorWithHealing, type SelectorResolverDeps } from "../selectors/resolver.js";
+import {
+  resolveSelectorWithHealing,
+  resolveSelectorWithRefHealing,
+  type SelectorResolverDeps,
+} from "../selectors/resolver.js";
 import type { BAPSelector } from "@browseragentprotocol/protocol";
 import type { PageElementRegistry, ElementRegistryEntry } from "@browseragentprotocol/protocol";
 import type { ElementRegistryEntryWithUSEID } from "../types.js";
@@ -63,10 +67,18 @@ function createMockDeps(
   };
 }
 
-function createRegistryWithUSEID(ref: string, useidSignature?: unknown): PageElementRegistry {
+function createRegistryWithUSEID(
+  ref: string,
+  useidSignature?: unknown,
+  identityOverrides: Partial<ElementRegistryEntryWithUSEID["identity"]> = {}
+): PageElementRegistry {
   const entry: ElementRegistryEntryWithUSEID = {
     selector: { type: "css", value: ".old-class" },
-    identity: { role: "button", name: "Submit" },
+    identity: {
+      role: "button",
+      name: "Submit",
+      ...identityOverrides,
+    },
     useidSignature,
   };
   const elements = new Map<string, ElementRegistryEntry>();
@@ -112,12 +124,12 @@ describe("resolveSelectorWithHealing - uSEID integration", () => {
     expect(page.locator).toHaveBeenCalledWith("button[name='Submit']");
   });
 
-  it("should return original locator when uSEID abstains", async () => {
+  it("should fail fast with a stale ref error when uSEID abstains", async () => {
     // Given: uSEID abstains (no match found)
     const fakeSignature = { hash: "abc123", semantic: { role: "button" } };
     const registry = createRegistryWithUSEID("@submit", fakeSignature);
     const deps = createMockDeps(registry);
-    const { page, mockLocator } = createMockPage(0);
+    const { page } = createMockPage(0);
     const selector: BAPSelector = { type: "ref", ref: "@submit" };
 
     mockResolveUSEID.mockReturnValue({
@@ -128,32 +140,32 @@ describe("resolveSelectorWithHealing - uSEID integration", () => {
     });
 
     // When
-    const result = await resolveSelectorWithHealing(page, selector, deps);
-
-    // Then: returns the original locator (healing failed gracefully)
+    await expect(resolveSelectorWithHealing(page, selector, deps)).rejects.toThrow(
+      "Element ref is stale: @submit"
+    );
     expect(mockResolveUSEID).toHaveBeenCalled();
-    expect(result).toBe(mockLocator);
+    expect(registry.elements.has("@submit")).toBe(false);
   });
 
-  it("should skip uSEID when entry has no useidSignature", async () => {
+  it("should skip uSEID when entry has no useidSignature and fail fast", async () => {
     // Given: registry entry without useidSignature
     const registry = createRegistryWithUSEID("@submit"); // no signature
     const deps = createMockDeps(registry);
     const { page } = createMockPage(0);
     const selector: BAPSelector = { type: "ref", ref: "@submit" };
 
-    await resolveSelectorWithHealing(page, selector, deps);
-
-    // Then: uSEID was never called
+    await expect(resolveSelectorWithHealing(page, selector, deps)).rejects.toThrow(
+      "Element ref is stale: @submit"
+    );
     expect(mockResolveUSEID).not.toHaveBeenCalled();
   });
 
-  it("should return original locator when uSEID import fails", async () => {
+  it("should fail fast when uSEID import fails and no fallback can resolve the ref", async () => {
     // Given: resolveUSEID throws (simulating broken module)
     const fakeSignature = { hash: "abc123", semantic: { role: "button" } };
     const registry = createRegistryWithUSEID("@submit", fakeSignature);
     const deps = createMockDeps(registry);
-    const { page, mockLocator } = createMockPage(0);
+    const { page } = createMockPage(0);
     const selector: BAPSelector = { type: "ref", ref: "@submit" };
 
     mockResolveUSEID.mockImplementation(() => {
@@ -161,10 +173,9 @@ describe("resolveSelectorWithHealing - uSEID integration", () => {
     });
 
     // When
-    const result = await resolveSelectorWithHealing(page, selector, deps);
-
-    // Then: should not throw, returns original locator
-    expect(result).toBe(mockLocator);
+    await expect(resolveSelectorWithHealing(page, selector, deps)).rejects.toThrow(
+      "Element ref is stale: @submit"
+    );
   });
 
   it("should not attempt uSEID when primary locator succeeds", async () => {
@@ -183,12 +194,12 @@ describe("resolveSelectorWithHealing - uSEID integration", () => {
     expect(result).toBe(mockLocator);
   });
 
-  it("should reject uSEID result below confidence threshold of 0.85", async () => {
+  it("should fail fast when uSEID resolves below the confidence threshold", async () => {
     // Given: uSEID resolves but with low confidence
     const fakeSignature = { hash: "abc123", semantic: { role: "button" } };
     const registry = createRegistryWithUSEID("@submit", fakeSignature);
     const deps = createMockDeps(registry);
-    const { page, mockLocator } = createMockPage(0);
+    const { page } = createMockPage(0);
     const selector: BAPSelector = { type: "ref", ref: "@submit" };
 
     mockResolveUSEID.mockReturnValue({
@@ -199,11 +210,10 @@ describe("resolveSelectorWithHealing - uSEID integration", () => {
     });
 
     // When
-    const result = await resolveSelectorWithHealing(page, selector, deps);
-
-    // Then: uSEID was called but result was rejected; falls back to original locator
+    await expect(resolveSelectorWithHealing(page, selector, deps)).rejects.toThrow(
+      "Element ref is stale: @submit"
+    );
     expect(mockResolveUSEID).toHaveBeenCalled();
-    expect(result).toBe(mockLocator);
     // The selectorHint should NOT have been used to create a new locator
     // (page.locator was called once for the primary ".old-class", not for the hint)
     const locatorCalls = page.locator.mock.calls;
@@ -233,7 +243,41 @@ describe("resolveSelectorWithHealing - uSEID integration", () => {
     expect(page.locator).toHaveBeenCalledWith("#async-element");
   });
 
-  it("should return null from attemptUSEIDResolution when snapshot capture times out", async () => {
+  it("escapes CSS-invalid ids before using the id healing fallback", async () => {
+    const registry = createRegistryWithUSEID("@submit");
+    const entry = registry.elements.get("@submit") as ElementRegistryEntryWithUSEID | undefined;
+    if (!entry?.identity) {
+      throw new Error("Expected identity on test registry entry");
+    }
+    entry.identity.id = "user.name";
+
+    const deps = createMockDeps(registry);
+    const primaryLocator = {
+      count: vi.fn().mockResolvedValue(0),
+      first: vi.fn().mockReturnThis(),
+    };
+    const escapedIdLocator = {
+      count: vi.fn().mockResolvedValue(1),
+    };
+    const { page } = createMockPage(0);
+    page.locator = vi.fn((value: string) => {
+      if (value === ".old-class") {
+        return primaryLocator;
+      }
+      if (value === "#user\\.name") {
+        return escapedIdLocator;
+      }
+      return { count: vi.fn().mockResolvedValue(0) };
+    });
+
+    const selector: BAPSelector = { type: "ref", ref: "@submit" };
+    const result = await resolveSelectorWithHealing(page, selector, deps);
+
+    expect(result).toBe(escapedIdLocator);
+    expect(page.locator).toHaveBeenCalledWith("#user\\.name");
+  });
+
+  it("should fail fast when snapshot capture times out and the ref cannot be healed", async () => {
     // Given: CDP session hangs (simulated by never resolving)
     const fakeSignature = { hash: "timeout123" };
     const registry = createRegistryWithUSEID("@slow-btn", fakeSignature);
@@ -251,10 +295,56 @@ describe("resolveSelectorWithHealing - uSEID integration", () => {
     });
 
     // When: should not hang — timeout kicks in and returns original locator
-    const result = await resolveSelectorWithHealing(page, selector, deps);
-
-    // Then: uSEID was NOT called (snapshots timed out before we could call it)
+    await expect(resolveSelectorWithHealing(page, selector, deps)).rejects.toThrow(
+      "Element ref is stale: @slow-btn"
+    );
     expect(mockResolveUSEID).not.toHaveBeenCalled();
-    expect(result).toBeDefined();
   }, 10000);
+
+  it("should escape CSS-invalid ids during the id fallback", async () => {
+    const registry = createRegistryWithUSEID("@submit", undefined, {
+      id: "checkout:submit.primary",
+    });
+    const deps = createMockDeps(registry);
+    const { page, mockLocator } = createMockPage(0);
+    const escapedIdLocator = {
+      count: vi.fn().mockResolvedValue(1),
+      first: vi.fn().mockReturnThis(),
+    };
+    page.locator.mockImplementation((value: string) => {
+      if (value === ".old-class") {
+        return mockLocator;
+      }
+      if (value === "#checkout\\:submit\\.primary") {
+        return escapedIdLocator;
+      }
+      return {
+        count: vi.fn().mockResolvedValue(0),
+        first: vi.fn().mockReturnThis(),
+      };
+    });
+
+    const result = await resolveSelectorWithHealing(page, { type: "ref", ref: "@submit" }, deps);
+
+    expect(page.locator).toHaveBeenCalledWith("#checkout\\:submit\\.primary");
+    expect(result).toBe(escapedIdLocator);
+  });
+
+  it("should keep non-ref selectors on the fast path", async () => {
+    const locator = {
+      count: vi.fn(),
+      first: vi.fn().mockReturnThis(),
+    };
+    const page = {
+      locator: vi.fn().mockReturnValue(locator),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+    const deps = createMockDeps();
+
+    const result = await resolveSelectorWithRefHealing(page, { type: "css", value: "#submit" }, deps);
+
+    expect(page.locator).toHaveBeenCalledWith("#submit");
+    expect(locator.count).not.toHaveBeenCalled();
+    expect(result).toBe(locator);
+  });
 });

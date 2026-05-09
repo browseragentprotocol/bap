@@ -7,7 +7,8 @@ Provides async WebSocket connection with auto-reconnection support.
 import asyncio
 import json
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import aiohttp
 

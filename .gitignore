@@ -29,15 +29,21 @@ npm-debug.log*
 
 # Test coverage
 coverage/
+.pytest_cache/
+__pycache__/
 
 # Claude Code instructions (local only)
 CLAUDE.md
 AGENTS.md
 docs/plans/
 .claude/
+.omx/
+.dev-session/
 
 # Internal roadmap (local only)
 ROADMAP.md
+.staff-engineer-state.json
+.staff-engineer.json
 
 # BAP runtime artifacts
 .bap/

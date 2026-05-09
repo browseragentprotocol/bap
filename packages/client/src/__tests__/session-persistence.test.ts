@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BAPClient, type BAPTransport } from "../index.js";
+import { BAPClient, BAP_VERSION, type BAPTransport } from "../index.js";
 
 /**
  * Mock transport for testing session persistence behavior
@@ -53,7 +53,7 @@ class MockTransport implements BAPTransport {
 
 function setupTransport(transport: MockTransport): void {
   transport.setAutoResponse("initialize", {
-    protocolVersion: "0.2.0",
+    protocolVersion: BAP_VERSION,
     serverInfo: { name: "test-server", version: "1.0.0" },
     capabilities: { browsers: ["chromium"] },
     sessionId: "test-session",

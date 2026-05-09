@@ -12,6 +12,7 @@
  */
 
 import { Logger, banner, table, icons, pc } from "@browseragentprotocol/logger";
+import { BAP_VERSION } from "@browseragentprotocol/protocol";
 import { BAPPlaywrightServer, BAPServerOptions } from "./server.js";
 
 const log = new Logger({ prefix: "BAP Server" });
@@ -67,7 +68,7 @@ function parseArgs(): Partial<BAPServerOptions> {
       printHelp();
       process.exit(0);
     } else if (arg === "--version" || arg === "-v") {
-      console.log(`${icons.server} BAP Playwright Server ${pc.dim("v0.6.0")}`);
+      console.log(`${icons.server} BAP Playwright Server ${pc.dim(`v${BAP_VERSION}`)}`);
       process.exit(0);
     }
   }
@@ -157,7 +158,7 @@ async function main(): Promise<void> {
     console.log(
       banner({
         title: "BAP Playwright Server",
-        version: "0.2.0",
+        version: BAP_VERSION,
         subtitle: "Browser Agent Protocol",
       })
     );

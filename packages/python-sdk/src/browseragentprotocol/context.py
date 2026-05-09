@@ -5,10 +5,12 @@ Provides async context managers for managing BAP client connections,
 following patterns from MCP Python SDK.
 """
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Literal
+from typing import Literal
 
 from browseragentprotocol.client import BAPClient
+from browseragentprotocol.types.protocol import BAP_VERSION
 
 
 @asynccontextmanager
@@ -17,7 +19,7 @@ async def bap_client(
     *,
     token: str | None = None,
     name: str = "bap-client-python",
-    version: str = "0.2.0",
+    version: str = BAP_VERSION,
     timeout: float = 30.0,
     events: list[str] | None = None,
     browser: Literal["chromium", "firefox", "webkit"] | None = None,

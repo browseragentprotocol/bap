@@ -11,11 +11,9 @@ from pydantic import BaseModel, Field
 from browseragentprotocol.types.common import (
     AccessibilityNode,
     BoundingBox,
-    Page,
     ScreenshotFormat,
     Viewport,
 )
-from browseragentprotocol.types.selectors import BAPSelector
 
 # =============================================================================
 # Initialize
@@ -104,6 +102,56 @@ class BrowserLaunchResult(BaseModel):
     version: str
 
     model_config = {"populate_by_name": True}
+
+
+class TrustRedaction(BaseModel):
+    """Redaction posture exposed to operators."""
+
+    content: bool
+    password_values: bool = Field(alias="passwordValues")
+    screenshots: bool
+    storage_state: bool = Field(alias="storageState")
+
+    model_config = {"populate_by_name": True}
+
+
+class TrustSurface(BaseModel):
+    """Approval, domain, and redaction state visible to operators."""
+
+    approval_mode: Literal["readonly", "standard", "privileged"] = Field(alias="approvalMode")
+    allowed_domains: list[str] | None = Field(default=None, alias="allowedDomains")
+    redaction: TrustRedaction
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionInfo(BaseModel):
+    """Summary of a persisted session."""
+
+    session_id: str = Field(alias="sessionId")
+    client_id: str | None = Field(default=None, alias="clientId")
+    state: Literal["active", "dormant"]
+    page_count: int = Field(alias="pageCount")
+    active_page_id: str | None = Field(default=None, alias="activePageId")
+    active_page_url: str | None = Field(default=None, alias="activePageUrl")
+    active_page_title: str | None = Field(default=None, alias="activePageTitle")
+    browser: Literal["chromium", "firefox", "webkit"] | None = None
+    channel: str | None = None
+    headless: bool | None = None
+    is_persistent: bool = Field(alias="isPersistent")
+    handoff_pending: bool | None = Field(default=None, alias="handoffPending")
+    last_activity_at: int | None = Field(default=None, alias="lastActivityAt")
+    parked_at: int | None = Field(default=None, alias="parkedAt")
+    expires_at: int | None = Field(default=None, alias="expiresAt")
+    trust: TrustSurface | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+class SessionListResult(BaseModel):
+    """Result of session/list."""
+
+    sessions: list[SessionInfo]
 
 
 # =============================================================================

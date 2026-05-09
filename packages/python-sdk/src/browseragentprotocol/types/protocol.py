@@ -4,7 +4,7 @@ JSON-RPC 2.0 protocol types with Pydantic models.
 Matches the TypeScript definitions in @browseragentprotocol/protocol.
 """
 
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -12,13 +12,13 @@ from pydantic import BaseModel, Field
 # Protocol Version
 # =============================================================================
 
-BAP_VERSION = "0.2.0"
+BAP_VERSION = "0.9.0"
 
 # =============================================================================
 # Request ID
 # =============================================================================
 
-RequestId = Union[str, int]
+RequestId = str | int
 
 # =============================================================================
 # Error Codes
@@ -129,10 +129,10 @@ class JSONRPCNotification(BaseModel):
 
 
 # Union types
-JSONRPCResponse = Union[JSONRPCSuccessResponse, JSONRPCErrorResponse]
-JSONRPCMessage = Union[
-    JSONRPCRequest, JSONRPCSuccessResponse, JSONRPCErrorResponse, JSONRPCNotification
-]
+JSONRPCResponse = JSONRPCSuccessResponse | JSONRPCErrorResponse
+JSONRPCMessage = (
+    JSONRPCRequest | JSONRPCSuccessResponse | JSONRPCErrorResponse | JSONRPCNotification
+)
 
 
 # =============================================================================

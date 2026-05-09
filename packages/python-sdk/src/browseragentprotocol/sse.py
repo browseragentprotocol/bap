@@ -8,7 +8,8 @@ where WebSockets are not available, following MCP SDK patterns.
 import asyncio
 import json
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 from httpx_sse import aconnect_sse

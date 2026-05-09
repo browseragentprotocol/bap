@@ -34,3 +34,6 @@ import "./install-skill.js";
 import "./trace.js";
 import "./demo.js";
 import "./watch.js";
+import "./handoff.js";
+import "./doctor.js";
+import "./status.js";

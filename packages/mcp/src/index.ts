@@ -31,6 +31,7 @@ import {
   type ExecutionStep,
   type ElementProperty,
 } from "@browseragentprotocol/client";
+import { BAP_VERSION } from "@browseragentprotocol/protocol";
 import { DirectTransport } from "./direct-transport.js";
 import {
   type StepResult,
@@ -879,7 +880,7 @@ export class BAPMCPServer {
     this.options = {
       bapServerUrl: options.bapServerUrl ?? "ws://localhost:9222",
       name: options.name ?? "BAPBrowser",
-      version: options.version ?? "1.0.0",
+      version: options.version ?? BAP_VERSION,
       browser: options.browser ?? "chrome",
       headless: options.headless ?? true,
       verbose: options.verbose ?? false,

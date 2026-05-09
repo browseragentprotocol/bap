@@ -505,7 +505,6 @@ def create_error_from_code(
 
     # For specific error codes, create the specialized error
     if code in error_classes:
-        error_cls = error_classes[code]
         # These errors have special constructors
         if code == ErrorCodes.ParseError:
             return BAPParseError(message)

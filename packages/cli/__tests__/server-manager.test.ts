@@ -1,4 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
+const mockExistsSync = vi.fn(() => false);
+const mockReadFileSync = vi.fn(() => "{}");
+const mockWriteFileSync = vi.fn(() => {});
+const mockMkdirSync = vi.fn(() => {});
+const mockUnlinkSync = vi.fn(() => {});
 
 // Mock child_process, fs, os, net to avoid real server spawning
 vi.mock("node:child_process", () => ({
@@ -12,11 +18,11 @@ vi.mock("node:child_process", () => ({
 
 vi.mock("node:fs", () => ({
   default: {
-    existsSync: () => false,
-    readFileSync: () => "{}",
-    writeFileSync: () => {},
-    mkdirSync: () => {},
-    unlinkSync: () => {},
+    existsSync: mockExistsSync,
+    readFileSync: mockReadFileSync,
+    writeFileSync: mockWriteFileSync,
+    mkdirSync: mockMkdirSync,
+    unlinkSync: mockUnlinkSync,
   },
 }));
 
@@ -65,8 +71,16 @@ vi.mock("@browseragentprotocol/client", () => ({
 const { ServerManager } = await import("../src/server/manager.js");
 
 describe("ServerManager.ensureReady", () => {
+  let stderrWriteSpy: ReturnType<typeof vi.spyOn> | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExistsSync.mockReturnValue(false);
+    stderrWriteSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderrWriteSpy?.mockRestore();
   });
 
   it("passes the configured timeout to the client connection", async () => {
@@ -93,7 +107,9 @@ describe("ServerManager.ensureReady", () => {
   });
 
   it("should auto-launch browser and create page when no pages exist", async () => {
-    mockClient.listPages.mockResolvedValue({ pages: [], activePage: "" });
+    mockClient.listPages
+      .mockResolvedValueOnce({ pages: [], activePage: "" })
+      .mockResolvedValueOnce({ pages: [], activePage: "" });
     mockClient.launch.mockResolvedValue({ browserId: "b1", version: "1.0" });
     mockClient.createPage.mockResolvedValue({ id: "page-1", url: "about:blank" });
 
@@ -107,7 +123,7 @@ describe("ServerManager.ensureReady", () => {
     const client = await manager.ensureReady();
 
     expect(client).toBe(mockClient);
-    expect(mockClient.listPages).toHaveBeenCalledOnce();
+    expect(mockClient.listPages).toHaveBeenCalledTimes(2);
     expect(mockClient.launch).toHaveBeenCalledWith({
       browser: "chromium",
       channel: undefined,
@@ -115,6 +131,29 @@ describe("ServerManager.ensureReady", () => {
     });
     expect(mockClient.createPage).toHaveBeenCalledOnce();
     expect(mockClient.activatePage).not.toHaveBeenCalled();
+  });
+
+  it("reuses the startup page created during browser launch", async () => {
+    mockClient.listPages
+      .mockResolvedValueOnce({ pages: [], activePage: "" })
+      .mockResolvedValueOnce({
+        pages: [{ id: "page-startup", url: "about:blank" }],
+        activePage: "page-startup",
+      });
+    mockClient.launch.mockResolvedValue({ browserId: "b1", version: "1.0" });
+
+    const manager = new ServerManager({
+      port: 9222,
+      browser: "chromium",
+      headless: true,
+      verbose: false,
+    });
+
+    await manager.ensureReady();
+
+    expect(mockClient.launch).toHaveBeenCalledOnce();
+    expect(mockClient.activatePage).toHaveBeenCalledWith("page-startup");
+    expect(mockClient.createPage).not.toHaveBeenCalled();
   });
 
   it("should reuse existing pages from session persistence", async () => {
@@ -245,12 +284,16 @@ describe("ServerManager.ensureReady", () => {
   });
 
   it("should treat about:blank pages as empty and re-initialize", async () => {
-    mockClient.listPages.mockResolvedValue({
-      pages: [{ id: "ghost-1", url: "about:blank" }],
-      activePage: "ghost-1",
-    });
+    mockClient.listPages
+      .mockResolvedValueOnce({
+        pages: [{ id: "ghost-1", url: "about:blank" }],
+        activePage: "ghost-1",
+      })
+      .mockResolvedValueOnce({
+        pages: [{ id: "page-startup", url: "about:blank" }],
+        activePage: "page-startup",
+      });
     mockClient.launch.mockResolvedValue({ browserId: "b1", version: "1.0" });
-    mockClient.createPage.mockResolvedValue({ id: "page-new", url: "about:blank" });
 
     const manager = new ServerManager({
       port: 9222,
@@ -261,10 +304,10 @@ describe("ServerManager.ensureReady", () => {
 
     await manager.ensureReady();
 
-    // Should NOT reuse the ghost page — should launch fresh
-    expect(mockClient.activatePage).not.toHaveBeenCalled();
+    // Should NOT reuse the ghost page from the stale session — should relaunch first
     expect(mockClient.launch).toHaveBeenCalledOnce();
-    expect(mockClient.createPage).toHaveBeenCalledOnce();
+    expect(mockClient.activatePage).toHaveBeenCalledWith("page-startup");
+    expect(mockClient.createPage).not.toHaveBeenCalled();
   });
 
   it("should reuse real pages even when mixed with about:blank pages", async () => {
@@ -310,5 +353,123 @@ describe("ServerManager.ensureReady", () => {
       channel: undefined,
       headless: true,
     });
+  });
+
+  it("retries without the auto-detected profile when Chrome reports a profile lock", async () => {
+    mockExistsSync.mockImplementation((candidate: string) =>
+      candidate === "/tmp/test-home/Library/Application Support/Google/Chrome"
+    );
+    mockClient.listPages.mockResolvedValue({ pages: [], activePage: "" });
+    mockClient.launch
+      .mockRejectedValueOnce(new Error("Chrome is already using that profile."))
+      .mockResolvedValueOnce({ browserId: "b1", version: "1.0" });
+    mockClient.createPage.mockResolvedValue({ id: "page-1", url: "about:blank" });
+
+    const manager = new ServerManager({
+      port: 9222,
+      browser: "chrome",
+      headless: true,
+      verbose: false,
+      profile: "auto",
+    });
+
+    await manager.ensureReady();
+
+    expect(mockClient.launch).toHaveBeenNthCalledWith(1, {
+      browser: "chromium",
+      channel: "chrome",
+      headless: true,
+      userDataDir: "/tmp/test-home/Library/Application Support/Google/Chrome",
+    });
+    expect(mockClient.launch).toHaveBeenNthCalledWith(2, {
+      browser: "chromium",
+      channel: "chrome",
+      headless: true,
+    });
+  });
+
+  it("falls back from missing Chrome to Playwright Chromium", async () => {
+    mockClient.listPages.mockResolvedValue({ pages: [], activePage: "" });
+    mockClient.launch
+      .mockRejectedValueOnce(new Error("Chromium distribution 'chrome' is not found"))
+      .mockResolvedValueOnce({ browserId: "b1", version: "1.0" });
+    mockClient.createPage.mockResolvedValue({ id: "page-1", url: "about:blank" });
+
+    const manager = new ServerManager({
+      port: 9222,
+      browser: "chrome",
+      headless: true,
+      verbose: false,
+      profile: "none",
+    });
+
+    await manager.ensureReady();
+
+    expect(mockClient.launch).toHaveBeenNthCalledWith(1, {
+      browser: "chromium",
+      channel: "chrome",
+      headless: true,
+    });
+    expect(mockClient.launch).toHaveBeenNthCalledWith(2, {
+      browser: "chromium",
+      channel: undefined,
+      headless: true,
+    });
+  });
+
+  it("drops the auto-detected profile when falling back from missing Chrome", async () => {
+    mockExistsSync.mockImplementation((candidate: string) =>
+      candidate === "/tmp/test-home/Library/Application Support/Google/Chrome"
+    );
+    mockClient.listPages.mockResolvedValue({ pages: [], activePage: "" });
+    mockClient.launch
+      .mockRejectedValueOnce(new Error("Chromium distribution 'chrome' is not found"))
+      .mockResolvedValueOnce({ browserId: "b1", version: "1.0" });
+    mockClient.createPage.mockResolvedValue({ id: "page-1", url: "about:blank" });
+
+    const manager = new ServerManager({
+      port: 9222,
+      browser: "chrome",
+      headless: true,
+      verbose: false,
+      profile: "auto",
+    });
+
+    await manager.ensureReady();
+
+    expect(mockClient.launch).toHaveBeenNthCalledWith(1, {
+      browser: "chromium",
+      channel: "chrome",
+      headless: true,
+      userDataDir: "/tmp/test-home/Library/Application Support/Google/Chrome",
+    });
+    expect(mockClient.launch).toHaveBeenNthCalledWith(2, {
+      browser: "chromium",
+      channel: undefined,
+      headless: true,
+      userDataDir: undefined,
+    });
+  });
+
+  it("prefers a real restored page over an about:blank active ghost tab", async () => {
+    mockClient.listPages.mockResolvedValue({
+      pages: [
+        { id: "ghost", url: "about:blank", title: "", viewport: { width: 100, height: 100 } },
+        { id: "real", url: "https://example.com", title: "Example", viewport: { width: 100, height: 100 } },
+      ],
+      activePage: "ghost",
+    });
+
+    const manager = new ServerManager({
+      port: 9222,
+      browser: "chrome",
+      headless: true,
+      verbose: false,
+    });
+
+    await manager.ensureReady();
+
+    expect(mockClient.activatePage).toHaveBeenCalledWith("real");
+    expect(mockClient.launch).not.toHaveBeenCalled();
   });
 });

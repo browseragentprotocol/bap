@@ -24,6 +24,12 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v6
+      - name: Check repository hygiene
+        run: |
+          if git ls-files | rg -n '(^|/)(AGENTS\.md|CLAUDE\.md|docs/plans/|ROADMAP\.md|\.omx/|\.dev-session/|\.staff-engineer-state\.json|\.staff-engineer\.json)$'; then
+            echo "Tracked internal-only files found in public release tree."
+            exit 1
+          fi
 
       - name: Determine release mode
         id: mode

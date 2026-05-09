@@ -28,6 +28,8 @@ import {
   type InitializeResult,
   type BrowserLaunchParams,
   type BrowserLaunchResult,
+  type BrowserStateResult,
+  type SessionListResult,
   type PageCreateParams,
   type PageNavigateResult,
   type WaitUntilState,
@@ -83,6 +85,8 @@ import {
   type ApprovalRequiredParams,
   type ApprovalRespondParams,
   type ApprovalRespondResult,
+  type SessionHandoffParams,
+  type StorageGetSessionStorageResult,
   // Discovery types (WebMCP)
   type DiscoveryDiscoverResult,
 } from "@browseragentprotocol/protocol";
@@ -404,7 +408,7 @@ export class BAPClient extends EventEmitter {
     this.options = {
       token: options.token,
       name: options.name ?? "bap-client",
-      version: options.version ?? "0.2.0",
+      version: options.version ?? BAP_VERSION,
       timeout: options.timeout ?? 30000,
       events: options.events ?? ["page", "console", "network", "dialog"],
       sessionId: options.sessionId,
@@ -555,6 +559,30 @@ export class BAPClient extends EventEmitter {
    */
   async closeBrowser(browserId?: string): Promise<void> {
     await this.request("browser/close", { browserId });
+  }
+
+  /**
+   * Get the current browser launch state for this session.
+   */
+  async getBrowserState(): Promise<BrowserStateResult> {
+    return this.request<BrowserStateResult>("browser/state", {});
+  }
+
+  /**
+   * Configure handoff parking for the current persisted session.
+   */
+  async setHandoffMode(enabled: boolean, options: Omit<SessionHandoffParams, "enabled"> = {}): Promise<void> {
+    await this.request("session/handoff", {
+      enabled,
+      ...options,
+    });
+  }
+
+  /**
+   * List active and dormant persisted sessions known to the server.
+   */
+  async listSessions(): Promise<SessionListResult> {
+    return this.request<SessionListResult>("session/list", {});
   }
 
   // ===========================================================================
@@ -937,6 +965,15 @@ export class BAPClient extends EventEmitter {
    */
   async setStorageState(state: StorageState): Promise<void> {
     await this.request("storage/setState", { state });
+  }
+
+  /**
+   * Get sessionStorage for the active page.
+   */
+  async getSessionStorage(pageId?: string): Promise<StorageGetSessionStorageResult> {
+    return this.request<StorageGetSessionStorageResult>("storage/getSessionStorage", {
+      pageId: pageId ?? this.activePage,
+    });
   }
 
   /**

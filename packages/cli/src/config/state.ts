@@ -39,6 +39,8 @@ export interface GlobalFlags {
   observe?: boolean;
   diff?: boolean;
   tier?: string;
+  audit?: boolean;
+  explain?: boolean;
   // scroll flags
   pixels?: number;
   // output flags
@@ -176,6 +178,10 @@ export function parseArgs(argv: string[]): GlobalFlags {
       flags.observe = true;
     } else if (arg === "--diff") {
       flags.diff = true;
+    } else if (arg === "--audit") {
+      flags.audit = true;
+    } else if (arg === "--explain") {
+      flags.explain = true;
     } else if (arg.startsWith("--tier=")) {
       flags.tier = arg.slice(7);
     } else if (arg === "--tier") {

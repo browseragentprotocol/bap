@@ -102,7 +102,7 @@ export async function handleInitialize(
     protocolVersion: BAP_VERSION,
     serverInfo: {
       name: "bap-playwright",
-      version: "0.6.0",
+      version: BAP_VERSION,
     },
     capabilities,
     sessionId,
@@ -111,4 +111,22 @@ export async function handleInitialize(
 
 export async function handleShutdown(state: ClientState, ctx: HandlerContext): Promise<void> {
   await ctx.cleanupClient(state);
+}
+
+export function handleSessionHandoff(
+  state: ClientState,
+  params: Record<string, unknown>
+): void {
+  if (!state.sessionId) {
+    throw new BAPServerError(
+      ErrorCodes.InvalidRequest,
+      "session/handoff requires an initialized sessionId"
+    );
+  }
+
+  const enabled = params.enabled as boolean;
+  state.handoffPending = enabled;
+  state.dormantTtlMs = enabled
+    ? (((params.ttlSeconds as number | undefined) ?? 24 * 60 * 60) * 1000)
+    : undefined;
 }

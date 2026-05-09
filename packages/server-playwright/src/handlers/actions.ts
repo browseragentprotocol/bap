@@ -15,6 +15,14 @@ import { ErrorCodes } from "@browseragentprotocol/protocol";
 import { BAPServerError } from "../errors.js";
 import type { HandlerContext, ClientState } from "../types.js";
 
+async function resolveActionLocator(
+  page: import("playwright").Page,
+  selector: BAPSelector,
+  ctx: HandlerContext
+): Promise<import("playwright").Locator> {
+  return ctx.resolveSelectorWithRefHealing(page, selector);
+}
+
 export async function handleActionClick(
   state: ClientState,
   params: Record<string, unknown>,
@@ -32,7 +40,7 @@ export async function handleActionClick(
     return;
   }
 
-  const locator = ctx.resolveSelector(page, selector);
+  const locator = await resolveActionLocator(page, selector, ctx);
   await locator.click({
     button: options?.button,
     clickCount: options?.clickCount,
@@ -61,7 +69,7 @@ export async function handleActionDblclick(
     return;
   }
 
-  const locator = ctx.resolveSelector(page, selector);
+  const locator = await resolveActionLocator(page, selector, ctx);
   await locator.dblclick({
     button: options?.button,
     modifiers: options?.modifiers as ("Alt" | "Control" | "Meta" | "Shift")[] | undefined,
@@ -79,7 +87,7 @@ export async function handleActionType(
   ctx: HandlerContext
 ): Promise<void> {
   const page = ctx.getPage(state, params.pageId as string | undefined);
-  const locator = ctx.resolveSelector(page, params.selector as BAPSelector);
+  const locator = await resolveActionLocator(page, params.selector as BAPSelector, ctx);
   const text = params.text as string;
   const options = params.options as TypeOptions | undefined;
 
@@ -99,7 +107,7 @@ export async function handleActionFill(
   ctx: HandlerContext
 ): Promise<void> {
   const page = ctx.getPage(state, params.pageId as string | undefined);
-  const locator = ctx.resolveSelector(page, params.selector as BAPSelector);
+  const locator = await resolveActionLocator(page, params.selector as BAPSelector, ctx);
   const value = params.value as string;
   const options = params.options as ActionOptions | undefined;
 
@@ -116,7 +124,7 @@ export async function handleActionClear(
   ctx: HandlerContext
 ): Promise<void> {
   const page = ctx.getPage(state, params.pageId as string | undefined);
-  const locator = ctx.resolveSelector(page, params.selector as BAPSelector);
+  const locator = await resolveActionLocator(page, params.selector as BAPSelector, ctx);
   const options = params.options as ActionOptions | undefined;
 
   await locator.clear({
@@ -137,7 +145,7 @@ export async function handleActionPress(
   const options = params.options as ActionOptions | undefined;
 
   if (selector) {
-    const locator = ctx.resolveSelector(page, selector);
+    const locator = await resolveActionLocator(page, selector, ctx);
     await locator.press(key, {
       timeout: options?.timeout ?? ctx.options.timeout,
       noWaitAfter: options?.noWaitAfter,
@@ -163,7 +171,7 @@ export async function handleActionHover(
     return;
   }
 
-  const locator = ctx.resolveSelector(page, selector);
+  const locator = await resolveActionLocator(page, selector, ctx);
   await locator.hover({
     position: options?.position,
     force: options?.force,
@@ -182,7 +190,7 @@ export async function handleActionScroll(
   const options = params.options as ScrollOptions | undefined;
 
   if (selector) {
-    const locator = ctx.resolveSelector(page, selector);
+    const locator = await resolveActionLocator(page, selector, ctx);
     await locator.scrollIntoViewIfNeeded({
       timeout: options?.timeout ?? ctx.options.timeout,
     });
@@ -236,7 +244,7 @@ export async function handleActionSelect(
   ctx: HandlerContext
 ): Promise<void> {
   const page = ctx.getPage(state, params.pageId as string | undefined);
-  const locator = ctx.resolveSelector(page, params.selector as BAPSelector);
+  const locator = await resolveActionLocator(page, params.selector as BAPSelector, ctx);
   const values = params.values as string | string[];
   const options = params.options as ActionOptions | undefined;
 
@@ -254,7 +262,7 @@ export async function handleActionCheck(
   ctx: HandlerContext
 ): Promise<void> {
   const page = ctx.getPage(state, params.pageId as string | undefined);
-  const locator = ctx.resolveSelector(page, params.selector as BAPSelector);
+  const locator = await resolveActionLocator(page, params.selector as BAPSelector, ctx);
   const options = params.options as ActionOptions | undefined;
 
   await locator.check({
@@ -271,7 +279,7 @@ export async function handleActionUncheck(
   ctx: HandlerContext
 ): Promise<void> {
   const page = ctx.getPage(state, params.pageId as string | undefined);
-  const locator = ctx.resolveSelector(page, params.selector as BAPSelector);
+  const locator = await resolveActionLocator(page, params.selector as BAPSelector, ctx);
   const options = params.options as ActionOptions | undefined;
 
   await locator.uncheck({
@@ -288,7 +296,7 @@ export async function handleActionUpload(
   ctx: HandlerContext
 ): Promise<void> {
   const page = ctx.getPage(state, params.pageId as string | undefined);
-  const locator = ctx.resolveSelector(page, params.selector as BAPSelector);
+  const locator = await resolveActionLocator(page, params.selector as BAPSelector, ctx);
   const files = params.files as FileUpload[];
   const options = params.options as ActionOptions | undefined;
 
@@ -310,12 +318,12 @@ export async function handleActionDrag(
   ctx: HandlerContext
 ): Promise<void> {
   const page = ctx.getPage(state, params.pageId as string | undefined);
-  const source = ctx.resolveSelector(page, params.source as BAPSelector);
+  const source = await resolveActionLocator(page, params.source as BAPSelector, ctx);
   const target = params.target as BAPSelector | { x: number; y: number };
   const options = params.options as ActionOptions | undefined;
 
   if ("type" in target) {
-    const targetLocator = ctx.resolveSelector(page, target);
+    const targetLocator = await resolveActionLocator(page, target, ctx);
     await source.dragTo(targetLocator, {
       force: options?.force,
       noWaitAfter: options?.noWaitAfter,

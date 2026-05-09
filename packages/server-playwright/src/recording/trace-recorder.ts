@@ -18,6 +18,7 @@ export interface TraceEntry {
   duration: number;
   status: "ok" | "error";
   error?: string;
+  recoveryHint?: string;
   /** Abbreviated result shape for debugging (not the full payload) */
   resultSummary?: Record<string, unknown>;
 }
@@ -73,21 +74,51 @@ export class TraceRecorder {
 
     // Method-specific summaries
     if (method === "agent/observe") {
+      const changes = obj.changes as Record<string, unknown> | undefined;
       return {
         elementCount: Array.isArray(obj.interactiveElements)
           ? obj.interactiveElements.length
           : undefined,
         hasScreenshot: !!obj.screenshot,
         url: (obj.metadata as Record<string, unknown>)?.url,
+        title: (obj.metadata as Record<string, unknown>)?.title,
+        added: Array.isArray(changes?.added) ? changes.added.length : undefined,
+        updated: Array.isArray(changes?.updated) ? changes.updated.length : undefined,
+        removed: Array.isArray(changes?.removed) ? changes.removed.length : undefined,
       };
     }
 
     if (method === "agent/act") {
+      const postObservation = obj.postObservation as Record<string, unknown> | undefined;
+      const postMetadata = postObservation?.metadata as Record<string, unknown> | undefined;
+      const postChanges = postObservation?.changes as Record<string, unknown> | undefined;
+      const results = Array.isArray(obj.results) ? (obj.results as Array<Record<string, unknown>>) : [];
+      const firstFailed = results.find((step) => step.success === false);
+      const firstFailedError = firstFailed?.error as Record<string, unknown> | undefined;
+      const errorData = firstFailedError?.data as Record<string, unknown> | undefined;
+      const errorDetails = errorData?.details as Record<string, unknown> | undefined;
       return {
         completed: obj.completed,
         total: obj.total,
         success: obj.success,
         duration: obj.duration,
+        failedAt: obj.failedAt,
+        url: postMetadata?.url,
+        title: postMetadata?.title,
+        added: Array.isArray(postChanges?.added) ? postChanges.added.length : undefined,
+        updated: Array.isArray(postChanges?.updated) ? postChanges.updated.length : undefined,
+        removed: Array.isArray(postChanges?.removed) ? postChanges.removed.length : undefined,
+        recoveryHint:
+          typeof errorDetails?.recoveryHint === "string"
+            ? errorDetails.recoveryHint
+            : undefined,
+      };
+    }
+
+    if (method === "agent/extract") {
+      return {
+        success: obj.success,
+        count: Array.isArray(obj.data) ? obj.data.length : undefined,
       };
     }
 

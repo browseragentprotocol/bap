@@ -5,7 +5,7 @@ Matches the TypeScript definitions in @browseragentprotocol/protocol.
 """
 
 from enum import Enum
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
@@ -171,18 +171,16 @@ class RefSelector(BaseModel):
 
 # Union of all selector types using discriminated union
 BAPSelector = Annotated[
-    Union[
-        CSSSelector,
-        XPathSelector,
-        RoleSelector,
-        TextSelector,
-        LabelSelector,
-        PlaceholderSelector,
-        TestIdSelector,
-        SemanticSelector,
-        CoordinatesSelector,
-        RefSelector,
-    ],
+    CSSSelector
+    | XPathSelector
+    | RoleSelector
+    | TextSelector
+    | LabelSelector
+    | PlaceholderSelector
+    | TestIdSelector
+    | SemanticSelector
+    | CoordinatesSelector
+    | RefSelector,
     Field(discriminator="type"),
 ]
 
@@ -232,7 +230,7 @@ def test_id(value: str) -> TestIdSelector:
 
 
 # Prevent pytest from collecting the public selector helper as a test function.
-test_id.__test__ = False
+test_id.__dict__["__test__"] = False
 
 
 def semantic(description: str) -> SemanticSelector:

@@ -7,23 +7,25 @@ Provides a fluent async API for connecting to BAP servers and controlling browse
 import asyncio
 import json
 import logging
-from typing import Any, Callable, TypeVar, Union, Literal
-from urllib.parse import urlencode, urlparse, urlunparse
+from collections.abc import Callable
+from typing import Any, Literal, cast
+from urllib.parse import urlparse, urlunparse
 
 from browseragentprotocol.errors import BAPError, BAPPageNotFoundError
 from browseragentprotocol.transport import WebSocketTransport
-from browseragentprotocol.types.protocol import (
-    BAP_VERSION,
-    ErrorCodes,
-    is_error_response,
-    create_request,
+from browseragentprotocol.types.agent import (
+    AgentActResult,
+    AgentExtractResult,
+    AgentObserveResult,
+    ExecutionStep,
+    StepCondition,
+    StepErrorHandling,
 )
-from browseragentprotocol.types.selectors import BAPSelector
 from browseragentprotocol.types.common import (
     ActionOptions,
     ClickOptions,
-    Cookie,
     ContentFormat,
+    Cookie,
     Page,
     ScreenshotOptions,
     ScrollOptions,
@@ -33,17 +35,13 @@ from browseragentprotocol.types.common import (
 )
 from browseragentprotocol.types.methods import (
     ApprovalRequiredParams,
-    ApprovalRespondParams,
     ApprovalRespondResult,
-    BrowserLaunchParams,
     BrowserLaunchResult,
-    ContextCreateParams,
     ContextCreateResult,
     ContextDestroyResult,
     ContextListResult,
     FrameListResult,
     FrameMainResult,
-    FrameSwitchParams,
     FrameSwitchResult,
     InitializeResult,
     ObserveAccessibilityResult,
@@ -54,33 +52,20 @@ from browseragentprotocol.types.methods import (
     ObservePDFResult,
     ObserveScreenshotResult,
     PageNavigateResult,
+    SessionListResult,
     StreamCancelResult,
     StreamChunkParams,
     StreamEndParams,
 )
-from browseragentprotocol.types.agent import (
-    AgentActParams,
-    AgentActResult,
-    AgentExtractParams,
-    AgentExtractResult,
-    AgentObserveParams,
-    AgentObserveResult,
-    ExecutionStep,
-    StepCondition,
-    StepErrorHandling,
+from browseragentprotocol.types.protocol import (
+    BAP_VERSION,
+    ErrorCodes,
+    create_request,
+    is_error_response,
 )
-from browseragentprotocol.types.events import (
-    ConsoleEvent,
-    DialogEvent,
-    DownloadEvent,
-    NetworkEvent,
-    PageEvent,
-)
+from browseragentprotocol.types.selectors import BAPSelector
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
-
 
 class BAPClient:
     """
@@ -108,7 +93,7 @@ class BAPClient:
         *,
         token: str | None = None,
         name: str = "bap-client-python",
-        version: str = "0.2.0",
+        version: str = BAP_VERSION,
         timeout: float = 30.0,
         events: list[str] | None = None,
     ):
@@ -255,7 +240,7 @@ class BAPClient:
         self._server_capabilities = None
 
         # Cancel all pending requests
-        for request_id, (future, timer) in list(self._pending_requests.items()):
+        for _request_id, (future, timer) in list(self._pending_requests.items()):
             if timer:
                 timer.cancel()
             if not future.done():
@@ -437,7 +422,7 @@ class BAPClient:
         Returns:
             Dict with 'pages' list and 'activePage' id
         """
-        return await self._request("page/list", {})
+        return cast(dict[str, Any], await self._request("page/list", {}))
 
     async def activate_page(self, page_id: str) -> None:
         """Switch to a different page."""
@@ -963,7 +948,7 @@ class BAPClient:
 
     async def stop_tracing(self) -> dict[str, Any]:
         """Stop tracing and return trace data."""
-        return await self._request("trace/stop", {})
+        return cast(dict[str, Any], await self._request("trace/stop", {}))
 
     # =========================================================================
     # Context Methods (Multi-Context Support)
@@ -996,6 +981,11 @@ class BAPClient:
         """List all browser contexts."""
         result = await self._request("context/list", {})
         return ContextListResult.model_validate(result)
+
+    async def list_sessions(self) -> SessionListResult:
+        """List active and dormant persisted sessions known to the server."""
+        result = await self._request("session/list", {})
+        return SessionListResult.model_validate(result)
 
     async def destroy_context(self, context_id: str) -> ContextDestroyResult:
         """Destroy a browser context."""
@@ -1384,18 +1374,18 @@ class BAPClient:
         # Handle stream notifications
         if method == "stream/chunk":
             chunk = StreamChunkParams.model_validate(params)
-            for handler in self._stream_chunk_handlers:
+            for chunk_handler in self._stream_chunk_handlers:
                 try:
-                    handler(chunk)
+                    chunk_handler(chunk)
                 except Exception as e:
                     logger.error(f"Stream chunk handler error: {e}")
             return
 
         if method == "stream/end":
             end = StreamEndParams.model_validate(params)
-            for handler in self._stream_end_handlers:
+            for end_handler in self._stream_end_handlers:
                 try:
-                    handler(end)
+                    end_handler(end)
                 except Exception as e:
                     logger.error(f"Stream end handler error: {e}")
             return
@@ -1403,9 +1393,9 @@ class BAPClient:
         # Handle approval notifications
         if method == "approval/required":
             approval = ApprovalRequiredParams.model_validate(params)
-            for handler in self._approval_handlers:
+            for approval_handler in self._approval_handlers:
                 try:
-                    handler(approval)
+                    approval_handler(approval)
                 except Exception as e:
                     logger.error(f"Approval handler error: {e}")
             return
@@ -1497,5 +1487,5 @@ class BAPClient:
     def _serialize_model(self, model: Any) -> dict[str, Any]:
         """Serialize a Pydantic model or dict to dict."""
         if hasattr(model, "model_dump"):
-            return model.model_dump(by_alias=True, exclude_none=True)
+            return cast(dict[str, Any], model.model_dump(by_alias=True, exclude_none=True))
         return dict(model)

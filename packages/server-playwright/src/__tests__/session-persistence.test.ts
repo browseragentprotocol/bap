@@ -24,6 +24,7 @@ type TestState = {
   initialized: boolean;
   browser: Browser | null;
   isPersistent: boolean;
+  browserOwnership?: "owned" | "borrowed" | "persistent";
   context: null;
   contexts: Map<string, unknown>;
   defaultContextId: string | null;
@@ -41,6 +42,14 @@ type TestState = {
   pendingApprovals: Map<string, unknown>;
   sessionApprovals: Set<string>;
   sessionId: string;
+  launchState?: {
+    browser: "chromium" | "firefox" | "webkit";
+    channel?: string;
+    headless: boolean;
+    userDataDir?: string;
+  };
+  handoffPending?: boolean;
+  dormantTtlMs?: number;
   speculativePrefetchTimer?: NodeJS.Timeout;
   speculativeObservation?: unknown;
 };
@@ -90,6 +99,104 @@ describe("BAPPlaywrightServer - session persistence", () => {
     };
     const server = new BAPPlaywrightServer(options);
     expect(server).toBeInstanceOf(BAPPlaywrightServer);
+  });
+
+  it("uses the handoff dormant TTL override and preserves launch metadata", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const dormantSessions = new Map<string, DormantSession>();
+      const browser = {
+        isConnected: () => true,
+        close: vi.fn(),
+      } as unknown as Browser;
+      const state: TestState = {
+        clientId: "handoff",
+        initialized: true,
+        browser,
+        isPersistent: false,
+        browserOwnership: "owned",
+        context: null,
+        contexts: new Map(),
+        defaultContextId: null,
+        pages: new Map(),
+        pageToContext: new Map(),
+        activePage: null,
+        eventSubscriptions: new Set(),
+        tracing: false,
+        scopes: [],
+        sessionStartTime: Date.now(),
+        lastActivityTime: Date.now(),
+        elementRegistries: new Map(),
+        frameContexts: new Map(),
+        activeStreams: new Map(),
+        pendingApprovals: new Map(),
+        sessionApprovals: new Set(),
+        sessionId: "cli-9222",
+        launchState: {
+          browser: "chromium",
+          channel: "chrome",
+          headless: true,
+          userDataDir: "/tmp/profile",
+        },
+        handoffPending: true,
+        dormantTtlMs: 60 * 60 * 1000,
+      };
+
+      const dormantDeps = {
+        dormantSessions,
+        options: {
+          session: { dormantSessionTtl: 300 },
+        } as unknown as import("../config.js").ResolvedOptions,
+        log: vi.fn(),
+        isContextAlive: () => false,
+        clearConnectionScopedState: (_state: ClientState, _msg: string) => {},
+      };
+
+      await parkSession(state as unknown as ClientState, dormantDeps);
+
+      vi.advanceTimersByTime(300 * 1000);
+      expect(dormantSessions.has("cli-9222")).toBe(true);
+      expect((browser.close as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
+
+      const dormant = dormantSessions.get("cli-9222");
+      expect(dormant?.launchState).toEqual({
+        browser: "chromium",
+        channel: "chrome",
+        headless: true,
+        userDataDir: "/tmp/profile",
+      });
+      expect(dormant?.handoffPending).toBe(true);
+
+      const restoredState: TestState = {
+        ...state,
+        browser: null,
+        pages: new Map(),
+        pageToContext: new Map(),
+        activePage: null,
+        elementRegistries: new Map(),
+        frameContexts: new Map(),
+        activeStreams: new Map(),
+        pendingApprovals: new Map(),
+        sessionApprovals: new Set(),
+      };
+
+      if (!dormant) {
+        throw new Error("Expected dormant session to be present");
+      }
+
+      expect(restoreSession(dormant, restoredState as unknown as ClientState, dormantDeps)).toBe(true);
+      expect(restoredState.launchState).toEqual({
+        browser: "chromium",
+        channel: "chrome",
+        headless: true,
+        userDataDir: "/tmp/profile",
+      });
+      expect(restoredState.handoffPending).toBe(true);
+      expect(restoredState.dormantTtlMs).toBe(60 * 60 * 1000);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("routes restored page events to the reconnected client", async () => {

@@ -1,6 +1,6 @@
 # Browser Agent Protocol (BAP)
 
-The execution layer for browser agents. 10-25ms per action, zero token overhead, structured observations your LLM can actually use.
+The execution layer for browser agents: fast execution, structured observations, session persistence, and coherent CLI/MCP/SDK surfaces.
 
 BAP sits between your AI agent and the browser. The agent decides *what* to do, BAP does it — instantly, reliably, with semantic selectors and session persistence.
 
@@ -20,16 +20,15 @@ BAP sits between your AI agent and the browser. The agent decides *what* to do, 
 
 ## Why BAP
 
-Every browser action in your agent pipeline has a cost — latency, tokens, and dollars.
+BAP keeps the intelligence above the browser layer. Your agent decides what to
+do; BAP executes it quickly, returns structured state, and keeps the session
+warm across turns and interfaces.
 
-```
-                  per action    per 20-action task    1000 tasks/day
-Stagehand          800ms, $0.01      $0.20                 $200
-Browser Use       1500ms, $0.02      $0.40                 $400
-BAP (in-process)    20ms, $0.00      $0.00                   $0
-```
-
-Stagehand and Browser Use send every click and fill through an LLM. BAP doesn't — your agent's LLM decides the action, BAP executes it directly via Playwright. The LLM call happens once (in your agent), not per-action (in the browser layer).
+The current benchmark suite shows BAP Standard using about **15% fewer tool
+calls** than Playwright in an apples-to-apples workflow, and BAP Fused reaching
+about **37% fewer** on covered scenarios. See the
+[browser tools decision guide](./docs/browser-tools-guide.md) for the
+methodology and caveats.
 
 **BAP is for teams that want to control the intelligence.** You bring the LLM, BAP brings the browser.
 
@@ -38,15 +37,18 @@ Stagehand and Browser Use send every click and fill through an LLM. BAP doesn't 
 | | Without BAP | With BAP |
 |---|---|---|
 | **What the LLM sees** | Raw HTML (10,000+ tokens) | `@submit button: "Submit"`, `@email textbox: "Email"` (50 tokens) |
-| **Latency per action** | 800-1500ms (LLM in the loop) | 10-25ms (direct execution) |
+| **Browser execution loop** | Repeated raw DOM/tool hops | Structured actions and observations |
 | **Session state** | Lost between turns | Persisted — browser stays warm |
 | **When selectors break** | Agent fails | Self-healing via uSEID fallback |
-| **Reproducibility** | Non-deterministic | DBAR deterministic replay |
+| **Across interfaces** | Separate browser state per surface | One coherent CLI/MCP/SDK/server model |
 
 ## Get Started
 
 ```bash
 npm i -g @browseragentprotocol/cli
+bap doctor
+bap status
+bap demo
 bap install-skill
 ```
 
@@ -58,11 +60,57 @@ Then give your agent a task:
 Use BAP to open https://example.com, find the pricing page, and extract the plan names and prices.
 ```
 
+## What's in the 1.0 line
+
+- **Execution cockpit UX** — `doctor`, `status`, session visibility, handoff/resume, and story-first traces
+- **Structured browser execution** — semantic selectors, fused actions, and compact observations
+- **Trust surfaces** — approval modes, risk classes, domain visibility, and redaction posture
+- **Cross-interface coherence** — aligned CLI, MCP, TS SDK, Python SDK, and server behavior
+
+## Choose your starting point
+
+| If you are... | Start here |
+|---|---|
+| Evaluating BAP quickly | `bap demo` then `bap goto <url> --observe` |
+| Building an agent with shell access | [CLI docs](./packages/cli/README.md) |
+| Building an MCP-native agent | [MCP docs](./packages/mcp/README.md) |
+| Embedding BAP in a TypeScript app | [TypeScript SDK docs](./packages/client/README.md) |
+| Embedding BAP in a Python agent/notebook | [Python SDK docs](./packages/python-sdk/README.md) |
+
+## Operator workflow
+
+```bash
+# Check first-run/browser readiness
+bap doctor
+
+# Confirm lifecycle, approval mode, domains, and redaction posture
+bap status
+
+# Navigate and get structured state
+bap goto https://example.com --observe
+
+# Preview trust/risk before a mutating flow
+bap act --explain click:e3
+
+# Execute and keep an audit trail
+bap act --audit click:e3 --observe
+
+# Hand off to a human if needed, then resume with a delta-first view
+bap handoff "CAPTCHA"
+bap resume
+
+# Read task/story summaries before raw request traces
+bap trace
+```
+
 ## Quick Example
 
 ```bash
 # Navigate and observe — one fused call
 bap goto https://example.com --observe
+
+# After a small DOM change, observe only the diff
+bap observe --diff
 
 # Agent sees structured output:
 #   @navPricing link: "Pricing"
@@ -95,35 +143,38 @@ BAP is a thin protocol layer over Playwright. It adds:
 - **Fused operations** — `goto --observe` saves a roundtrip, `act --observe` chains action + observation
 - **Session persistence** — browser stays alive across agent turns, no re-launching
 - **Self-healing selectors (uSEID)** — when elements change between page loads, BAP falls back to semantic identity matching
-- **Deterministic replay (DBAR)** — record a browser session, replay it identically for testing and CI
+- **Cross-interface coherence** — one execution model across CLI, MCP, SDKs, and the Playwright server
 
 ## Interfaces
 
 | Interface | Install | Best for |
 |---|---|---|
 | **MCP (in-process)** | `npx @browseragentprotocol/mcp --in-process` | Fastest — 10-25ms/action, zero WebSocket overhead |
-| **MCP (standalone)** | `npx @browseragentprotocol/mcp` | Standard MCP clients (Claude, Cursor, Codex) |
+| **MCP (standalone)** | `npx @browseragentprotocol/mcp` | Standard MCP-native agent clients |
 | **CLI + SKILL.md** | `npm i -g @browseragentprotocol/cli` | Coding agents with shell access |
 | **TypeScript SDK** | `npm i @browseragentprotocol/client` | Apps and agent backends |
 | **Python SDK** | `pip install browser-agent-protocol` | Python agents and notebooks |
 
 ## Benchmark
 
-Measured on real websites (Wikipedia, Hacker News) — [browserbench](https://github.com/pyyush/browserbench):
+Measured on real sites with the reproducible benchmark suite in
+[`browseragentprotocol/benchmarks`](https://github.com/browseragentprotocol/benchmarks):
 
-```
-Action           CDP-raw   Playwright   BAP MCP    BAP CLI    PW CLI
-─────────────────────────────────────────────────────────────────────
-navigate           68ms       593ms       26ms      1490ms     590ms
-observe            14ms         7ms        8ms       145ms     591ms
-fill                1ms        18ms       13ms       148ms     588ms
-extract             0ms         8ms        5ms       164ms     604ms
-─────────────────────────────────────────────────────────────────────
-tokens/call          0           0         35          155        0
-pass rate          100%        100%       100%        100%     100%
-```
+| Scenario | BAP Standard | BAP Fused | Playwright |
+|---|:---:|:---:|:---:|
+| baseline | 2 | 2 | 2 |
+| observe | 2 | 1 | 2 |
+| extract | 2 | 2 | 2 |
+| form | 4 | 3 | 5 |
+| ecommerce | 8 | 5 | 11 |
+| workflow | 5 | 4 | 5 |
+| **Total** | **23** | **17** | **27** |
 
-BAP MCP (in-process) is within 2x of raw CDP and matches Playwright's direct API — while giving your agent structured observations, semantic selectors, and session persistence.
+BAP Standard is the fair comparison. BAP Fused shows what happens when you use
+its optimization layer (`navigate --observe`, `act --observe`, and semantic
+selectors without a prior observe). See the
+[browser tools decision guide](./docs/browser-tools-guide.md) for the full
+methodology, limitations, and where Playwright still wins.
 
 ## When to use what
 
@@ -131,7 +182,7 @@ BAP MCP (in-process) is within 2x of raw CDP and matches Playwright's direct API
 |---|---|
 | **Known workflows on known sites** (scraping, testing, data entry) | BAP MCP or Playwright — you know the selectors, AI per-action adds no value |
 | **Agent on unfamiliar sites** (find pricing, navigate docs) | BAP for execution + your LLM for planning. Structured observations make the LLM cheaper and more accurate |
-| **Don't want to build the planning layer** | Stagehand — bundles LLM + execution, but 40x slower and $200+/day at scale |
+| **Don't want to build the planning layer** | Use a higher-level browser agent stack; BAP is the execution layer, not the planner |
 | **Complex multi-step goals** | Browser Use — highest abstraction, highest cost |
 | **Scale (100+ concurrent browsers)** | Browserbase for infrastructure + BAP for the automation layer |
 
@@ -152,8 +203,13 @@ BAP MCP (in-process) is within 2x of raw CDP and matches Playwright's direct API
 ## Tips
 
 - BAP defaults to headful Chrome with a persistent session.
+- Run `bap doctor` before the first real task to verify browser/profile readiness.
+- Run `bap status` any time you need to confirm session lifecycle, active page, or handoff state.
+- Use `bap act --explain ...` to preview approval mode, domain/redaction posture, and risk classes before a mutating sequence.
+- Use `bap act --audit ...` when you want a step-by-step audit trail after execution.
 - Use `--headless` for CI or background runs.
-- Use `--no-profile` if your Chrome profile is busy.
+- If the auto-detected Chrome profile is busy, BAP retries without it. Use `--no-profile` for a guaranteed fresh browser.
+- Use `bap handoff "CAPTCHA"` to hand a session to a human, then `bap resume` to continue automation.
 - Use `--slim` mode to cut tool definitions to ~600 tokens (vs ~4,200 for Playwright MCP).
 - Use `bap close-all` to stop the daemon and all sessions.
 
@@ -164,10 +220,12 @@ BAP MCP (in-process) is within 2x of raw CDP and matches Playwright's direct API
 - [TypeScript SDK](./packages/client/README.md)
 - [Python SDK](./packages/python-sdk/README.md)
 - [Browser tools decision guide](./docs/browser-tools-guide.md)
+- [Release automation](./docs/releasing.md)
+- [Release readiness checklist](./docs/release-readiness-checklist.md)
+- [Monorepo changelog / 1.0 release notes](./CHANGELOG.md)
 
 ## Contributing
 
-- [Release automation](./docs/releasing.md)
 - [Contributing guide](./CONTRIBUTING.md)
 - [Code of conduct](./CODE_OF_CONDUCT.md)
 - [Security policy](./SECURITY.md)

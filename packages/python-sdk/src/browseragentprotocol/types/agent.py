@@ -5,12 +5,11 @@ Matches the TypeScript definitions in @browseragentprotocol/protocol.
 """
 
 from enum import Enum
-from typing import Annotated, Any, Literal, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from browseragentprotocol.types.selectors import BAPSelector
-from browseragentprotocol.types.common import AccessibilityNode, ScreenshotFormat
+from browseragentprotocol.types.common import ScreenshotFormat
 
 # =============================================================================
 # agent/act - Multi-step action execution

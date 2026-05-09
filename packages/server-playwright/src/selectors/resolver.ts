@@ -4,7 +4,12 @@
  */
 
 import type { Page as PlaywrightPage, Locator } from "playwright";
-import { type BAPSelector, type AriaRole, ErrorCodes } from "@browseragentprotocol/protocol";
+import {
+  type BAPSelector,
+  type AriaRole,
+  type PageElementRegistry,
+  ErrorCodes,
+} from "@browseragentprotocol/protocol";
 import { BAPServerError } from "../errors.js";
 import { validateSelectorValue } from "../security/selector-validator.js";
 import type { PageOwner, ElementRegistryEntryWithUSEID } from "../types.js";
@@ -13,6 +18,68 @@ export interface SelectorResolverDeps {
   logSecurity: (event: string, details: Record<string, unknown>) => void;
   getPageId: (page: PlaywrightPage) => string;
   findPageOwner: (pageId: string) => PageOwner | null;
+}
+
+function createStaleRefError(ref: string): BAPServerError {
+  return new BAPServerError(
+    ErrorCodes.ElementNotFound,
+    `Element ref is stale: ${ref}. The page changed after the last observation.`,
+    false,
+    undefined,
+    { ref, stale: true },
+    "Run observe() to refresh interactive elements, then retry with a fresh ref"
+  );
+}
+
+function escapeCssIdentifier(value: string): string {
+  return value.replace(/([^\w-])/g, "\\$1");
+}
+
+function getRefEntry(
+  page: PlaywrightPage,
+  ref: string,
+  deps: SelectorResolverDeps
+): {
+  pageId: string;
+  registry: PageElementRegistry;
+  entry: ElementRegistryEntryWithUSEID;
+} {
+  const pageId = deps.getPageId(page);
+  const owner = deps.findPageOwner(pageId);
+  if (!owner) {
+    throw new BAPServerError(
+      ErrorCodes.ElementNotFound,
+      `No client state available for ref lookup: ${ref}`,
+      false,
+      undefined,
+      { ref, pageId },
+      "Run observe() again to repopulate interactive elements for this page"
+    );
+  }
+  const registry = owner.state.elementRegistries.get(pageId);
+  if (!registry) {
+    throw new BAPServerError(
+      ErrorCodes.ElementNotFound,
+      "No element registry found for page. Call agent/observe first to populate refs.",
+      false,
+      undefined,
+      { ref, pageId },
+      "Run observe() to populate interactive elements before using ref selectors"
+    );
+  }
+  const entry = registry.elements.get(ref) as ElementRegistryEntryWithUSEID | undefined;
+  if (!entry) {
+    throw new BAPServerError(
+      ErrorCodes.ElementNotFound,
+      `Element ref not found: ${ref}. The element may have been removed or the ref may be stale.`,
+      false,
+      undefined,
+      { ref, pageId, stale: true },
+      "Run observe() to refresh interactive elements, then retry with a fresh ref"
+    );
+  }
+
+  return { pageId, registry, entry };
 }
 
 /**
@@ -59,28 +126,7 @@ export function resolveSelector(
       return page.locator("body");
 
     case "ref": {
-      const pageId = deps.getPageId(page);
-      const owner = deps.findPageOwner(pageId);
-      if (!owner) {
-        throw new BAPServerError(
-          ErrorCodes.ElementNotFound,
-          `No client state available for ref lookup: ${selector.ref}`
-        );
-      }
-      const registry = owner.state.elementRegistries.get(pageId);
-      if (!registry) {
-        throw new BAPServerError(
-          ErrorCodes.ElementNotFound,
-          `No element registry found for page. Call agent/observe first to populate refs.`
-        );
-      }
-      const entry = registry.elements.get(selector.ref);
-      if (!entry) {
-        throw new BAPServerError(
-          ErrorCodes.ElementNotFound,
-          `Element ref not found: ${selector.ref}. The element may have been removed or the ref may be stale.`
-        );
-      }
+      const { entry } = getRefEntry(page, selector.ref, deps);
       // Fusion 4: Use cached CSS selector for fast resolution
       if (entry.cachedCssSelector) {
         return page.locator(entry.cachedCssSelector);
@@ -143,10 +189,7 @@ export async function resolveSelectorWithHealing(
 
   // For ref selectors, try alternative identity signals from the registry
   if (selector.type === "ref") {
-    const pageId = deps.getPageId(page);
-    const owner = deps.findPageOwner(pageId);
-    const registry = owner?.state.elementRegistries.get(pageId);
-    const entry = registry?.elements.get(selector.ref);
+    const { registry, entry } = getRefEntry(page, selector.ref, deps);
 
     if (entry?.identity) {
       const { identity } = entry;
@@ -173,7 +216,7 @@ export async function resolveSelectorWithHealing(
 
       // Try id
       if (identity.id) {
-        const idLocator = page.locator(`#${identity.id}`);
+        const idLocator = page.locator(`#${escapeCssIdentifier(identity.id)}`);
         try {
           if ((await idLocator.count()) > 0) return idLocator;
         } catch {
@@ -195,10 +238,27 @@ export async function resolveSelectorWithHealing(
     // Last resort: uSEID weighted matching (semantic + structural + spatial)
     const useidLocator = await attemptUSEIDResolution(page, entry);
     if (useidLocator) return useidLocator;
+
+    registry.elements.delete(selector.ref);
+    throw createStaleRefError(selector.ref);
   }
 
   // No healing succeeded — return original (will fail with meaningful error on use)
   return locator;
+}
+
+/**
+ * Resolve selectors through the stale-aware path for refs and the fast synchronous path for all others.
+ */
+export async function resolveSelectorWithRefHealing(
+  page: PlaywrightPage,
+  selector: BAPSelector,
+  deps: SelectorResolverDeps
+): Promise<Locator> {
+  if (selector.type === "ref") {
+    return resolveSelectorWithHealing(page, selector, deps);
+  }
+  return resolveSelector(page, selector, deps);
 }
 
 /**

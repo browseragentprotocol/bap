@@ -6,8 +6,19 @@ import type { BAPClient } from "@browseragentprotocol/client";
 import type { AgentObserveResult } from "@browseragentprotocol/protocol";
 import type { GlobalFlags } from "../config/state.js";
 import { printObserveResult, printPageSummary } from "../output/formatter.js";
-import { BROWSER_MAP, CHANNEL_MAP, resolveProfile } from "../server/manager.js";
+import { launchBrowserWithFallback } from "../server/manager.js";
 import { register } from "./registry.js";
+
+function pickExistingPage(
+  pages: Array<{ id: string; url: string; title?: string }>,
+  activePage: string,
+): { id: string; url: string; title?: string } | null {
+  if (pages.length === 0) {
+    return null;
+  }
+
+  return pages.find((page) => page.id === activePage) ?? pages[0]!;
+}
 
 async function navigateAndPrint(
   url: string,
@@ -44,9 +55,6 @@ export async function openCommand(
   client: BAPClient,
 ): Promise<void> {
   const { pages, activePage } = await client.listPages();
-  const browser = BROWSER_MAP[flags.browser] ?? "chromium";
-  const channel = CHANNEL_MAP[flags.browser];
-  const userDataDir = resolveProfile(flags.profile, flags.browser);
   const url = args[0];
 
   if (pages.length > 0) {
@@ -66,14 +74,27 @@ export async function openCommand(
   }
 
   // Launch browser
-  await client.launch({
-    browser,
-    channel,
+  await launchBrowserWithFallback(client, {
+    browser: flags.browser,
     headless: flags.headless,
-    ...(userDataDir ? { userDataDir } : {}),
+    profile: flags.profile,
   });
 
-  // Create a page
+  const launched = await client.listPages();
+  const launchPage = pickExistingPage(launched.pages, launched.activePage);
+
+  if (launchPage) {
+    await client.activatePage(launchPage.id);
+
+    if (url) {
+      await navigateAndPrint(url, flags, client);
+    } else {
+      console.log("### Browser opened");
+      console.log("Use `bap goto <url>` to navigate.");
+    }
+    return;
+  }
+
   await client.createPage();
 
   // Navigate if URL provided

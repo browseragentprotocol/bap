@@ -10,7 +10,7 @@ import json
 import sys
 from typing import Any
 
-from browseragentprotocol import __version__, BAPClient
+from browseragentprotocol import BAPClient, __version__
 
 
 def main() -> None:
@@ -96,7 +96,7 @@ async def connect_command(url: str, token: str | None, timeout: float) -> None:
     try:
         client = BAPClient(url, token=token, timeout=timeout)
         result = await client.connect()
-        print(f"Connected successfully!")
+        print("Connected successfully!")
         print(f"  Protocol version: {result.protocol_version}")
         print(f"  Server: {result.server_info.name} v{result.server_info.version}")
         await client.close()
@@ -125,13 +125,13 @@ async def info_command(url: str, token: str | None, json_output: bool) -> None:
                 )
             print(json.dumps(info, indent=2))
         else:
-            print(f"BAP Server Information")
-            print(f"=" * 40)
+            print("BAP Server Information")
+            print("=" * 40)
             print(f"Protocol Version: {result.protocol_version}")
             print(f"Server Name:      {result.server_info.name}")
             print(f"Server Version:   {result.server_info.version}")
             if result.capabilities:
-                print(f"\nCapabilities:")
+                print("\nCapabilities:")
                 caps = result.capabilities.model_dump(by_alias=True, exclude_none=True)
                 for key, value in caps.items():
                     print(f"  {key}: {value}")

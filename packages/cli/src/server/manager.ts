@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createClient, type BAPClient } from "@browseragentprotocol/client";
+import type { BrowserLaunchParams } from "@browseragentprotocol/protocol";
 
 // =============================================================================
 // Types
@@ -29,6 +30,13 @@ export interface ServerManagerOptions {
   profile?: string;
 }
 
+export interface LaunchBrowserOptions {
+  browser: string;
+  headless: boolean;
+  profile?: string;
+  userDataDir?: string;
+}
+
 // =============================================================================
 // Server Discovery
 // =============================================================================
@@ -36,7 +44,7 @@ export interface ServerManagerOptions {
 /**
  * Check if a port is in use by attempting a TCP connection.
  */
-function isPortInUse(port: number, host: string = "localhost"): Promise<boolean> {
+export function isPortInUse(port: number, host: string = "localhost"): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.createConnection({ port, host });
     socket.setTimeout(500);
@@ -211,6 +219,170 @@ export function resolveProfile(profile: string, browser: string): string | undef
   return undefined;
 }
 
+function buildLaunchParams(options: LaunchBrowserOptions): BrowserLaunchParams {
+  const browserType = BROWSER_MAP[options.browser] ?? "chromium";
+  const channel = CHANNEL_MAP[options.browser];
+  const userDataDir = options.userDataDir
+    ?? (options.profile ? resolveProfile(options.profile, options.browser) : undefined);
+
+  return {
+    browser: browserType,
+    channel,
+    headless: options.headless,
+    ...(userDataDir ? { userDataDir } : {}),
+  };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isProfileConflictError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("already using that profile") ||
+    lower.includes("singletonlock") ||
+    lower.includes("already running") ||
+    (lower.includes("profile") && lower.includes("lock"))
+  );
+}
+
+function isMissingChannelBrowserError(message: string, channel?: string): boolean {
+  if (!channel) {
+    return false;
+  }
+
+  const lower = message.toLowerCase();
+  return (
+    lower.includes(`distribution '${channel.toLowerCase()}'`) ||
+    lower.includes(`distribution "${channel.toLowerCase()}"`) ||
+    lower.includes("browser distribution") ||
+    lower.includes("channel") ||
+    lower.includes("executable doesn't exist")
+  );
+}
+
+function isMissingBrowserExecutableError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return lower.includes("executable doesn't exist") || lower.includes("please run the following command");
+}
+
+function getMissingBrowserInstallHint(browser: string): string {
+  switch (browser) {
+    case "firefox":
+      return "No compatible browser executable was found. Run `npx playwright install firefox`.";
+    case "webkit":
+      return "No compatible browser executable was found. Run `npx playwright install webkit`.";
+    case "chromium":
+      return "No compatible browser executable was found. Run `npx playwright install chromium`.";
+    default:
+      return "No compatible browser executable was found. Install Chrome/Edge or run `npx playwright install chromium`.";
+  }
+}
+
+function printLaunchFallbackNote(note: string): void {
+  process.stderr.write(`[bap] ${note}\n`);
+}
+
+export async function launchBrowserWithFallback(
+  client: BAPClient,
+  options: LaunchBrowserOptions
+): Promise<void> {
+  const initialParams = buildLaunchParams(options);
+  const attempts: Array<{ params: BrowserLaunchParams; note?: string }> = [{ params: initialParams }];
+  const seen = new Set<string>([JSON.stringify(initialParams)]);
+
+  const addAttempt = (params: BrowserLaunchParams, note: string): void => {
+    const key = JSON.stringify(params);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    attempts.push({ params, note });
+    printLaunchFallbackNote(note);
+  };
+
+  let lastError: unknown;
+
+  for (let index = 0; index < attempts.length; index++) {
+    const attempt = attempts[index]!;
+
+    try {
+      await client.launch(attempt.params);
+      return;
+    } catch (error) {
+      lastError = error;
+      const message = errorMessage(error);
+
+      if (
+        options.profile === "auto" &&
+        attempt.params.userDataDir &&
+        isProfileConflictError(message)
+      ) {
+        addAttempt(
+          {
+            ...attempt.params,
+            userDataDir: undefined,
+          },
+          "Auto-detected browser profile is busy. Retrying with a fresh automation profile."
+        );
+      }
+
+      if (
+        (options.browser === "chrome" || options.browser === "edge") &&
+        attempt.params.channel &&
+        isMissingChannelBrowserError(message, attempt.params.channel)
+      ) {
+        addAttempt(
+          {
+            browser: "chromium",
+            headless: attempt.params.headless ?? options.headless,
+            channel: undefined,
+            userDataDir: undefined,
+          },
+          `${
+            options.browser === "edge" ? "Microsoft Edge" : "Chrome"
+          } is not installed. Retrying with Playwright Chromium and a fresh automation profile.`
+        );
+      }
+    }
+  }
+
+  const finalMessage = errorMessage(lastError);
+  if (isMissingBrowserExecutableError(finalMessage)) {
+    throw new Error(getMissingBrowserInstallHint(options.browser));
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError;
+  }
+
+  throw new Error(finalMessage);
+}
+
+function pickUsablePage(
+  pages: Array<{ id: string; url: string }>,
+  activePage: string
+): { id: string; url: string } | null {
+  const usablePages = pages.filter((page) => page.url && page.url !== "about:blank");
+  if (usablePages.length === 0) {
+    return null;
+  }
+
+  return usablePages.find((page) => page.id === activePage) ?? usablePages[0]!;
+}
+
+function pickExistingPage(
+  pages: Array<{ id: string; url: string }>,
+  activePage: string
+): { id: string; url: string } | null {
+  if (pages.length === 0) {
+    return null;
+  }
+
+  return pages.find((page) => page.id === activePage) ?? pages[0]!;
+}
+
 // =============================================================================
 // Server Manager
 // =============================================================================
@@ -323,30 +495,26 @@ export class ServerManager {
     // Check if pages already exist (e.g., from session persistence)
     const { pages, activePage } = await client.listPages();
 
-    // Filter out about:blank pages — these are ghost pages from failed session
-    // restores and shouldn't count as usable restored state.
-    const usablePages = pages.filter((p) => p.url && p.url !== "about:blank");
-
-    if (usablePages.length > 0) {
+    const usablePage = pickUsablePage(pages, activePage);
+    if (usablePage) {
       // Sync client's active page tracking with server state
-      const targetPage = activePage && activePage.length > 0 ? activePage : usablePages[0]!.id;
-      await client.activatePage(targetPage);
+      await client.activatePage(usablePage.id);
       return client;
     }
 
     // No pages — auto-initialize browser + page
-    const browserType = BROWSER_MAP[this.options.browser] ?? "chromium";
-    const channel = CHANNEL_MAP[this.options.browser];
-    const userDataDir = this.options.profile
-      ? resolveProfile(this.options.profile, this.options.browser)
-      : undefined;
-
-    await client.launch({
-      browser: browserType,
-      channel,
+    await launchBrowserWithFallback(client, {
+      browser: this.options.browser,
       headless: this.options.headless,
-      ...(userDataDir ? { userDataDir } : {}),
+      profile: this.options.profile,
     });
+
+    const launchedPages = await client.listPages();
+    const launchPage = pickExistingPage(launchedPages.pages, launchedPages.activePage);
+    if (launchPage) {
+      await client.activatePage(launchPage.id);
+      return client;
+    }
 
     await client.createPage();
 
@@ -384,4 +552,21 @@ export class ServerManager {
       removePidFile();
     }
   }
+}
+
+export async function connectIfServerRunning(options: {
+  port: number;
+  host?: string;
+  timeout?: number;
+}): Promise<BAPClient | null> {
+  const host = options.host ?? "localhost";
+
+  if (!(await isPortInUse(options.port, host))) {
+    return null;
+  }
+
+  return createClient(`ws://${host}:${options.port}`, {
+    name: "bap-cli",
+    timeout: options.timeout,
+  });
 }

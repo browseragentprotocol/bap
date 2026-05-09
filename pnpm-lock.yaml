@@ -157,6 +157,10 @@ importers:
       ws:
         specifier: ^8.19.0
         version: 8.19.0
+    optionalDependencies:
+      '@pyyush/useid':
+        specifier: ^0.1.0
+        version: 0.1.0
     devDependencies:
       '@types/ws':
         specifier: ^8.5.14
@@ -534,6 +538,10 @@ packages:
 
   '@oxc-project/types@0.120.0':
     resolution: {integrity: sha512-k1YNu55DuvAip/MGE1FTsIuU3FUCn6v/ujG9V7Nq5Df/kX2CWb13hhwD0lmJGMGqE+bE1MXvv9SZVnMzEXlWcg==}
+
+  '@pyyush/useid@0.1.0':
+    resolution: {integrity: sha512-wGw62vaQ/iBV0Vd9kGTalkE90mrExsMIUnrTFHasEqfsd3tcGtbyT9fh5M88Ej/C7d6pzVi1rzU4qRYzL8R43w==}
+    engines: {node: '>=20.0.0'}
 
   '@rolldown/binding-android-arm64@1.0.0-rc.10':
     resolution: {integrity: sha512-jOHxwXhxmFKuXztiu1ORieJeTbx5vrTkcOkkkn2d35726+iwhrY1w/+nYY/AGgF12thg33qC3R1LMBF5tHTZHg==}
@@ -2552,6 +2560,11 @@ snapshots:
       fastq: 1.20.1
 
   '@oxc-project/types@0.120.0': {}
+
+  '@pyyush/useid@0.1.0':
+    dependencies:
+      zod: 3.25.76
+    optional: true
 
   '@rolldown/binding-android-arm64@1.0.0-rc.10':
     optional: true

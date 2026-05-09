@@ -5,10 +5,16 @@ Provides a blocking API for use in non-async contexts.
 """
 
 import asyncio
-from typing import Any, Callable, Literal
+from collections.abc import Awaitable
+from typing import Any, Literal, TypeVar
 
 from browseragentprotocol.client import BAPClient
-from browseragentprotocol.types.selectors import BAPSelector
+from browseragentprotocol.types.agent import (
+    AgentActResult,
+    AgentExtractResult,
+    AgentObserveResult,
+    ExecutionStep,
+)
 from browseragentprotocol.types.common import (
     ActionOptions,
     ClickOptions,
@@ -39,14 +45,13 @@ from browseragentprotocol.types.methods import (
     ObservePDFResult,
     ObserveScreenshotResult,
     PageNavigateResult,
+    SessionListResult,
     StreamCancelResult,
 )
-from browseragentprotocol.types.agent import (
-    AgentActResult,
-    AgentExtractResult,
-    AgentObserveResult,
-    ExecutionStep,
-)
+from browseragentprotocol.types.protocol import BAP_VERSION
+from browseragentprotocol.types.selectors import BAPSelector
+
+T = TypeVar("T")
 
 
 class BAPClientSync:
@@ -74,7 +79,7 @@ class BAPClientSync:
         *,
         token: str | None = None,
         name: str = "bap-client-python-sync",
-        version: str = "0.2.0",
+        version: str = BAP_VERSION,
         timeout: float = 30.0,
         events: list[str] | None = None,
     ):
@@ -109,7 +114,7 @@ class BAPClientSync:
                 asyncio.set_event_loop(self._loop)
         return self._loop
 
-    def _run(self, coro: Any) -> Any:
+    def _run(self, coro: Awaitable[T]) -> T:
         """Run a coroutine in the event loop."""
         loop = self._get_loop()
         return loop.run_until_complete(coro)
@@ -468,6 +473,10 @@ class BAPClientSync:
     def list_contexts(self) -> ContextListResult:
         """List all browser contexts."""
         return self._run(self._async_client.list_contexts())
+
+    def list_sessions(self) -> SessionListResult:
+        """List active and dormant persisted sessions known to the server."""
+        return self._run(self._async_client.list_sessions())
 
     def destroy_context(self, context_id: str) -> ContextDestroyResult:
         """Destroy a browser context."""

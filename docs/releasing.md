@@ -43,8 +43,24 @@ will:
 Run the launch-readiness checks locally:
 
 ```bash
+npx pnpm install --frozen-lockfile
 npx pnpm release:verify
 ```
+
+`pnpm release:verify` resolves the Changesets base ref automatically. It prefers
+the local `main` branch and falls back to `origin/main`, which keeps detached
+worktrees and release-prep branches verifiable without manual branch setup. If
+your clone does not have either ref, fetch `origin/main` before retrying.
+
+When verifying a dirty local branch, `release:verify` snapshots the current
+working tree for the Changesets status step so uncommitted `.changeset/*.md`
+files and related package edits are checked together. CI still sees committed
+branch state only, so keep release changesets intentionally present rather than
+relying on local-only files.
+
+For Python package validation, use Python 3.10+ as required by
+`packages/python-sdk/pyproject.toml`. If your system `python3` is older, run
+the Python verification steps in a dedicated `python3.12` virtual environment.
 
 To inspect publishable npm tarballs directly:
 
@@ -58,12 +74,21 @@ npx pnpm check:artifacts
 - Published npm packages are versioned with Changesets
 - The Python SDK version is synced automatically to the same release version by
   `scripts/sync-python-version.mjs`
+- Runtime-visible version surfaces (`BAP_VERSION`, CLI `--version`, server
+  banners, and the protocol spec doc) are synced by
+  `scripts/sync-runtime-versions.mjs`
 - The release workflow verifies both registries after publish
-- Current version: `0.6.0` (all packages linked, versioned together via changesets)
+- The canonical release version is the linked npm package version in
+  `packages/cli/package.json`; release prep should not hardcode a stale number in
+  docs or runtime banners
 
 ## Common failure modes
 
 - Missing changeset for a publishable package change
+- Malformed changeset frontmatter or a release branch without a clear release
+  plan (`pnpm changeset status`)
+- `pnpm release:verify` fails with `Failed to find where HEAD diverged from "main"`
+  because the local clone/worktree does not have a `main` ref yet
 - npm tarball missing `LICENSE`, `README.md`, or `CHANGELOG.md`
 - Python version drift between `pyproject.toml`, `package.json`, and
   `src/browseragentprotocol/__init__.py`
@@ -77,3 +102,10 @@ on `main` and then manually run the `Release` workflow with
 `python_only = true`. That recovery mode rebuilds, tests, publishes, and
 verifies the current `browser-agent-protocol` version on PyPI without forcing a
 new npm release.
+
+## Python verification note
+
+The Python SDK requires **Python 3.10+**. If your local `python3` points to an
+older interpreter, use a newer runtime explicitly (for example `python3.12`) or
+run the verification steps inside a virtual environment created from a supported
+Python version.

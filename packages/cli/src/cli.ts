@@ -15,8 +15,9 @@
  */
 
 import { pc } from "@browseragentprotocol/logger";
+import { BAP_VERSION } from "@browseragentprotocol/protocol";
 import { parseArgs } from "./config/state.js";
-import { getCommand } from "./commands/index.js";
+import { getCommand, listCommands } from "./commands/index.js";
 import { ServerManager } from "./server/manager.js";
 
 // =============================================================================
@@ -24,10 +25,13 @@ import { ServerManager } from "./server/manager.js";
 // =============================================================================
 
 function printHelp(): void {
+  const commandCount = listCommands().length;
   console.log(`
-${pc.bold("BAP CLI")} ${pc.dim("- CLI-first browser automation for coding agents")}
+${pc.bold("BAP CLI")} ${pc.dim(`- CLI-first browser automation for coding agents (${commandCount} commands)`)}
 
 ${pc.yellow("ESSENTIALS")} ${pc.dim("(start here)")}
+  bap doctor                        Check browser/profile readiness
+  bap status                        Show current session/browser lifecycle
   bap goto <url>                    Navigate to URL
   bap observe                       See interactive elements with refs
   bap act <step1> <step2> ...       Multi-step actions in one call
@@ -51,11 +55,15 @@ ${pc.cyan("NAVIGATION")}
   bap back                          Go back
   bap forward                       Go forward
   bap reload                        Reload page
+  bap handoff [reason]              Hand session to a human in a visible browser
+  bap resume                        Resume automation after manual work
   bap close                         Close browser
   bap close-all                     Close all sessions and server
 
 ${pc.cyan("COMPOSITE ACTIONS")}
   bap act <step1> <step2> ...       Execute multiple steps atomically
+  bap act --explain <steps...>      Preview trust + risk surface before acting
+  bap act --audit <steps...>        Execute and print step-by-step audit
 
   ${pc.dim("Steps: action:selector=value or action:selector")}
   ${pc.dim("Example:")}
@@ -74,6 +82,7 @@ ${pc.cyan("SEMANTIC SELECTORS")}
 
 ${pc.cyan("SMART OBSERVATION")}
   bap observe                       Interactive elements (default max 50)
+  bap observe --diff                Only show changes since last observe
   bap observe --full                Full accessibility tree
   bap observe --forms               Form fields only
   bap observe --navigation          Navigation elements only
@@ -86,10 +95,17 @@ ${pc.cyan("STRUCTURED EXTRACTION")}
 
 ${pc.cyan("SESSIONS & TABS")}
   bap -s=<name> <command>           Named session
+  bap status                        Show current session/browser status
   bap sessions                      List sessions
   bap tabs                          List tabs
   bap tab-new [url]                 New tab
   bap tab-select <N>                Switch tab
+  bap tab-close <N>                 Close tab
+
+${pc.cyan("FRAMES & EVAL")}
+  bap frames                        List frames on current page
+  bap frame-switch <id|selector>    Switch into a frame
+  bap eval <expression>             Evaluate JavaScript in the page
 
 ${pc.cyan("RECIPES")}
   bap recipe login <url> --user=<u> --pass=<p>
@@ -97,11 +113,12 @@ ${pc.cyan("RECIPES")}
   bap recipe wait-for <selector> [--timeout=ms]
 
 ${pc.cyan("TRACING")}
-  bap trace                         Show last 10 steps from most recent trace
-  bap trace --all                   Show all steps
+  bap trace                         Show task/story summaries from most recent trace
+  bap trace --requests              Show raw request detail for the current trace
+  bap trace --all                   Show all raw requests
   bap trace --sessions              List all trace sessions
   bap trace --session=<id>          Show trace for a specific session
-  bap trace --replay                Generate HTML timeline viewer
+  bap trace --replay                Generate HTML replay with task stories first
   bap trace --export=<file>         Export trace as JSON
   bap trace --limit=<N>             Show last N entries (default: 10)
 
@@ -109,6 +126,7 @@ ${pc.cyan("DEBUGGING")}
   bap watch                         Stream live browser events
   bap watch --filter=console        Filter by event type
   bap demo                          Guided walkthrough for first-time users
+  bap doctor                        Diagnose first-run browser/profile issues
 
 ${pc.cyan("CONFIGURATION")}
   bap config [key] [value]          View/set configuration
@@ -122,7 +140,10 @@ ${pc.cyan("GLOBAL OPTIONS")}
   --headless / --no-headless        Browser visibility (default: visible)
   --profile <path>                  Chrome profile dir (default: auto-detect)
   --no-profile                      Fresh browser, no user profile
+                                     If auto-profile is busy, BAP retries without it
   --format <mode>                    Output: pretty (TTY), json (pipe), agent (default)
+  --explain                         For act: print trust/risk plan before execution
+  --audit                           For act: print post-run trust/risk audit
   -v, --verbose                     Verbose output
   -h, --help                        Show this help
   -V, --version                     Show version
@@ -132,7 +153,7 @@ ${pc.dim("Docs:")} ${pc.cyan("https://github.com/browseragentprotocol/bap")}
 }
 
 function printVersion(): void {
-  console.log("bap-cli 0.9.0");
+  console.log(`bap-cli ${BAP_VERSION}`);
 }
 
 // =============================================================================
@@ -140,7 +161,18 @@ function printVersion(): void {
 // =============================================================================
 
 /** Commands that don't need a server connection at all */
-const NO_SERVER_COMMANDS = new Set(["config", "install-skill", "skill", "trace", "--help", "-h"]);
+const NO_SERVER_COMMANDS = new Set([
+  "config",
+  "install-skill",
+  "skill",
+  "trace",
+  "status",
+  "sessions",
+  "tabs",
+  "doctor",
+  "--help",
+  "-h",
+]);
 
 /**
  * Commands that need a server connection but manage their own browser/page
@@ -150,9 +182,9 @@ const CLIENT_ONLY_COMMANDS = new Set([
   "open", // explicitly launches browser + creates page
   "close", // tears down browser — don't auto-create one
   "close-all", // tears down everything — don't auto-create
-  "sessions", // informational — just lists contexts
-  "tabs", // informational — just lists pages
   "watch", // long-running event stream — don't auto-create browser
+  "handoff", // should fail when no active session exists
+  "resume", // reconnect to a handed-off session without auto-launching a page
 ]);
 
 // =============================================================================
@@ -201,13 +233,19 @@ async function main(): Promise<void> {
 ${pc.bold("BAP")} ${pc.dim("— Browser Agent Protocol")}
 
 ${pc.cyan("Quick start:")}
+  ${pc.green("bap doctor")}                       Check browser/profile readiness
+  ${pc.green("bap status")}                       Show current session and browser state
   ${pc.green("bap goto")} https://example.com    Navigate to a page
   ${pc.green("bap observe")}                      See interactive elements
+  ${pc.green("bap observe --diff")}               Only changes since last observe
   ${pc.green("bap click")} e5                      Click an element by ref
   ${pc.green("bap act")} fill:e5="hi" click:e12   Multi-step actions
+  ${pc.green("bap act --explain")} click:e12       Preview approval/risk surfaces
+  ${pc.green("bap handoff")} "CAPTCHA"             Hand off to a human, then ${pc.green("bap resume")}
   ${pc.green("bap trace")}                        View session history
 
 ${pc.dim("Run")} bap demo ${pc.dim("for a guided walkthrough")}
+${pc.dim("If Chrome is busy, BAP auto-retries without the profile; use")} --no-profile ${pc.dim("for a fresh browser")}
 ${pc.dim("Run")} bap --help ${pc.dim("for all commands")}
 `);
     process.exit(0);

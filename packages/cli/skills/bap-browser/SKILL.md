@@ -12,8 +12,12 @@ semantic selectors, self-healing selectors, and action caching built in.
 ## Quick Start
 
 ```bash
+bap doctor                                  # Check browser/profile readiness first
+bap status                                  # Show lifecycle + approval/domain/redaction posture
 bap demo                                    # Guided walkthrough for first-time users
 bap goto https://example.com --observe      # Navigate + observe in 1 fused call
+bap observe --diff                          # After small DOM changes, only show diffs
+bap act --explain click:e3                  # Preview trust surface + risk classes
 bap click role:button:"Get Started"         # Semantic selector
 bap close
 ```
@@ -89,7 +93,7 @@ Do not strip the `@` prefix from stable refs. `bap click ep44e3j` is not the sam
 
 For the full selector reference, see [references/SELECTORS.md](references/SELECTORS.md).
 
-## Commands (26)
+## Commands
 
 ### Navigation
 
@@ -98,6 +102,9 @@ bap open [url]                            # Browser lifecycle command
 bap goto <url>                            # Recommended for "open this URL"
 bap goto <url> --observe                  # Fused navigate+observe (1 call instead of 2)
 bap goto <url> --observe --tier=interactive  # Fused with response tier
+bap doctor                                # Diagnose first-run browser/profile issues
+bap handoff [reason]                      # Hand session to a human in a visible browser
+bap resume                                # Resume automation after manual work
 bap back / bap forward                    # History navigation
 bap reload                                # Reload page
 ```
@@ -142,10 +149,14 @@ bap extract --list="product"               # Extract list of items
 
 ```bash
 bap -s=<name> <command>     # Run command in named session
-bap sessions                # List active sessions
-bap tabs                    # List open tabs
+bap status                  # Current lifecycle + approval mode + domain/redaction posture
+bap sessions                # List live + recently-known sessions
+bap tabs                    # List open tabs without auto-starting a browser
 bap tab-new [url]           # Open new tab
 bap tab-select <index>      # Switch to tab
+bap tab-close <index>       # Close tab
+bap frames                  # List frames on current page
+bap frame-switch <id>       # Switch to frame
 ```
 
 ### Live Event Streaming
@@ -157,16 +168,19 @@ bap watch --filter=network             # Only 4xx/5xx network responses
 bap watch --filter=dialog              # Only dialog events (alert, confirm, prompt)
 bap watch --filter=download            # Only download events
 bap watch --format=json                # Machine-readable NDJSON output
+bap eval 'location.href'               # Run JavaScript in the page context
 ```
 
 ### Tracing
 
 ```bash
-bap trace                              # Show traces for current session
+bap trace                              # Show task/story summaries for current session
+bap trace --requests                   # Raw request detail when needed
+bap act --audit fill:e5="user@example.com" click:e12   # Execute with audit trail
 bap trace --sessions                   # List all recorded sessions
-bap trace --all                        # Show all traces across sessions
+bap trace --all                        # Show all raw trace requests across sessions
 bap trace --session=<id>               # Traces for a specific session
-bap trace --replay                     # Generate self-contained HTML timeline viewer
+bap trace --replay                     # Generate HTML replay with task stories above raw requests
 bap trace --export                     # Export traces as JSON
 bap trace --limit=20                   # Limit number of trace entries shown
 ```
@@ -175,6 +189,15 @@ bap trace --limit=20                   # Limit number of trace entries shown
 
 ```bash
 bap demo                               # Guided walkthrough for first-time users
+```
+
+### Configuration
+
+```bash
+bap config                             # Show current config
+bap config browser firefox             # Change default browser
+bap install-skill                      # Install the CLI skill into detected AI agents
+bap skill init                         # Install the skill into the current project
 ```
 
 ### Recipes
@@ -198,6 +221,7 @@ bap recipe wait-for <selector> [--timeout=ms]
 | Stale ref after navigation   | Always re-run `bap observe` or use `--observe` flag after page changes         |
 | Stable ref click fails       | Use exact ref from `bap observe`, including the leading `@` prefix             |
 | Browser launch fails         | Try `--no-profile` for fresh browser without profile conflicts                 |
+| CAPTCHA / MFA blocks progress| Run `bap handoff "reason"`, solve it manually, then run `bap resume`          |
 | Server not responding        | `bap close-all` to kill daemon, then retry                                     |
 | Navigation timeout           | `bap --timeout=120000 goto <url>` to increase timeout                          |
 | Click intercepted by overlay | Dismiss first: `bap act click:text:"Accept" click:<target>`                    |
@@ -207,6 +231,7 @@ bap recipe wait-for <selector> [--timeout=ms]
 
 1. Always use `--observe` with `goto` and `act` to avoid extra roundtrips
 2. After navigation or DOM changes, re-run `bap observe` before clicking — refs go stale
+   BAP now fails stale refs fast, so refresh refs instead of waiting on timeouts
 3. Prefer semantic selectors (`role:`, `label:`, `text:`) over positional refs — they survive redesigns
 4. Use `bap act` for multi-step flows instead of individual commands — fewer calls, fewer tokens
 5. Use `--diff` for incremental observation after small DOM changes

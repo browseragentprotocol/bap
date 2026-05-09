@@ -48,6 +48,28 @@ type RawElement = {
   siblingIndex?: number;
 };
 
+type BrowserRect = { x: number; y: number; width: number; height: number };
+type BrowserStyle = { display: string; visibility: string };
+type BrowserElement = {
+  tagName: string;
+  id?: string;
+  type?: string;
+  value?: string;
+  disabled?: boolean;
+  textContent?: string | null;
+  parentElement: BrowserElementParent | null;
+  getAttribute: (name: string) => string | null;
+  getBoundingClientRect: () => BrowserRect;
+};
+type BrowserElementParent = BrowserElement & { children: BrowserElement[] };
+type BrowserDocument = {
+  querySelectorAll: (selectors: string) => Iterable<BrowserElement> | ArrayLike<BrowserElement>;
+  activeElement: BrowserElement | null;
+};
+type BrowserWindow = {
+  getComputedStyle: (element: BrowserElement) => BrowserStyle;
+};
+
 /**
  * Get interactive elements with pre-computed selectors.
  * Supports stable refs that persist across observations.
@@ -60,8 +82,7 @@ export async function getInteractiveElements(
   const registry = options.registry;
 
   // This function runs in browser context where DOM types exist
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const browserFn = (opts: { includeBounds: boolean }): any[] => {
+  const browserFn = (opts: { includeBounds: boolean }): RawElement[] => {
     const selectors = [
       "a[href]",
       "button",
@@ -84,23 +105,21 @@ export async function getInteractiveElements(
       '[tabindex]:not([tabindex="-1"])',
     ].join(",");
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    function getCssPath(element: any): string {
+    function getCssPath(element: BrowserElement): string {
       const pathParts: string[] = [];
-      let current = element;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      while (current && (current as any).tagName !== "BODY") {
+      let current: BrowserElement | null = element;
+      while (current && current.tagName !== "BODY") {
         let selector = current.tagName.toLowerCase();
         if (current.id) {
           selector = `#${current.id}`;
           pathParts.unshift(selector);
           break;
         }
-        const parent = current.parentElement;
+        const currentTagName = current.tagName;
+        const parent: BrowserElementParent | null = current.parentElement;
         if (parent) {
-           
           const siblings = Array.from(parent.children).filter(
-            (c: any) => c.tagName === current.tagName
+            (child: BrowserElement) => child.tagName === currentTagName
           );
           if (siblings.length > 1) {
             const idx = siblings.indexOf(current) + 1;
@@ -113,25 +132,24 @@ export async function getInteractiveElements(
       return pathParts.join(" > ");
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const doc = (globalThis as any).document;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const win = (globalThis as any).window;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const elements: any[] = Array.from(doc.querySelectorAll(selectors));
+    const browserGlobal = globalThis as typeof globalThis & {
+      document?: BrowserDocument;
+      window?: BrowserWindow;
+    };
+    const doc = browserGlobal.document!;
+    const win = browserGlobal.window!;
+    const elements = Array.from(doc.querySelectorAll(selectors)) as BrowserElement[];
 
     return (
       elements
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .filter((el: any) => {
+        .filter((el) => {
           const style = win.getComputedStyle(el);
           if (style.display === "none" || style.visibility === "hidden") return false;
           const rect = el.getBoundingClientRect();
           if (rect.width === 0 || rect.height === 0) return false;
           return true;
         })
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .map((el: any, index: number) => {
+        .map((el, index: number) => {
           const rect = el.getBoundingClientRect();
           const role = el.getAttribute("role") || el.tagName.toLowerCase();
 
@@ -194,9 +212,8 @@ export async function getInteractiveElements(
 
           let siblingIndex: number | undefined;
           if (parent) {
-             
             const siblings = Array.from(parent.children).filter(
-              (c: any) => (c.getAttribute("role") || c.tagName.toLowerCase()) === role
+              (child) => (child.getAttribute("role") || child.tagName.toLowerCase()) === role
             );
             if (siblings.length > 1) {
               siblingIndex = siblings.indexOf(el);

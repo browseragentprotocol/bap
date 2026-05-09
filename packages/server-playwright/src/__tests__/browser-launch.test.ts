@@ -26,6 +26,7 @@ describe("BAPPlaywrightServer - browser relaunch hygiene", () => {
     const nextContext = {
       close: vi.fn().mockResolvedValue(undefined),
       on: vi.fn(),
+      pages: vi.fn().mockReturnValue([]),
     };
     const launchPersistentContext = vi.fn().mockResolvedValue(nextContext);
 
@@ -84,5 +85,63 @@ describe("BAPPlaywrightServer - browser relaunch hygiene", () => {
     expect(state.context).toBe(nextContext);
     expect(state.pages.size).toBe(0);
     expect(state.activePage).toBeNull();
+  });
+
+  it("registers existing startup pages for persistent launches", async () => {
+    const existingPage = {};
+    const nextContext = {
+      close: vi.fn().mockResolvedValue(undefined),
+      on: vi.fn(),
+      pages: vi.fn().mockReturnValue([existingPage]),
+    };
+    const launchPersistentContext = vi.fn().mockResolvedValue(nextContext);
+
+    const state: BrowserLaunchState = {
+      browser: null,
+      isPersistent: false,
+      context: nextContext,
+      contexts: new Map(),
+      defaultContextId: "",
+      pages: new Map(),
+      pageToContext: new Map(),
+      activePage: null,
+      elementRegistries: new Map(),
+      frameContexts: new Map(),
+      activeStreams: new Map(),
+      pendingApprovals: new Map(),
+      sessionApprovals: new Set(),
+    };
+
+    const ctx = {
+      options: {
+        defaultBrowser: "chromium",
+        defaultChannel: "chrome",
+        headless: true,
+        timeout: 30000,
+        security: {},
+        limits: {},
+      },
+      getBrowserType: vi.fn().mockReturnValue({ launchPersistentContext }),
+      sanitizeBrowserArgs: vi.fn().mockReturnValue([]),
+      logSecurity: vi.fn(),
+      log: vi.fn(),
+      setupPageListeners: vi.fn(),
+      validateUrl: vi.fn(),
+    } as unknown as HandlerContext;
+
+    await handleBrowserLaunch(
+      state as unknown as ClientState,
+      {
+        browser: "chromium",
+        channel: "chrome",
+        headless: false,
+        userDataDir: "/tmp/bap-profile",
+      },
+      ctx
+    );
+
+    expect(state.pages.size).toBe(1);
+    expect(state.activePage).not.toBeNull();
+    expect(ctx.setupPageListeners).toHaveBeenCalledOnce();
   });
 });

@@ -38,7 +38,7 @@ export async function parkSession(state: ClientState, deps: DormantStoreDeps): P
     deps.dormantSessions.delete(sessionId);
   }
 
-  const ttl = deps.options.session.dormantSessionTtl * 1000;
+  const ttl = state.dormantTtlMs ?? deps.options.session.dormantSessionTtl * 1000;
   const ttlHandle = setTimeout(() => {
     expireDormantSession(sessionId, deps);
   }, ttl);
@@ -71,6 +71,9 @@ export async function parkSession(state: ClientState, deps: DormantStoreDeps): P
     ttlHandle,
     parkedAt: Date.now(),
     storageStateSnapshot,
+    launchState: state.launchState,
+    handoffPending: state.handoffPending,
+    dormantTtlMs: state.dormantTtlMs,
   };
 
   deps.dormantSessions.set(sessionId, dormant);
@@ -130,6 +133,9 @@ export function restoreSession(
   state.elementRegistries = dormant.elementRegistries;
   state.frameContexts = dormant.frameContexts;
   state.sessionApprovals = dormant.sessionApprovals;
+  state.launchState = dormant.launchState;
+  state.handoffPending = dormant.handoffPending;
+  state.dormantTtlMs = dormant.dormantTtlMs;
 
   return true;
 }

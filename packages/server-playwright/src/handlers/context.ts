@@ -215,7 +215,7 @@ export async function handleFrameSwitch(
   if (params.frameId) {
     targetFrame = page.frames().find((f) => getFrameId(f) === params.frameId) ?? null;
   } else if (params.selector) {
-    const locator = ctx.resolveSelector(page, params.selector);
+    const locator = await ctx.resolveSelectorWithRefHealing(page, params.selector);
     const element = await locator.elementHandle();
     if (element) {
       targetFrame = await element.contentFrame();

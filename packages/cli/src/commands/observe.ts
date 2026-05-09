@@ -12,11 +12,11 @@
 
 import type { BAPClient, AgentObserveParams } from "@browseragentprotocol/client";
 import type { GlobalFlags } from "../config/state.js";
-import { printObserveResult, printObserveChanges } from "../output/formatter.js";
+import { printObserveDeltaResult, printObserveResult } from "../output/formatter.js";
 import { writeSnapshot } from "../output/filesystem.js";
 import { register } from "./registry.js";
 
-async function observeCommand(
+export async function observeCommand(
   _args: string[],
   flags: GlobalFlags,
   client: BAPClient,
@@ -68,9 +68,9 @@ async function observeCommand(
     console.log("");
   }
 
-  // Print incremental changes if available
-  if (flags.diff && result.changes) {
-    printObserveChanges(result.changes);
+  if (flags.diff) {
+    printObserveDeltaResult(result);
+    return;
   }
 
   printObserveResult(result);

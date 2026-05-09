@@ -3,7 +3,12 @@
  * @module @browseragentprotocol/server-playwright/handlers/storage
  */
 
-import type { StorageState, Cookie } from "@browseragentprotocol/protocol";
+import type {
+  StorageState,
+  Cookie,
+  StorageItem,
+  StorageGetSessionStorageResult,
+} from "@browseragentprotocol/protocol";
 import { ErrorCodes } from "@browseragentprotocol/protocol";
 import { BAPServerError } from "../errors.js";
 import type { HandlerContext, ClientState } from "../types.js";
@@ -60,6 +65,55 @@ export async function handleStorageSetState(
 
     await page.close();
   }
+}
+
+export async function handleStorageGetSessionStorage(
+  state: ClientState,
+  params: Record<string, unknown>,
+  ctx: HandlerContext
+): Promise<StorageGetSessionStorageResult> {
+  ctx.ensureBrowser(state);
+  const page = ctx.getPage(state, params.pageId as string | undefined);
+  const url = page.url();
+  const origin = url && url !== "about:blank"
+    ? (() => {
+        try {
+          return new URL(url).origin;
+        } catch {
+          return undefined;
+        }
+      })()
+    : undefined;
+
+  const items = await page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const storage = (globalThis as any).sessionStorage as {
+      length: number;
+      key: (index: number) => string | null;
+      getItem: (key: string) => string | null;
+    } | undefined;
+    if (!storage) {
+      return [];
+    }
+
+    const entries: StorageItem[] = [];
+    for (let index = 0; index < storage.length; index++) {
+      const name = storage.key(index);
+      if (name === null) {
+        continue;
+      }
+      entries.push({
+        name,
+        value: storage.getItem(name) ?? "",
+      });
+    }
+    return entries;
+  });
+
+  return {
+    ...(origin ? { origin } : {}),
+    items,
+  };
 }
 
 export async function handleStorageGetCookies(

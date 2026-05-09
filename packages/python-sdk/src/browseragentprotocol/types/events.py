@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from browseragentprotocol.types.common import HttpMethod, ResourceType
 
-
 # =============================================================================
 # Page Events
 # =============================================================================

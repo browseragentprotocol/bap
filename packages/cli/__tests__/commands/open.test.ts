@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const printPageSummary = vi.fn();
 const printObserveResult = vi.fn();
 const register = vi.fn();
-const resolveProfile = vi.fn(() => undefined);
+const launchBrowserWithFallback = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("../../src/output/formatter.js", () => ({
   printPageSummary,
@@ -15,18 +15,7 @@ vi.mock("../../src/commands/registry.js", () => ({
 }));
 
 vi.mock("../../src/server/manager.js", () => ({
-  BROWSER_MAP: {
-    chrome: "chromium",
-    chromium: "chromium",
-    firefox: "firefox",
-    webkit: "webkit",
-    edge: "chromium",
-  },
-  CHANNEL_MAP: {
-    chrome: "chrome",
-    edge: "msedge",
-  },
-  resolveProfile,
+  launchBrowserWithFallback,
 }));
 
 const { openCommand } = await import("../../src/commands/open.js");
@@ -34,7 +23,7 @@ const { openCommand } = await import("../../src/commands/open.js");
 describe("openCommand", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resolveProfile.mockReturnValue(undefined);
+    launchBrowserWithFallback.mockResolvedValue(undefined);
   });
 
   it("reuses the active page instead of relaunching when a session already has pages", async () => {
@@ -105,10 +94,10 @@ describe("openCommand", () => {
       client as never,
     );
 
-    expect(client.launch).toHaveBeenCalledWith({
-      browser: "chromium",
-      channel: "chrome",
+    expect(launchBrowserWithFallback).toHaveBeenCalledWith(client, {
+      browser: "chrome",
       headless: false,
+      profile: "auto",
     });
     expect(client.createPage).toHaveBeenCalledOnce();
     expect(client.navigate).toHaveBeenCalledWith("https://dupr.com", {
@@ -122,6 +111,47 @@ describe("openCommand", () => {
     });
     expect(printObserveResult).toHaveBeenCalledWith(observation);
     expect(printPageSummary).not.toHaveBeenCalled();
+  });
+
+  it("reuses the startup page created during browser launch", async () => {
+    const client = {
+      listPages: vi.fn()
+        .mockResolvedValueOnce({
+          pages: [],
+          activePage: "",
+        })
+        .mockResolvedValueOnce({
+          pages: [{ id: "page-startup", url: "about:blank", title: "" }],
+          activePage: "page-startup",
+        }),
+      activatePage: vi.fn().mockResolvedValue(undefined),
+      navigate: vi.fn().mockResolvedValue({ url: "https://dupr.com" }),
+      launch: vi.fn(),
+      createPage: vi.fn(),
+    };
+
+    await openCommand(
+      ["https://dupr.com"],
+      {
+        browser: "chrome",
+        headless: false,
+        profile: "auto",
+        timeout: 45000,
+        observe: false,
+      } as never,
+      client as never,
+    );
+
+    expect(launchBrowserWithFallback).toHaveBeenCalledWith(client, {
+      browser: "chrome",
+      headless: false,
+      profile: "auto",
+    });
+    expect(client.activatePage).toHaveBeenCalledWith("page-startup");
+    expect(client.navigate).toHaveBeenCalledWith("https://dupr.com", {
+      timeout: 45000,
+    });
+    expect(client.createPage).not.toHaveBeenCalled();
   });
 
   it("shows the current page instead of opening a duplicate blank page", async () => {

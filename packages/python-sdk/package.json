@@ -4,15 +4,10 @@
   "private": true,
   "description": "Python SDK for Browser Agent Protocol (BAP) - build scripts only",
   "scripts": {
-    "build": "echo 'Python package - use pip install -e . for development'",
-    "typecheck": "node ../../scripts/run-python.mjs -m mypy src/browseragentprotocol --ignore-missing-imports || true",
-    "lint": "node ../../scripts/run-python.mjs -m ruff check src/browseragentprotocol || true",
-    "lint:fix": "node ../../scripts/run-python.mjs -m ruff check --fix src/browseragentprotocol || true",
+    "build": "mkdir -p dist && printf 'built\\n' > dist/.keep && echo 'Python package - use pip install -e . for development'",
+    "typecheck": "node ../../scripts/run-python.mjs -m mypy src/browseragentprotocol --ignore-missing-imports",
+    "lint": "node ../../scripts/run-python.mjs -m ruff check src/browseragentprotocol",
+    "lint:fix": "node ../../scripts/run-python.mjs -m ruff check --fix src/browseragentprotocol",
     "clean": "rm -rf dist build *.egg-info .mypy_cache .ruff_cache __pycache__ src/**/__pycache__"
-  },
-  "turbo": {
-    "build": {
-      "outputs": []
-    }
   }
 }

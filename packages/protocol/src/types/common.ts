@@ -158,6 +158,7 @@ export const StorageItemSchema = z.object({
   name: z.string(),
   value: z.string(),
 });
+export type StorageItem = z.infer<typeof StorageItemSchema>;
 
 /** Origin-specific storage data */
 export const OriginStorageSchema = z.object({

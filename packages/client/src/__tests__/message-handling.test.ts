@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { BAPClient, type BAPTransport } from "../index.js";
+import { BAPClient, BAP_VERSION, type BAPTransport } from "../index.js";
 
 /**
  * Mock transport for testing message handling
@@ -84,7 +84,7 @@ async function createConnectedClient(): Promise<{
   const transport = new MockTransport();
 
   transport.setAutoResponse("initialize", {
-    protocolVersion: "0.2.0",
+    protocolVersion: BAP_VERSION,
     serverInfo: { name: "test-server", version: "1.0.0" },
     capabilities: { browsers: ["chromium"] },
   });
@@ -104,7 +104,7 @@ describe("BAPClient Message Handling", () => {
 
       // Set up auto-response for initialize
       transport.setAutoResponse("initialize", {
-        protocolVersion: "0.2.0",
+        protocolVersion: BAP_VERSION,
         serverInfo: { name: "test-server", version: "1.0.0" },
         capabilities: { browsers: ["chromium"] },
       });
@@ -116,7 +116,7 @@ describe("BAPClient Message Handling", () => {
       const sent = JSON.parse(transport.sentMessages[0]!);
       expect(sent.method).toBe("initialize");
       expect(sent.id).toBe(1);
-      expect(result.protocolVersion).toBe("0.2.0");
+      expect(result.protocolVersion).toBe(BAP_VERSION);
     });
 
     it("handles multiple concurrent requests", async () => {

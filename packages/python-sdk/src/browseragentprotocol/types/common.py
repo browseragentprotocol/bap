@@ -5,11 +5,9 @@ Matches the TypeScript definitions in @browseragentprotocol/protocol.
 """
 
 from enum import Enum
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
-from browseragentprotocol.types.selectors import BAPSelector
 
 # =============================================================================
 # Bounding Box
@@ -85,7 +83,7 @@ class ScrollDirection(str, Enum):
     RIGHT = "right"
 
 
-ScrollAmount = Union[int, float, Literal["page", "toElement"]]
+ScrollAmount = int | float | Literal["page", "toElement"]
 
 
 class ScrollOptions(ActionOptions):
@@ -223,7 +221,7 @@ class StorageState(BaseModel):
 # Accessibility Types
 # =============================================================================
 
-CheckedState = Union[bool, Literal["mixed"]]
+CheckedState = bool | Literal["mixed"]
 
 
 class AccessibilityNode(BaseModel):

@@ -7,44 +7,50 @@
 
 import type { BAPClient } from "@browseragentprotocol/client";
 import type { GlobalFlags } from "../config/state.js";
-import { printPageSummary } from "../output/formatter.js";
+import { printPageSummary, printTabList } from "../output/formatter.js";
+import { connectIfServerRunning } from "../server/manager.js";
 import { register } from "./registry.js";
 
-async function tabsCommand(
+export async function tabsCommand(
   _args: string[],
-  _flags: GlobalFlags,
-  client: BAPClient,
+  flags: GlobalFlags,
+  _client: BAPClient,
 ): Promise<void> {
-  const result = await client.listPages();
+  const client = await connectIfServerRunning({
+    port: flags.port,
+    host: flags.host,
+    timeout: flags.timeout,
+  });
 
-  console.log("### Tabs");
-  if (result.pages.length > 0) {
-    for (let i = 0; i < result.pages.length; i++) {
-      const page = result.pages[i]!;
-      const active = page.id === result.activePage ? " *" : "";
-      console.log(`  [${i}] ${page.url ?? "about:blank"}${active}`);
+  try {
+    if (!client) {
+      printTabList([], "");
+      return;
     }
-  } else {
-    console.log("  No open tabs");
+
+    const result = await client.listPages();
+    printTabList(result.pages, result.activePage);
+  } finally {
+    await client?.close();
   }
 }
 
-async function tabNewCommand(
+export async function tabNewCommand(
   args: string[],
   _flags: GlobalFlags,
   client: BAPClient,
 ): Promise<void> {
-  const page = await client.createPage();
   const url = args[0];
+  const page = await client.createPage(url ? { url } : {});
+
   if (url) {
-    const result = await client.navigate(url, { pageId: page.id });
-    printPageSummary(result.url);
+    printPageSummary(page.url, page.title);
   } else {
     console.log(`### New tab opened: ${page.id}`);
   }
 }
 
-async function tabSelectCommand(
+export async function tabSelectCommand(
   args: string[],
   _flags: GlobalFlags,
   client: BAPClient,
@@ -65,10 +71,10 @@ async function tabSelectCommand(
 
   const page = result.pages[index]!;
   await client.activatePage(page.id);
-  console.log(`### Switched to tab ${index}: ${page.url ?? "about:blank"}`);
+  printPageSummary(page.url ?? "about:blank", page.title);
 }
 
-async function tabCloseCommand(
+export async function tabCloseCommand(
   args: string[],
   _flags: GlobalFlags,
   client: BAPClient,
@@ -84,7 +90,7 @@ async function tabCloseCommand(
     }
     const page = result.pages[index]!;
     await client.closePage(page.id);
-    console.log(`### Closed tab ${index}`);
+    console.log(`### Closed tab ${index}: ${page.url ?? "about:blank"}`);
   } else {
     await client.closePage();
     console.log("### Closed current tab");

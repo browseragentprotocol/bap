@@ -78,7 +78,7 @@ export async function handleObserveAccessibility(
 
   let root: import("playwright").Locator | undefined;
   if (options?.root) {
-    root = ctx.resolveSelector(page, options.root);
+    root = await ctx.resolveSelectorWithRefHealing(page, options.root);
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -117,7 +117,7 @@ export async function handleObserveElement(
   const selector = params.selector as BAPSelector;
   const properties = params.properties as ElementProperty[];
 
-  const locator = ctx.resolveSelector(page, selector);
+  const locator = await ctx.resolveSelectorWithRefHealing(page, selector);
   const count = await locator.count();
 
   if (count === 0) {
@@ -258,7 +258,7 @@ export async function handleObserveAriaSnapshot(
   let snapshot: string;
 
   if (selector) {
-    const locator = ctx.resolveSelector(page, selector);
+    const locator = await ctx.resolveSelectorWithRefHealing(page, selector);
     snapshot = await locator.ariaSnapshot({
       timeout: options?.timeout ?? ctx.options.timeout,
     });

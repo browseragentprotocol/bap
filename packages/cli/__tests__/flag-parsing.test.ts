@@ -151,6 +151,20 @@ describe("parseArgs fusion flags", () => {
     });
   });
 
+  describe("--audit / --explain", () => {
+    it("parses --audit", () => {
+      const flags = parseArgs(["act", "click:e1", "--audit"]);
+      expect(flags.audit).toBe(true);
+      expect(flags.command).toBe("act");
+    });
+
+    it("parses --explain", () => {
+      const flags = parseArgs(["act", "click:e1", "--explain"]);
+      expect(flags.explain).toBe(true);
+      expect(flags.command).toBe("act");
+    });
+  });
+
   describe("--pixels (scroll)", () => {
     it("parses --pixels=500", () => {
       const flags = parseArgs(["scroll", "down", "--pixels=500"]);

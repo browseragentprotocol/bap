@@ -4,10 +4,11 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 CLI-first browser automation from the command line. BAP defaults to installed
-Chrome, an auto-detected profile when available, and a persistent daemon so
-agents can work against a real browser instead of starting fresh every time.
-Like playwright-cli but with superpowers: composite actions (`bap act`),
-semantic selectors, and structured extraction.
+Chrome when available, an auto-detected profile when it is safe to reuse, and
+a persistent daemon so agents can work against a real browser instead of
+starting fresh every time. If the auto-detected profile is busy, BAP retries
+with a fresh automation profile. Like playwright-cli but with superpowers:
+composite actions (`bap act`), semantic selectors, and structured extraction.
 
 ## Quick Start
 
@@ -28,6 +29,26 @@ By default, the CLI prefers headful Chrome with a persistent session. Use
 can restrict automation of a live default profile, so a dedicated
 `--profile <dir>` is the most reliable production setup when you need cookies
 and long-lived state.
+
+## First Run
+
+```bash
+bap doctor
+bap status
+bap demo
+bap goto https://example.com --observe
+bap observe --diff
+bap act --explain click:e3
+```
+
+If your everyday Chrome is open, the default auto-detected profile may be
+locked. BAP now retries without that profile automatically, but `--no-profile`
+is still the cleanest manual fallback. If Chrome or Edge is not installed,
+install Playwright Chromium with:
+
+```bash
+npx playwright install chromium
+```
 
 ## Why BAP CLI?
 
@@ -73,6 +94,8 @@ bap extract --list="product"
 bap open [url]              # Browser lifecycle command, optionally navigate
 bap goto <url>              # Recommended for "open this URL"
 bap goto <url> --observe    # Fused: navigate + observe in 1 server call
+bap handoff [reason]        # Reopen headless sessions in a visible browser
+bap resume                  # Resume automation and print a fresh observation
 bap back                    # Go back
 bap forward                 # Go forward
 bap reload                  # Reload page
@@ -134,16 +157,24 @@ bap act fill:role:searchbox:"Search"="query here" press:Enter
 
 # Fused act + observe (1 server call instead of 3)
 bap act click:e3 --observe --tier=interactive
+
+# Preview trust surface + risk classes before mutation
+bap act --explain fill:e5="user@example.com" click:e12
+
+# Execute and print an operator audit trail
+bap act --audit fill:e5="user@example.com" click:e12
 ```
 
 ### Sessions & Tabs
 
 ```bash
 bap -s=<name> <command>     # Named session
-bap sessions                # List active sessions
-bap tabs                    # List open tabs
+bap status                  # Current lifecycle + approval mode + domain/redaction posture
+bap sessions                # List live + recently-known sessions
+bap tabs                    # List open tabs without auto-starting a browser
 bap tab-new [url]           # Open new tab
 bap tab-select <N>          # Switch to tab
+bap tab-close <N>           # Close tab
 bap frames                  # List frames
 bap frame-switch <id>       # Switch to frame
 ```
@@ -160,9 +191,15 @@ bap recipe wait-for <selector> [--timeout=ms]
 
 ```bash
 bap watch                   # Live-tail browser events (console errors, network failures)
-bap trace                   # View recent session traces
+bap doctor                  # Check browser/profile readiness before the first run
+bap status                  # Confirm lifecycle, approval mode, domains, and redaction state
+bap eval 'location.href'    # Run JavaScript in the page context
+bap trace                   # View task/story trace summaries first
+bap trace --requests        # Inspect raw request detail when needed
+bap handoff "CAPTCHA"       # Let a human solve CAPTCHA/MFA in the browser
+bap resume                  # Resume automation with a delta-first snapshot
 bap trace --sessions        # List recorded sessions
-bap trace --replay          # Generate self-contained HTML timeline
+bap trace --replay          # Generate HTML replay with task stories above raw requests
 bap trace --export          # Export traces as JSON
 ```
 
@@ -170,6 +207,8 @@ bap trace --export          # Export traces as JSON
 
 ```bash
 bap demo                    # Guided walkthrough of BAP features
+bap handoff "MFA"           # Human handoff for manual blockers
+bap resume                  # Reconnect and print a fresh snapshot
 ```
 
 ### Configuration
@@ -206,6 +245,7 @@ bap skill init              # Install skill to current project
 --no-headless          Show browser window (default)
 --profile <path>       Chrome profile dir (default: auto-detect)
 --no-profile           Fresh browser, no user profile
+                       Auto-profile retries without the profile if it is busy
 -v, --verbose          Verbose output
 --observe              Fused observation (for goto, act)
 --diff                 Incremental observation (for observe)

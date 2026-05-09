@@ -58,78 +58,62 @@ __version__ = "0.9.0"
 
 # Main client classes
 from browseragentprotocol.client import BAPClient
-from browseragentprotocol.sync_client import BAPClientSync
-
-# Transport layers
-from browseragentprotocol.transport import WebSocketTransport
-from browseragentprotocol.sse import SSETransport
 
 # Context managers
 from browseragentprotocol.context import bap_client, bap_session
 
 # Errors
 from browseragentprotocol.errors import (
-    BAPError,
-    BAPConnectionError,
-    BAPParseError,
-    BAPInvalidRequestError,
-    BAPMethodNotFoundError,
-    BAPInvalidParamsError,
-    BAPNotInitializedError,
+    BAPActionError,
     BAPAlreadyInitializedError,
+    BAPApprovalDeniedError,
+    BAPApprovalRequiredError,
+    BAPApprovalTimeoutError,
     BAPBrowserNotLaunchedError,
-    BAPPageNotFoundError,
+    BAPConnectionError,
+    BAPContextNotFoundError,
+    BAPDomainNotAllowedError,
+    BAPElementNotEnabledError,
     BAPElementNotFoundError,
     BAPElementNotVisibleError,
-    BAPElementNotEnabledError,
-    BAPSelectorAmbiguousError,
-    BAPNavigationError,
-    BAPTimeoutError,
-    BAPActionError,
-    BAPTargetClosedError,
+    BAPError,
     BAPExecutionContextDestroyedError,
-    BAPContextNotFoundError,
-    BAPResourceLimitExceededError,
-    BAPApprovalDeniedError,
-    BAPApprovalTimeoutError,
-    BAPApprovalRequiredError,
     BAPFrameNotFoundError,
-    BAPDomainNotAllowedError,
-    BAPStreamNotFoundError,
+    BAPInvalidParamsError,
+    BAPInvalidRequestError,
+    BAPMethodNotFoundError,
+    BAPNavigationError,
+    BAPNotInitializedError,
+    BAPPageNotFoundError,
+    BAPParseError,
+    BAPResourceLimitExceededError,
+    BAPSelectorAmbiguousError,
     BAPStreamCancelledError,
+    BAPStreamNotFoundError,
+    BAPTargetClosedError,
+    BAPTimeoutError,
 )
+from browseragentprotocol.sse import SSETransport
+from browseragentprotocol.sync_client import BAPClientSync
 
-# Selector factory functions
-from browseragentprotocol.types.selectors import (
-    css,
-    xpath,
-    role,
-    text,
-    label,
-    placeholder,
-    test_id,
-    semantic,
-    coords,
-    ref,
-    # Selector types
-    AriaRole,
-    BAPSelector,
-    CSSSelector,
-    XPathSelector,
-    RoleSelector,
-    TextSelector,
-    LabelSelector,
-    PlaceholderSelector,
-    TestIdSelector,
-    SemanticSelector,
-    CoordinatesSelector,
-    RefSelector,
-)
+# Transport layers
+from browseragentprotocol.transport import WebSocketTransport
 
-# Protocol types
-from browseragentprotocol.types.protocol import (
-    BAP_VERSION,
-    ErrorCodes,
+# Agent types
+from browseragentprotocol.types.agent import (
+    ActionHint,
+    AgentActParams,
+    AgentActResult,
+    AgentExtractParams,
+    AgentExtractResult,
+    AgentObserveParams,
+    AgentObserveResult,
+    AnnotationOptions,
+    ExecutionStep,
+    InteractiveElement,
+    StepCondition,
+    StepErrorHandling,
+    StepResult,
 )
 
 # Common types
@@ -152,21 +136,13 @@ from browseragentprotocol.types.common import (
     WaitUntilState,
 )
 
-# Agent types
-from browseragentprotocol.types.agent import (
-    ActionHint,
-    AgentActParams,
-    AgentActResult,
-    AgentExtractParams,
-    AgentExtractResult,
-    AgentObserveParams,
-    AgentObserveResult,
-    AnnotationOptions,
-    ExecutionStep,
-    InteractiveElement,
-    StepCondition,
-    StepErrorHandling,
-    StepResult,
+# Event types
+from browseragentprotocol.types.events import (
+    ConsoleEvent,
+    DialogEvent,
+    DownloadEvent,
+    NetworkEvent,
+    PageEvent,
 )
 
 # Method types
@@ -191,17 +167,45 @@ from browseragentprotocol.types.methods import (
     ObservePDFResult,
     ObserveScreenshotResult,
     PageNavigateResult,
+    SessionInfo,
+    SessionListResult,
     StreamChunkParams,
     StreamEndParams,
+    TrustRedaction,
+    TrustSurface,
 )
 
-# Event types
-from browseragentprotocol.types.events import (
-    ConsoleEvent,
-    DialogEvent,
-    DownloadEvent,
-    NetworkEvent,
-    PageEvent,
+# Protocol types
+from browseragentprotocol.types.protocol import (
+    BAP_VERSION,
+    ErrorCodes,
+)
+
+# Selector factory functions
+from browseragentprotocol.types.selectors import (
+    # Selector types
+    AriaRole,
+    BAPSelector,
+    CoordinatesSelector,
+    CSSSelector,
+    LabelSelector,
+    PlaceholderSelector,
+    RefSelector,
+    RoleSelector,
+    SemanticSelector,
+    TestIdSelector,
+    TextSelector,
+    XPathSelector,
+    coords,
+    css,
+    label,
+    placeholder,
+    ref,
+    role,
+    semantic,
+    test_id,
+    text,
+    xpath,
 )
 
 __all__ = [
@@ -311,6 +315,10 @@ __all__ = [
     "ContextCreateParams",
     "ContextCreateResult",
     "ContextListResult",
+    "SessionInfo",
+    "SessionListResult",
+    "TrustRedaction",
+    "TrustSurface",
     "FrameInfo",
     "FrameListResult",
     "FrameSwitchParams",

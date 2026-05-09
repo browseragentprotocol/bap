@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -115,13 +116,40 @@ function readText(relativePath) {
   return readFileSync(resolve(repoRoot, relativePath), "utf8");
 }
 
+function createPackEnv() {
+  const env = { ...process.env };
+  const cacheDir = mkdtempSync(resolve(tmpdir(), "bap-npm-cache-"));
+  for (const key of [
+    "npm_config_shamefully_hoist",
+    "npm_config_auto_install_peers",
+    "npm_config_store_dir",
+    "NPM_CONFIG_SHAMEFULLY_HOIST",
+    "NPM_CONFIG_AUTO_INSTALL_PEERS",
+    "NPM_CONFIG_STORE_DIR",
+  ]) {
+    delete env[key];
+  }
+  env.npm_config_cache = cacheDir;
+  env.NPM_CONFIG_CACHE = cacheDir;
+  env.npm_config_update_notifier = "false";
+  env.NPM_CONFIG_UPDATE_NOTIFIER = "false";
+  env.NO_UPDATE_NOTIFIER = "1";
+  return { env, cacheDir };
+}
+
 function packPackage(relativeDir) {
-  const stdout = execFileSync("npm", ["pack", "--json", "--dry-run"], {
-    cwd: resolve(repoRoot, relativeDir),
-    encoding: "utf8",
-  });
-  const [result] = JSON.parse(stdout);
-  return result;
+  const { env, cacheDir } = createPackEnv();
+  try {
+    const stdout = execFileSync("npm", ["pack", "--json", "--dry-run"], {
+      cwd: resolve(repoRoot, relativeDir),
+      encoding: "utf8",
+      env,
+    });
+    const [result] = JSON.parse(stdout);
+    return result;
+  } finally {
+    rmSync(cacheDir, { recursive: true, force: true });
+  }
 }
 
 function getPackageVersion(relativePath) {
@@ -172,6 +200,17 @@ const pythonInit = readText("packages/python-sdk/src/browseragentprotocol/__init
 
 const pyprojectVersion = pyprojectToml.match(/^version = "([^"]+)"$/m)?.[1];
 const initVersion = pythonInit.match(/^__version__ = "([^"]+)"$/m)?.[1];
+const protocolVersionSource = readText("packages/protocol/src/types/protocol.ts");
+const pythonProtocolSource = readText("packages/python-sdk/src/browseragentprotocol/types/protocol.py");
+const serverLifecycleSource = readText("packages/server-playwright/src/handlers/lifecycle.ts");
+const serverCliSource = readText("packages/server-playwright/src/cli.ts");
+const cliSource = readText("packages/cli/src/cli.ts");
+const mcpIndexSource = readText("packages/mcp/src/index.ts");
+const mcpCliSource = readText("packages/mcp/src/cli.ts");
+const clientSource = readText("packages/client/src/index.ts");
+const pythonClientSource = readText("packages/python-sdk/src/browseragentprotocol/client.py");
+const pythonSyncClientSource = readText("packages/python-sdk/src/browseragentprotocol/sync_client.py");
+const pythonContextSource = readText("packages/python-sdk/src/browseragentprotocol/context.py");
 
 console.log("\nChecking browser-agent-protocol (PyPI)");
 assert(existsSync(resolve(repoRoot, "packages/python-sdk/LICENSE")), "Python SDK includes a LICENSE file");
@@ -186,6 +225,42 @@ assert(
 assert(
   pyprojectToml.includes('license-files = ["LICENSE"]'),
   "Python SDK declares license-files in pyproject.toml",
+);
+assert(
+  protocolVersionSource.includes(`export const BAP_VERSION = "${canonicalReleaseVersion}";`),
+  "TypeScript protocol version matches the canonical release version",
+);
+assert(
+  pythonProtocolSource.includes(`BAP_VERSION = "${canonicalReleaseVersion}"`),
+  "Python protocol version matches the canonical release version",
+);
+assert(
+  serverLifecycleSource.includes("version: BAP_VERSION"),
+  "Server initialize surface reports the shared protocol version",
+);
+assert(
+  serverCliSource.includes("version: BAP_VERSION")
+    && serverCliSource.includes("pc.dim(`v${BAP_VERSION}`)"),
+  "Server CLI prints the shared protocol version",
+);
+assert(cliSource.includes("bap-cli ${BAP_VERSION}"), "CLI prints the shared protocol version");
+assert(
+  mcpIndexSource.includes('version: options.version ?? BAP_VERSION'),
+  "MCP server defaults to the shared protocol version",
+);
+assert(
+  mcpCliSource.includes("pc.dim(`v${BAP_VERSION}`)"),
+  "MCP CLI prints the shared protocol version",
+);
+assert(
+  clientSource.includes("version: options.version ?? BAP_VERSION"),
+  "TypeScript client defaults to the shared protocol version",
+);
+assert(
+  pythonClientSource.includes("version: str = BAP_VERSION")
+    && pythonSyncClientSource.includes("version: str = BAP_VERSION")
+    && pythonContextSource.includes("version: str = BAP_VERSION"),
+  "Python client surfaces default to the shared protocol version",
 );
 
 if (hasFailure) {

@@ -7,6 +7,7 @@ import type { Browser, BrowserContext, Page as PlaywrightPage } from "playwright
 import type {
   BAPScope,
   AgentObserveResult,
+  BrowserType,
   JSONRPCRequest,
   ContextOptions,
   AccessibilityNode,
@@ -63,6 +64,14 @@ export interface FrameContext {
 /** How the browser was obtained — controls cleanup behavior */
 export type BrowserOwnership = "owned" | "borrowed" | "persistent";
 
+export interface BrowserLaunchState {
+  browser: BrowserType;
+  channel?: string;
+  headless: boolean;
+  userDataDir?: string;
+  cdpUrl?: string;
+}
+
 export interface ClientState {
   clientId: string;
   initialized: boolean;
@@ -96,6 +105,9 @@ export interface ClientState {
     timestamp: number;
   };
   speculativePrefetchTimer?: NodeJS.Timeout;
+  launchState?: BrowserLaunchState;
+  handoffPending?: boolean;
+  dormantTtlMs?: number;
   sessionId?: string;
 }
 
@@ -121,6 +133,9 @@ export interface DormantSession {
   parkedAt: number;
   /** Snapshot of cookies + localStorage for crash recovery */
   storageStateSnapshot?: string;
+  launchState?: BrowserLaunchState;
+  handoffPending?: boolean;
+  dormantTtlMs?: number;
 }
 
 export type PageOwner = {
@@ -196,6 +211,11 @@ export interface HandlerContext {
   ) => import("playwright").Locator;
   /** Async self-healing selector resolution — tries fallback identity signals on failure */
   resolveSelectorWithHealing: (
+    page: PlaywrightPage,
+    selector: import("@browseragentprotocol/protocol").BAPSelector
+  ) => Promise<import("playwright").Locator>;
+  /** Async selector resolution that heals stale refs but keeps the sync path for non-ref selectors */
+  resolveSelectorWithRefHealing: (
     page: PlaywrightPage,
     selector: import("@browseragentprotocol/protocol").BAPSelector
   ) => Promise<import("playwright").Locator>;

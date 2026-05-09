@@ -17,6 +17,7 @@ import {
   WaitUntilStateSchema,
   ViewportSchema,
   PageSchema,
+  StorageItemSchema,
   StorageStateSchema,
   CookieSchema,
   AccessibilityNodeSchema,
@@ -68,6 +69,74 @@ export const BrowserCloseParamsSchema = z.object({
 });
 export type BrowserCloseParams = z.infer<typeof BrowserCloseParamsSchema>;
 
+/** browser/state result */
+export const BrowserStateResultSchema = z.object({
+  launched: z.boolean(),
+  browser: BrowserTypeSchema.optional(),
+  channel: z.string().optional(),
+  headless: z.boolean().optional(),
+  userDataDir: z.string().optional(),
+  browserOwnership: z.enum(["owned", "borrowed", "persistent"]).optional(),
+  isPersistent: z.boolean(),
+  handoffPending: z.boolean().optional(),
+});
+export type BrowserStateResult = z.infer<typeof BrowserStateResultSchema>;
+
+/** session/handoff parameters */
+export const SessionHandoffParamsSchema = z.object({
+  enabled: z.boolean(),
+  ttlSeconds: z.number().int().positive().optional(),
+});
+export type SessionHandoffParams = z.infer<typeof SessionHandoffParamsSchema>;
+
+/** session/list lifecycle state */
+export const SessionLifecycleStateSchema = z.enum(["active", "dormant"]);
+export type SessionLifecycleState = z.infer<typeof SessionLifecycleStateSchema>;
+
+/** Operator-facing approval mode derived from granted scopes */
+export const ApprovalModeSchema = z.enum(["readonly", "standard", "privileged"]);
+export type ApprovalMode = z.infer<typeof ApprovalModeSchema>;
+
+/** Trust surface for policy, domain, and redaction visibility */
+export const TrustSurfaceSchema = z.object({
+  approvalMode: ApprovalModeSchema,
+  allowedDomains: z.array(z.string()).optional(),
+  redaction: z.object({
+    content: z.boolean(),
+    passwordValues: z.boolean(),
+    screenshots: z.boolean(),
+    storageState: z.boolean(),
+  }),
+});
+export type TrustSurface = z.infer<typeof TrustSurfaceSchema>;
+
+/** Session summary for operator/status surfaces */
+export const SessionInfoSchema = z.object({
+  sessionId: z.string(),
+  clientId: z.string().optional(),
+  state: SessionLifecycleStateSchema,
+  pageCount: z.number().int().nonnegative(),
+  activePageId: z.string().optional(),
+  activePageUrl: z.string().optional(),
+  activePageTitle: z.string().optional(),
+  browser: BrowserTypeSchema.optional(),
+  channel: z.string().optional(),
+  headless: z.boolean().optional(),
+  isPersistent: z.boolean(),
+  handoffPending: z.boolean().optional(),
+  lastActivityAt: z.number().optional(),
+  parkedAt: z.number().optional(),
+  expiresAt: z.number().optional(),
+  trust: TrustSurfaceSchema.optional(),
+});
+export type SessionInfo = z.infer<typeof SessionInfoSchema>;
+
+/** session/list result */
+export const SessionListResultSchema = z.object({
+  sessions: z.array(SessionInfoSchema),
+});
+export type SessionListResult = z.infer<typeof SessionListResultSchema>;
+
 // =============================================================================
 // Page Methods
 // =============================================================================
@@ -91,6 +160,10 @@ export const PageCreateParamsSchema = z.object({
   permissions: z.array(z.string()).optional(),
   offline: z.boolean().optional(),
   storageState: StorageStateSchema.optional(),
+  sessionStorage: z.object({
+    origin: z.string(),
+    items: z.array(StorageItemSchema),
+  }).optional(),
 });
 export type PageCreateParams = z.infer<typeof PageCreateParamsSchema>;
 
@@ -483,6 +556,19 @@ export const StorageSetStateParamsSchema = z.object({
   state: StorageStateSchema,
 });
 export type StorageSetStateParams = z.infer<typeof StorageSetStateParamsSchema>;
+
+/** storage/getSessionStorage parameters */
+export const StorageGetSessionStorageParamsSchema = z.object({
+  pageId: z.string().optional(),
+});
+export type StorageGetSessionStorageParams = z.infer<typeof StorageGetSessionStorageParamsSchema>;
+
+/** storage/getSessionStorage result */
+export const StorageGetSessionStorageResultSchema = z.object({
+  origin: z.string().optional(),
+  items: z.array(StorageItemSchema),
+});
+export type StorageGetSessionStorageResult = z.infer<typeof StorageGetSessionStorageResultSchema>;
 
 /** storage/getCookies parameters */
 export const StorageGetCookiesParamsSchema = z.object({
@@ -934,6 +1020,9 @@ export const BAPMethodSchema = z.enum([
   "shutdown",
   "browser/launch",
   "browser/close",
+  "browser/state",
+  "session/handoff",
+  "session/list",
   // Context methods (Multi-Context Support)
   "context/create",
   "context/list",
@@ -976,6 +1065,7 @@ export const BAPMethodSchema = z.enum([
   // Storage methods
   "storage/getState",
   "storage/setState",
+  "storage/getSessionStorage",
   "storage/getCookies",
   "storage/setCookies",
   "storage/clearCookies",

@@ -79,8 +79,11 @@ ${pc.bold("What you just saw:")}
   ${pc.cyan("screenshot")}  Capture the page
 
 ${pc.bold("Try next:")}
+  ${pc.green("bap doctor")} ${pc.dim("to verify browser/profile readiness")}
   ${pc.green("bap goto")} <your-url> ${pc.dim("--observe")}
+  ${pc.green("bap observe --diff")} ${pc.dim("after a small DOM change")}
   ${pc.green("bap act")} fill:e5="hello" click:e12
+  ${pc.green("bap handoff")} "CAPTCHA" ${pc.dim("for manual blockers, then")} ${pc.green("bap resume")}
   ${pc.green("bap extract")} --fields="title,content"
   ${pc.green("bap --help")} ${pc.dim("for all commands")}
 `);

@@ -75,6 +75,7 @@ import { redactSensitiveContent } from "./security/credential-redactor.js";
 import {
   resolveSelector as _resolveSelector,
   resolveSelectorWithHealing as _resolveSelectorWithHealing,
+  resolveSelectorWithRefHealing as _resolveSelectorWithRefHealing,
   type SelectorResolverDeps,
 } from "./selectors/resolver.js";
 
@@ -99,8 +100,9 @@ import { ActionCache } from "./cache/action-cache.js";
 import { sendEvent, setupPageListeners as _setupPageListeners } from "./events/forwarder.js";
 
 // Handlers
-import { handleInitialize, handleShutdown } from "./handlers/lifecycle.js";
-import { handleBrowserLaunch, handleBrowserClose } from "./handlers/browser.js";
+import { handleInitialize, handleShutdown, handleSessionHandoff } from "./handlers/lifecycle.js";
+import { handleSessionList } from "./handlers/session.js";
+import { handleBrowserLaunch, handleBrowserClose, handleBrowserState } from "./handlers/browser.js";
 import {
   handlePageCreate,
   handlePageNavigate,
@@ -138,6 +140,7 @@ import {
 import {
   handleStorageGetState,
   handleStorageSetState,
+  handleStorageGetSessionStorage,
   handleStorageGetCookies,
   handleStorageSetCookies,
   handleStorageClearCookies,
@@ -239,6 +242,8 @@ export class BAPPlaywrightServer extends EventEmitter {
           _resolveSelector(page, selector, this.getSelectorResolverDeps()),
         resolveSelectorWithHealing: (page, selector) =>
           _resolveSelectorWithHealing(page, selector, this.getSelectorResolverDeps()),
+        resolveSelectorWithRefHealing: (page, selector) =>
+          _resolveSelectorWithRefHealing(page, selector, this.getSelectorResolverDeps()),
         checkAuthorization: this.checkAuthorization.bind(this),
         checkRateLimit: this.checkRateLimit.bind(this),
         checkPageLimit: this.checkPageLimit.bind(this),
@@ -395,6 +400,9 @@ export class BAPPlaywrightServer extends EventEmitter {
       activeStreams: new Map(),
       pendingApprovals: new Map(),
       sessionApprovals: new Set(),
+      launchState: undefined,
+      handoffPending: false,
+      dormantTtlMs: undefined,
       sessionId: options?.sessionId,
     };
 
@@ -610,6 +618,9 @@ export class BAPPlaywrightServer extends EventEmitter {
       activeStreams: new Map(),
       pendingApprovals: new Map(),
       sessionApprovals: new Set(),
+      launchState: undefined,
+      handoffPending: false,
+      dormantTtlMs: undefined,
     };
 
     setupSessionTimeouts(ws, state, this.options, { logSecurity: this.logSecurity.bind(this) });
@@ -726,6 +737,14 @@ export class BAPPlaywrightServer extends EventEmitter {
         duration,
         status: "error",
         error: errMsg,
+        recoveryHint:
+          error instanceof BAPServerError
+            ? error.recoveryHint
+            : error instanceof Error &&
+                "recoveryHint" in error &&
+                typeof (error as { recoveryHint?: unknown }).recoveryHint === "string"
+              ? (error as { recoveryHint: string }).recoveryHint
+              : undefined,
       });
 
       return this.handleError(id, error);
@@ -754,6 +773,12 @@ export class BAPPlaywrightServer extends EventEmitter {
         return handleBrowserLaunch(state, params as BrowserLaunchParams, ctx);
       case "browser/close":
         return handleBrowserClose(state, ctx);
+      case "browser/state":
+        return handleBrowserState(state);
+      case "session/handoff":
+        return handleSessionHandoff(state, params);
+      case "session/list":
+        return handleSessionList(ctx);
 
       // Page
       case "page/create":
@@ -822,6 +847,8 @@ export class BAPPlaywrightServer extends EventEmitter {
         return handleStorageGetState(state, ctx);
       case "storage/setState":
         return handleStorageSetState(state, params, ctx);
+      case "storage/getSessionStorage":
+        return handleStorageGetSessionStorage(state, params, ctx);
       case "storage/getCookies":
         return handleStorageGetCookies(state, params, ctx);
       case "storage/setCookies":
@@ -1099,6 +1126,9 @@ export class BAPPlaywrightServer extends EventEmitter {
     state.browser = null;
     state.isPersistent = false;
     state.browserOwnership = "owned";
+    state.launchState = undefined;
+    state.handoffPending = false;
+    state.dormantTtlMs = undefined;
     state.context = null;
     state.pages.clear();
     state.pageToContext.clear();

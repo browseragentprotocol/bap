@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BAPClient, type BAPTransport, role, css, label } from "../index.js";
+import { BAPClient, BAP_VERSION, type BAPTransport, role, css, label } from "../index.js";
 
 /**
  * Mock transport for testing client methods
@@ -70,7 +70,7 @@ async function createConnectedClient(
   const transport = overrideTransport ?? new MockTransport();
 
   transport.setAutoResponse("initialize", {
-    protocolVersion: "0.2.0",
+    protocolVersion: BAP_VERSION,
     serverInfo: { name: "test-server", version: "1.0.0" },
     capabilities: { browsers: ["chromium"] },
   });
@@ -121,7 +121,7 @@ describe("BAPClient Methods", () => {
       const transport = new MockTransport();
 
       transport.setAutoResponse("initialize", {
-        protocolVersion: "0.2.0",
+        protocolVersion: BAP_VERSION,
         serverInfo: { name: "test", version: "1.0.0" },
         capabilities: {},
       });
@@ -248,6 +248,73 @@ describe("BAPClient Methods", () => {
       const parsed = JSON.parse(closeRequest!);
       expect(parsed.params.browserId).toBe("browser-1");
     });
+
+    it("getBrowserState() returns launch metadata", async () => {
+      const { client, transport } = await createConnectedClient();
+      transport.setAutoResponse("browser/state", {
+        launched: true,
+        browser: "chromium",
+        channel: "chrome",
+        headless: true,
+        userDataDir: "/tmp/profile",
+        browserOwnership: "persistent",
+        isPersistent: true,
+        handoffPending: false,
+      });
+
+      const result = await client.getBrowserState();
+
+      expect(result.channel).toBe("chrome");
+      expect(result.userDataDir).toBe("/tmp/profile");
+
+      const request = transport.getLastRequest();
+      expect(request?.method).toBe("browser/state");
+    });
+
+    it("setHandoffMode() sends session/handoff request", async () => {
+      const { client, transport } = await createConnectedClient();
+      transport.setAutoResponse("session/handoff", {});
+
+      await client.setHandoffMode(true, { ttlSeconds: 3600 });
+
+      const request = transport.getLastRequest();
+      expect(request?.method).toBe("session/handoff");
+      expect(request?.params).toMatchObject({
+        enabled: true,
+        ttlSeconds: 3600,
+      });
+    });
+
+    it("listSessions() returns session summaries", async () => {
+      const { client, transport } = await createConnectedClient();
+      transport.setAutoResponse("session/list", {
+        sessions: [
+          {
+            sessionId: "cli-9222",
+            state: "active",
+            pageCount: 1,
+            browser: "chromium",
+            isPersistent: false,
+            trust: {
+              approvalMode: "standard",
+              redaction: {
+                content: true,
+                passwordValues: true,
+                screenshots: false,
+                storageState: false,
+              },
+            },
+          },
+        ],
+      });
+
+      const result = await client.listSessions();
+
+      expect(result.sessions[0]?.sessionId).toBe("cli-9222");
+      expect(result.sessions[0]?.trust?.approvalMode).toBe("standard");
+      const request = transport.getLastRequest();
+      expect(request?.method).toBe("session/list");
+    });
   });
 
   describe("page methods", () => {
@@ -272,6 +339,32 @@ describe("BAPClient Methods", () => {
       });
       const parsed = JSON.parse(clickRequest!);
       expect(parsed.params.pageId).toBe("page-1");
+    });
+
+    it("createPage() forwards sessionStorage bootstrap state", async () => {
+      const { client, transport } = await createConnectedClient();
+      transport.setAutoResponse("page/create", {
+        id: "page-1",
+        url: "https://example.com/checkout",
+        title: "Checkout",
+      });
+
+      await client.createPage({
+        url: "https://example.com/checkout",
+        sessionStorage: {
+          origin: "https://example.com",
+          items: [{ name: "flow", value: "step-2" }],
+        },
+      });
+
+      const request = transport.getLastRequest();
+      expect(request?.method).toBe("page/create");
+      expect(request?.params).toMatchObject({
+        sessionStorage: {
+          origin: "https://example.com",
+          items: [{ name: "flow", value: "step-2" }],
+        },
+      });
     });
 
     it("navigate() sends correct request", async () => {
@@ -459,6 +552,27 @@ describe("BAPClient Methods", () => {
       const result = await client.content("text");
 
       expect(result.content).toBe("Hello World");
+    });
+  });
+
+  describe("storage methods", () => {
+    it("getSessionStorage() targets the active page", async () => {
+      const { client, transport } = await createConnectedClient();
+      transport.setAutoResponse("page/create", { id: "page-1", url: "", title: "" });
+      transport.setAutoResponse("storage/getSessionStorage", {
+        origin: "https://example.com",
+        items: [{ name: "flow", value: "step-2" }],
+      });
+
+      await client.createPage({});
+      const result = await client.getSessionStorage();
+
+      expect(result.origin).toBe("https://example.com");
+      expect(result.items).toEqual([{ name: "flow", value: "step-2" }]);
+
+      const request = transport.getLastRequest();
+      expect(request?.method).toBe("storage/getSessionStorage");
+      expect(request?.params).toMatchObject({ pageId: "page-1" });
     });
   });
 

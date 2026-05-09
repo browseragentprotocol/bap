@@ -6,19 +6,22 @@
  * (launch, navigate, observe) are skipped if Playwright browsers are not installed.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createTestHarness, type TestHarness, type TestClient } from "./helpers/test-server.js";
 
 let harness: TestHarness;
 let client: TestClient;
+let stderrWriteSpy: ReturnType<typeof vi.spyOn> | undefined;
 
 beforeAll(async () => {
+  stderrWriteSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   harness = await createTestHarness();
   client = await harness.createClient();
 }, 15000);
 
 afterAll(async () => {
   await harness?.teardown();
+  stderrWriteSpy?.mockRestore();
 }, 10000);
 
 // =============================================================================

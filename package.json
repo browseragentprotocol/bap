@@ -34,8 +34,8 @@
     "format": "prettier --write \"packages/*/src/**/*.ts\"",
     "format:check": "prettier --check \"packages/*/src/**/*.ts\"",
     "changeset": "changeset",
-    "version-packages": "changeset version && node ./scripts/sync-python-version.mjs",
-    "release:verify": "rm -rf .turbo && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm check:artifacts",
+    "version-packages": "changeset version && node ./scripts/sync-python-version.mjs && node ./scripts/sync-runtime-versions.mjs",
+    "release:verify": "rm -rf .turbo && pnpm build && pnpm typecheck && pnpm lint && pnpm test && pnpm check:artifacts && node ./scripts/changeset-status.mjs",
     "release": "pnpm build && changeset publish"
   },
   "devDependencies": {

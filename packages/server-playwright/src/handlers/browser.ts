@@ -9,10 +9,28 @@ import * as path from "path";
 import {
   type BrowserLaunchParams,
   type BrowserLaunchResult,
+  type BrowserStateResult,
   ErrorCodes,
 } from "@browseragentprotocol/protocol";
 import { BAPServerError } from "../errors.js";
 import type { HandlerContext, ClientState } from "../types.js";
+
+function registerExistingPages(
+  state: ClientState,
+  contextId: string,
+  ctx: HandlerContext,
+  pages: import("playwright").Page[]
+): void {
+  for (const page of pages) {
+    const pageId = `page-${randomUUID()}`;
+    state.pages.set(pageId, page);
+    state.pageToContext.set(pageId, contextId);
+    ctx.setupPageListeners(page, pageId);
+    if (!state.activePage) {
+      state.activePage = pageId;
+    }
+  }
+}
 
 export async function handleBrowserLaunch(
   state: ClientState,
@@ -112,6 +130,7 @@ export async function handleBrowserLaunch(
 
   let defaultContext: import("playwright").BrowserContext;
   let version: string;
+  let existingPages: import("playwright").Page[] = [];
 
   if (params.cdpUrl) {
     // CDP attach mode: connect to a running browser via Chrome DevTools Protocol
@@ -142,16 +161,7 @@ export async function handleBrowserLaunch(
     version = state.browser.version();
 
     // Enumerate existing pages
-    const existingPages = defaultContext.pages();
-    for (const page of existingPages) {
-      const pageId = `page-${randomUUID()}`;
-      state.pages.set(pageId, page);
-      state.pageToContext.set(pageId, contextId);
-      ctx.setupPageListeners(page, pageId);
-      if (!state.activePage) {
-        state.activePage = pageId;
-      }
-    }
+    existingPages = defaultContext.pages();
   } else if (params.userDataDir) {
     try {
       defaultContext = await launcher.launchPersistentContext(params.userDataDir, {
@@ -179,6 +189,7 @@ export async function handleBrowserLaunch(
     state.isPersistent = true;
     state.browserOwnership = "persistent";
     version = "";
+    existingPages = defaultContext.pages();
   } else {
     state.browser = await launcher.launch({
       headless,
@@ -198,11 +209,20 @@ export async function handleBrowserLaunch(
 
   state.context = defaultContext;
   state.defaultContextId = contextId;
+  state.launchState = {
+    browser: browserType,
+    channel,
+    headless,
+    ...(params.userDataDir ? { userDataDir: params.userDataDir } : {}),
+    ...(params.cdpUrl ? { cdpUrl: params.cdpUrl } : {}),
+  };
 
   state.contexts.set(contextId, {
     context: defaultContext,
     created: Date.now(),
   });
+
+  registerExistingPages(state, contextId, ctx, existingPages);
 
   defaultContext.on("close", () => {
     state.contexts.delete(contextId);
@@ -219,6 +239,19 @@ export async function handleBrowserLaunch(
   };
 }
 
+export function handleBrowserState(state: ClientState): BrowserStateResult {
+  return {
+    launched: Boolean(state.context || state.browser),
+    ...(state.launchState?.browser ? { browser: state.launchState.browser } : {}),
+    ...(state.launchState?.channel ? { channel: state.launchState.channel } : {}),
+    ...(state.launchState?.headless !== undefined ? { headless: state.launchState.headless } : {}),
+    ...(state.launchState?.userDataDir ? { userDataDir: state.launchState.userDataDir } : {}),
+    ...(state.browserOwnership ? { browserOwnership: state.browserOwnership } : {}),
+    isPersistent: state.isPersistent,
+    ...(state.handoffPending !== undefined ? { handoffPending: state.handoffPending } : {}),
+  };
+}
+
 export async function handleBrowserClose(state: ClientState, _ctx: HandlerContext): Promise<void> {
   if (state.browserOwnership === "borrowed" && state.browser) {
     // CDP attach: drop reference only, never close the external browser
@@ -232,6 +265,7 @@ export async function handleBrowserClose(state: ClientState, _ctx: HandlerContex
   state.browser = null;
   state.isPersistent = false;
   state.browserOwnership = "owned";
+  state.launchState = undefined;
   state.context = null;
   state.contexts.clear();
   state.defaultContextId = null;

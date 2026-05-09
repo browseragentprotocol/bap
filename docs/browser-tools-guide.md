@@ -164,7 +164,7 @@ These benchmarks are designed to be honest, not promotional. Important caveats:
 
 | Dimension | BAP CLI | Playwright CLI | Source |
 |-----------|---------|----------------|--------|
-| **Commands** | 23 | ~70+ (granular: individual storage, network, DevTools cmds) | [BAP CLI docs](../packages/cli), [Playwright CLI README](https://github.com/microsoft/playwright-cli) |
+| **Commands** | 29 | ~70+ (granular: individual storage, network, DevTools cmds) | [BAP CLI docs](../packages/cli), [Playwright CLI README](https://github.com/microsoft/playwright-cli) |
 | **Composite actions** | `bap act fill:...=val click:...` (N steps, 1 cmd) | Individual commands | CLI docs |
 | **Semantic selectors** | `role:button:"Submit"`, `label:"Email"` | Accessibility tree refs (`e<N>`) | CLI docs |
 | **Observation** | `bap observe --tier=interactive` (tiered output) | `playwright-cli snapshot` (full tree) | CLI docs |

@@ -20,6 +20,7 @@ import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Logger, icons, pc } from "@browseragentprotocol/logger";
+import { BAP_VERSION } from "@browseragentprotocol/protocol";
 import { BAPMCPServer, type BrowserChoice } from "./index.js";
 
 // MCP servers should log to stderr to avoid interfering with stdio transport
@@ -329,7 +330,7 @@ async function main(): Promise<void> {
   }
 
   if (args.version) {
-    console.error(`${icons.connection} BAP MCP Server ${pc.dim("v0.9.0")}`);
+    console.error(`${icons.connection} BAP MCP Server ${pc.dim(`v${BAP_VERSION}`)}`);
     process.exit(0);
   }
 

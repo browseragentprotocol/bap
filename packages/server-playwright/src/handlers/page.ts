@@ -70,6 +70,26 @@ export async function handlePageCreate(
     `);
   }
 
+  if (params.sessionStorage && params.sessionStorage.items.length > 0) {
+    await page.addInitScript((payload) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const locationObj = (globalThis as any).location as { origin?: string } | undefined;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const storage = (globalThis as any).sessionStorage as {
+        clear: () => void;
+        setItem: (key: string, value: string) => void;
+      } | undefined;
+      if (!storage || locationObj?.origin !== payload.origin) {
+        return;
+      }
+
+      storage.clear();
+      for (const item of payload.items) {
+        storage.setItem(item.name, item.value);
+      }
+    }, params.sessionStorage);
+  }
+
   if (params.geolocation) {
     await context.grantPermissions(["geolocation"]);
     await context.setGeolocation(params.geolocation);

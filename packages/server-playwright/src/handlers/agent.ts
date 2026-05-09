@@ -259,14 +259,18 @@ async function executeStepWithRetry(
           const page = ctx.getPage(state, step.params.pageId as string | undefined);
           const urlOrigin = new URL(page.url()).origin;
           // Resolve the semantic selector to get a CSS path for caching
-          const locator = ctx.resolveSelector(page, selector);
+          const locator = await ctx.resolveSelectorWithRefHealing(page, selector);
           const elementHandle = await locator.first().elementHandle();
           let cssSelector: string | undefined;
           if (elementHandle) {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            cssSelector = await page.evaluate((el: any) => {
+            cssSelector = await page.evaluate((el: {
+              id?: string;
+              dataset?: { testid?: string };
+            }) => {
               // Build a minimal CSS selector from id or unique path
-              const CSSObj = (globalThis as any).CSS;
+              const CSSObj = (globalThis as typeof globalThis & {
+                CSS?: { escape?: (value: string) => string };
+              }).CSS;
               if (el.id) return `#${CSSObj?.escape ? CSSObj.escape(el.id) : el.id}`;
               if (el.dataset?.testid) {
                 const escaped = CSSObj?.escape
@@ -315,7 +319,7 @@ async function checkStepCondition(
   ctx: HandlerContext
 ): Promise<boolean> {
   const timeout = condition.timeout ?? 5000;
-  const locator = ctx.resolveSelector(page, condition.selector);
+  const locator = await ctx.resolveSelectorWithRefHealing(page, condition.selector);
 
   try {
     switch (condition.state) {
@@ -354,7 +358,10 @@ function extractErrorInfo(error: unknown): {
       data: {
         retryable: error.retryable,
         retryAfterMs: error.retryAfterMs,
-        details: error.details,
+        details: {
+          ...error.details,
+          ...(error.recoveryHint ? { recoveryHint: error.recoveryHint } : {}),
+        },
       },
     };
   }
@@ -837,7 +844,7 @@ export async function handleAgentExtract(
   try {
     let content: string;
     if (params.selector) {
-      const locator = ctx.resolveSelector(page, params.selector);
+      const locator = await ctx.resolveSelectorWithRefHealing(page, params.selector);
       await locator.waitFor({ state: "visible", timeout });
       content = (await locator.textContent()) ?? "";
     } else {
