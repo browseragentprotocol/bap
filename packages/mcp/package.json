@@ -63,7 +63,7 @@
     "@browseragentprotocol/client": "workspace:*",
     "@browseragentprotocol/logger": "workspace:*",
     "@browseragentprotocol/protocol": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "zod": "^3.23.0"
   },
   "peerDependencies": {
